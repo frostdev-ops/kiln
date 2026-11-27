@@ -5,6 +5,7 @@
 // chain (certainty "named"), the conflict line that says the package wrote the entry before Kiln and Kiln's edit wins, and
 // registry.json's base.journal. argv[1]: the repository root (for the schema fixture); argv[2] (optional): where to write
 // the document it builds, for a schema check against schema/state-registry.schema.json.
+#include <chrono>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -116,7 +117,7 @@ int main(int argc, char** argv) {
     CHECK(parse_archive_journal("{", kGen).state == "unreadable", "not JSON: unreadable");
     json other = json::parse(text);
     other["format"] = 2;
-    CHECK(parse_archive_journal(other.dump(), kGen).state == "unreadable", "format 2 of the ShroudForge dialect: unreadable");
+    CHECK(parse_archive_journal(other.dump(), kGen).state == "unreadable", "format 1's rows as format 2 (no member paths): unreadable");
     other["format"] = 3;
     CHECK(parse_archive_journal(other.dump(), kGen).state == "unreadable", "another format: unreadable");
     json broken = json::parse(text);
@@ -316,7 +317,7 @@ int main(int argc, char** argv) {
     ReportMeta meta;
     meta.written = "2026-11-25T20:00:00Z", meta.generation = 1, meta.base.writer = "kiln-eml";
     meta.regmap = {"server", std::string(64, 'f'), "", false};  // a document the schema check accepts
-    meta.base.journal = {j.state, j.text, j.packages.size(), named, j.truncated};
+    meta.base.journal = {j.state, j.text, j.packages.size(), named, j.truncated, "kiln-eml"};
     meta.base.archive = {{"source", "kiln-eml"}, {"phase", "done"}, {"patched", 3}, {"cached", false}, {"restored", false}, {"mods", 2},
                          {"receipt", "kiln/eml/ownership/enshrouded_server.json"}, {"text", "kiln-eml's EML pass patched 3 resources of the archive this start"}};
     const json doc = report_json(s, r, meta);
@@ -371,8 +372,10 @@ int main(int argc, char** argv) {
         const json good = json::parse(written);
         for (const auto& [what, edit] : std::vector<std::pair<std::string, std::function<void(json&)>>>{
                  {"format 3", [](json& d) { d["format"] = 3; }},
-                 {"format 2 of the ShroudForge dialect", [](json& d) { d["dialect"] = "shroudforge"; }},
+                 {"format 2 of a dialect that is neither eml nor shroudforge", [](json& d) { d["dialect"] = "emf"; }},
                  {"a ShroudForge package in an EML pass", [](json& d) { d["packages"][0]["kind"] = "shroudforge"; }},
+                 {"a hosted writer's record in kiln-eml's place", [](json& d) { d["writer"] = "shroudforge"; }},
+                 {"a writer that is neither", [](json& d) { d["writer"] = "emf"; }},
                  {"a changed row without paths", [](json& d) { d["packages"][0]["changed"][0].erase("paths"); }},
                  {"no paths at all", [](json& d) { d["packages"][0]["changed"][0]["paths"] = json::array(); }},
                  {"a path with a space", [](json& d) { d["packages"][0]["changed"][0]["paths"] = {"max Stack"}; }},
@@ -728,6 +731,268 @@ int main(int argc, char** argv) {
         ReportMeta none;
         none.written = meta.written;
         CHECK(!report_json(s, compose(s, base(), {}, {}), none)["base"].contains("archive"), "no archive object when nothing was said");
+    }
+
+    // ---- J3 (0.2.0-dev.32): format 2 of the ShroudForge dialect, kiln-eml's kiln-mode record (schema fixture
+    // kiln_mode_shroudforge) and Kiln's hosted ShroudForge's own (fixture hosted): read, named per field and per element,
+    // its notApplied packages; a record only from its own writer's place ----
+    {
+        std::ifstream vf(root + "/schema/sfi/eml-journal/fixtures/valid.json");
+        std::stringstream vs;
+        vs << vf.rdbuf();
+        const json all = json::parse(vs.str(), nullptr, false);
+        const json kiln = all.is_object() ? all["eml-journal-2"]["kiln_mode_shroudforge"] : json();
+        const json hosted = all.is_object() ? all["eml-journal-2"]["hosted"] : json();
+        const std::string gen = std::string(32 * 2, '0');
+        std::string g7;
+        for (int i = 0; i < 32; ++i) g7 += "7c";
+        const ArchiveJournal k = parse_archive_journal(kiln.dump(), g7);
+        CHECK(k.state == "read" && k.format == 2 && k.dialect == "shroudforge" && k.writer == "kiln-eml" && !k.truncated,
+              "kiln mode's format 2 of the ShroudForge dialect reads: " + k.state + " " + k.text);
+        std::string c1;
+        for (int i = 0; i < 32; ++i) c1 += "1d";
+        CHECK(k.packages.size() == 3 && k.packages[0].id == "betterstacks" && k.packages[0].kind == "shroudforge" && k.packages[0].version == "1.2.0" &&
+                  k.packages[0].content == c1 && k.packages[1].id == "more-recipes" && k.packages[1].kind == "eml",
+              "its ShroudForge and EML packages in run order, with their content digests");
+        CHECK(k.packages.size() == 3 && k.packages[0].paths.at(kStoneGuid) == std::vector<std::string>({"maxStackSize"}),
+              "a ShroudForge package's changed members");
+        CHECK(k.not_applied.size() == 1 && k.not_applied[0].id == "broken-pack" && k.not_applied[0].kind == "shroudforge" && k.not_applied[0].version == "0.9.0" &&
+                  k.not_applied[0].content == c1 && k.not_applied[0].reason.find("damageSetup") != std::string::npos,
+              "the package whose Lua was not applied, with why");
+        CHECK(k.text.find("3 packages") != std::string::npos && k.text.find("members changed") != std::string::npos && k.text.find("1 package's Lua was not applied") != std::string::npos,
+              "base.journal's sentence: " + k.text);
+        CHECK(parse_archive_journal(kiln.dump(), g7, "shroudforge").state == "unreadable", "kiln-eml's record in the hosted place: unreadable");
+        // the hosted record
+        const ArchiveJournal h = parse_archive_journal(hosted.dump(), g7, "shroudforge");
+        CHECK(h.state == "read" && h.writer == "shroudforge" && h.dialect == "shroudforge" && h.packages.size() == 2 && h.packages[0].content.empty() &&
+                  h.not_applied.empty(),
+              "the hosted record reads in its own place: " + h.state + " " + h.text);
+        CHECK(h.text.find("hosted ShroudForge's change journal") == 0, "and says whose it is: " + h.text);
+        const ArchiveJournal hk = parse_archive_journal(hosted.dump(), g7);
+        CHECK(hk.state == "unreadable" && hk.text.find("in kiln-eml's place") != std::string::npos, "a hosted record in kiln-eml's place: unreadable: " + hk.text);
+        const ArchiveJournal hs = parse_archive_journal(hosted.dump(), gen, "shroudforge");
+        CHECK(hs.state == "stale" && hs.text.find("hosted ShroudForge's change journal names another generation") == 0, "another <stem>.kfc: stale: " + hs.text);
+        json h1 = hosted;
+        h1["format"] = 1;
+        CHECK(parse_archive_journal(h1.dump(), g7, "shroudforge").state == "unreadable", "a hosted record of format 1: unreadable");
+        json he = hosted;
+        he["dialect"] = "eml";
+        for (auto& p : he["packages"]) p["kind"] = "eml";
+        CHECK(parse_archive_journal(he.dump(), g7, "shroudforge").state == "unreadable", "a hosted record of the EML dialect: unreadable");
+        CHECK(archive_writer_who("shroudforge", "", "shroudforge") == "shroudforge-hosted:unattributed" &&
+                  archive_writer_label("shroudforge-hosted:unattributed").find("hosted ShroudForge") != std::string::npos,
+              "the hosted record's unattributed writes are named apart from any package");
+        // notApplied rows as the format writes them, or nobody is named
+        for (const auto& [what, edit] : std::vector<std::pair<std::string, std::function<void(json&)>>>{
+                 {"a reason with a line break", [](json& d) { d["notApplied"][0]["reason"] = "one\nregistry: forged"; }},
+                 {"an empty reason", [](json& d) { d["notApplied"][0]["reason"] = ""; }},
+                 {"a reason of 513 bytes", [](json& d) { d["notApplied"][0]["reason"] = std::string(513, 'a'); }},
+                 {"no reason", [](json& d) { d["notApplied"][0].erase("reason"); }},
+                 {"an id with a space", [](json& d) { d["notApplied"][0]["id"] = "two words"; }},
+                 {"a package that ran", [](json& d) { d["notApplied"][0]["id"] = "betterstacks"; }},
+                 {"one package twice", [](json& d) { d["notApplied"].push_back(d["notApplied"][0]); }},
+                 {"a kind that is none", [](json& d) { d["notApplied"][0]["kind"] = "dll"; }},
+                 {"a digest that is none", [](json& d) { d["notApplied"][0]["contentSha256"] = "x"; }},
+                 {"a package's digest that is none", [](json& d) { d["packages"][0]["contentSha256"] = 7; }},
+                 {"notApplied that is no list", [](json& d) { d["notApplied"] = "broken-pack"; }}}) {
+            json bad = kiln;
+            edit(bad);
+            const ArchiveJournal x = parse_archive_journal(bad.dump(), g7);
+            CHECK(x.state == "unreadable" && x.packages.empty() && x.not_applied.empty(), "notApplied: " + what + ": unreadable: " + x.state + " " + x.text);
+        }
+        // named per field (items) and per element (recipes): betterstacks on the stone's stack size only; more-recipes on the
+        // recipe it appended (recipes[2]); slow-craft on the duration of the first recipe (recipes[0] in this base)
+        json kk = kiln;
+        kk["packages"][2]["changed"][0]["paths"] = {"recipes[0].craftingDuration"};
+        kk["packages"][1]["changed"][0]["paths"] = {"recipes[2]", "recipes[]"};
+        const ArchiveJournal kn = parse_archive_journal(kk.dump(), g7);
+        BaseModel kb;
+        auto entry = [](const std::string& id, std::initializer_list<std::pair<const char*, Value>> f) {
+            BaseModel::Entry x;
+            x.id = id;
+            for (const auto& [n, v] : f) x.fields[n] = v;
+            return x;
+        };
+        const std::string recipes = "7a1d3e55-0b2c-4d6e-8f10-23456789abcd";
+        kb.registries["items"] = {entry(kStone, {{"maxStack", Value::integer(100)}, {"power", Value::number(3)}}),
+                                  entry(kLogs, {{"maxStack", Value::integer(10)}})};
+        kb.registries["recipes"] = {entry("game:craft_a", {{"duration", Value::number(9)}, {"inputs", Value::of_list({})}}),
+                                    entry("game:craft_b", {{"duration", Value::number(2)}}), entry("more-recipes:1", {{"duration", Value::number(1)}})};
+        ArchiveFields kf;
+        kf.rows["items"] = {{"maxStack", {"maxStackSize"}}, {"power", {"damageSetup.dmgMod"}}};
+        kf.rows["recipes"] = {{"duration", {"craftingDuration"}}, {"inputs", {"input"}}};
+        kf.array = {{"recipes", "recipes"}};
+        const std::map<int32_t, std::string> els = {{0, "game:craft_a"}, {1, "game:craft_b"}, {2, "more-recipes:1"}};
+        kf.elements = [&](const std::string& reg, const std::string& guid) -> const std::map<int32_t, std::string>* {
+            return reg == "recipes" && guid == recipes ? &els : nullptr;
+        };
+        CHECK(name_archive_writers(kn, {{"items|" + kStone, kStoneGuid}, {"items|" + kLogs, "aaaaaaaa-0000-4000-8000-000000000001"}}, {"items"}, &kb, &kf) == 3,
+              "three entries named: the stone, the slowed recipe, the appended one");
+        CHECK(kb.registries["items"][0].archive == std::vector<std::string>({"shroudforge:betterstacks"}) &&
+                  kb.registries["items"][0].archive_fields.at("shroudforge:betterstacks") == std::set<std::string>({"maxStack"}) &&
+                  kb.registries["items"][1].archive.empty(),
+              "a ShroudForge package is named on the field it changed, not the whole item");
+        CHECK(kb.registries["recipes"][0].archive == std::vector<std::string>({"shroudforge:slow-craft"}) &&
+                  kb.registries["recipes"][0].archive_fields.at("shroudforge:slow-craft") == std::set<std::string>({"duration"}) &&
+                  kb.registries["recipes"][1].archive.empty() && kb.registries["recipes"][2].archive == std::vector<std::string>({"eml:more-recipes"}) &&
+                  !kb.registries["recipes"][2].archive_fields.count("eml:more-recipes"),
+              "and a recipe by its element: the changed duration, the appended recipe whole, never another recipe");
+        // the chain and the line say the ShroudForge package by name, per field
+        const Result kr = compose(s, kb, {}, {mod("bigstacks", {batch(s, "bigstacks", "alter", R"([{"registry": "items", "select": {"id": "game:material_t1_stone"}, "field": "maxStack", "op": {"mul": 2}}])")})});
+        const FieldOutcome& kfo = kr.fields.at({"items", kStone, "maxStack"});
+        CHECK(kfo.chain.size() == 2 && kfo.chain[0].kind == WriterKind::ArchiveWriter && kfo.chain[0].who == "shroudforge:betterstacks" && kfo.chain[0].archive_field &&
+                  kfo.result.i == 200,
+              "the ShroudForge package lies below the registry edit, named on the field, and the edit composes on its value");
+        // the files: the hosted record beside <stem>.kfc, bound to that file's SHA-256, never through a link
+        namespace fs = std::filesystem;
+        const fs::path tmp = fs::temp_directory_path() / ("kiln-writers-hosted-" + std::to_string(::getpid()));
+        fs::remove_all(tmp);
+        const fs::path game = tmp / "game";
+        fs::create_directories(game);
+        std::string why, hex;
+        CHECK(!read_hosted_journal(game, "enshrouded", {}, &why) && why.find("wrote no change journal") != std::string::npos, "no hosted record: none, said: " + why);
+        CHECK(!hosted_generation(game, "enshrouded", {}, &hex, &why) && why.find("not there") != std::string::npos, "no <stem>.kfc: no generation: " + why);
+        std::ofstream(game / "enshrouded.kfc", std::ios::binary) << "abc";
+        CHECK(hosted_generation(game, "enshrouded", {}, &hex, &why) && hex == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+              "the generation is the SHA-256 of the live <stem>.kfc: " + hex);
+        std::ofstream(game / "enshrouded.kfc.change-journal.json", std::ios::binary) << hosted.dump();
+        const auto ht = read_hosted_journal(game, "enshrouded", {}, &why);
+        CHECK(ht && json::parse(*ht) == hosted, "the hosted record beside <stem>.kfc is read whole");
+        why.clear();
+        CHECK(!read_hosted_journal(game, "enshrouded", [&](const fs::path& p) { return p == game; }, &why) && why.find("the game folder is a link") != std::string::npos,
+              "a game folder behind a reparse point is not followed: " + why);
+        fs::create_directories(tmp / "elsewhere");
+        std::ofstream(tmp / "elsewhere" / "j.json", std::ios::binary) << hosted.dump();
+        fs::remove(game / "enshrouded.kfc.change-journal.json");
+        fs::create_symlink(tmp / "elsewhere" / "j.json", game / "enshrouded.kfc.change-journal.json");
+        why.clear();
+        CHECK(!read_hosted_journal(game, "enshrouded", {}, &why) && why.find("the journal is a link") != std::string::npos, "a linked hosted record is not followed: " + why);
+        // review-j3: what proving a hosted journal costs (the hash of a <stem>.kfc as big as the game's, about 9 MiB); effect
+        // replay's unchanged start does without it (Env::archive_journal_text)
+        {
+            std::ofstream big(game / "enshrouded.kfc", std::ios::binary | std::ios::trunc);
+            const std::string mib(1 << 20, 'k');
+            for (int i = 0; i < 9; ++i) big << mib;
+        }
+        const auto h0 = std::chrono::steady_clock::now();
+        CHECK(hosted_generation(game, "enshrouded", {}, &hex, &why) && hex.size() == 64, "a 9 MiB <stem>.kfc is hashed: " + why);
+        std::printf("hosted journal proof: SHA-256 of a 9 MiB <stem>.kfc %.1f ms (ASan build)\n",
+                    std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - h0).count());
+        fs::remove(game / "enshrouded.kfc");
+        fs::create_symlink(tmp / "elsewhere" / "j.json", game / "enshrouded.kfc");
+        why.clear();
+        CHECK(!hosted_generation(game, "enshrouded", {}, &hex, &why) && why.find("is a link") != std::string::npos, "a linked <stem>.kfc gives no generation: " + why);
+        fs::remove_all(tmp);
+        // the contract with kiln-eml's writer (gpl/kiln-eml/kiln-eml/tests/journal_contract.rs
+        // `the_shroudforge_dialect_with_paths_makes_the_record_kilns_reader_is_tested_on` fails unless this fixture is byte for
+        // byte its record of a fixed kiln-mode pass): read, named per field and per element, its notApplied package
+        {
+            std::ifstream sf(root + "/schema/sfi/eml-journal/fixtures/kiln-eml-writer-sf2.json");
+            std::stringstream ss;
+            ss << sf.rdbuf();
+            const std::string written = ss.str();
+            std::string live;
+            for (int i = 0; i < 32; ++i) live += "7c";
+            const ArchiveJournal w = parse_archive_journal(written, live);
+            CHECK(!written.empty() && w.state == "read" && w.format == 2 && w.dialect == "shroudforge" && w.writer == "kiln-eml",
+                  "kiln-eml's format-2 ShroudForge-dialect record reads: " + w.state + " " + w.text);
+            CHECK(w.packages.size() == 3 && w.packages[1].kind == "eml" && w.not_applied.size() == 1 && w.not_applied[0].id == "broken" &&
+                      w.not_applied[0].reason.find("boom") != std::string::npos && w.not_applied[0].reason.find('\n') == std::string::npos,
+                  "its packages and the one not applied, its reason one line");
+            const std::string stone = "1d622bd9-8170-41b1-822e-d3984b386d95", made = "5d2f8a90-1c3b-4e7f-9a12-6b4c8d0e2f13",
+                              recipes = "3c0a5e77-2f41-4b6a-9e10-5d8c7b6a5f40";
+            BaseModel wb;
+            auto e1 = [](const std::string& id, const char* f, Value v) {
+                BaseModel::Entry x;
+                x.id = id;
+                x.fields[f] = v;
+                return x;
+            };
+            wb.registries["items"] = {e1("game:stone", "maxStack", Value::integer(100)), e1("alpha:1", "maxStack", Value::integer(1))};
+            wb.registries["recipes"] = {e1("game:a", "duration", Value::number(1)), e1("game:b", "duration", Value::number(4)), e1("bravo:new", "duration", Value::number(2))};
+            ArchiveFields wf;
+            wf.rows["items"] = {{"maxStack", {"maxStackSize"}}};
+            wf.rows["recipes"] = {{"duration", {"craftingDuration"}}};
+            wf.array = {{"recipes", "recipes"}};
+            const std::map<int32_t, std::string> els = {{0, "game:a"}, {1, "game:b"}, {2, "bravo:new"}};
+            wf.elements = [&](const std::string& reg, const std::string& guid) -> const std::map<int32_t, std::string>* {
+                return reg == "recipes" && guid == recipes ? &els : nullptr;
+            };
+            std::map<std::string, std::vector<std::string>> unmatched;
+            CHECK(name_archive_writers(w, {{"items|game:stone", stone}, {"items|alpha:1", made}}, {"items"}, &wb, &wf, &unmatched) == 4,
+                  "four entries named: the stone, alpha's creation, the slowed recipe and the appended one");
+            CHECK(wb.registries["items"][0].archive == std::vector<std::string>({"shroudforge:alpha"}) &&
+                      wb.registries["items"][0].archive_fields.at("shroudforge:alpha") == std::set<std::string>({"maxStack"}),
+                  "alpha on the stone's stack size; bravo, which wrote it back as it was, nowhere on it");
+            CHECK(wb.registries["recipes"][0].archive.empty() && wb.registries["recipes"][1].archive == std::vector<std::string>({"shroudforge:alpha"}) &&
+                      wb.registries["recipes"][2].archive == std::vector<std::string>({"eml:bravo"}),
+                  "the recipes by element: alpha's slowed one, bravo's appended one");
+            CHECK(unmatched["shroudforge:alpha"].size() == 1 && unmatched["shroudforge:alpha"][0].find("created a resource") == 0 &&
+                      unmatched["eml:bravo"] == std::vector<std::string>({"the recipes list's membership changed (an element added or removed): not replayed"}),
+                  "the replay residue: alpha's creation; bravo's appended recipe (the list's membership; the element itself is named whole): " +
+                      json(unmatched).dump());
+        }
+        // registry.json says whose record was looked at
+        ReportMeta hm;
+        hm.written = "2026-11-26T20:00:00Z", hm.base.writer = "shroudforge-hosted";
+        hm.base.journal = {h.state, h.text, h.packages.size(), 0, false, "shroudforge"};
+        const json hd = report_json(s, compose(s, base(), {}, {}), hm);
+        CHECK(hd["base"]["journal"]["writer"] == "shroudforge" && hd["base"]["journal"]["state"] == "read", "base.journal.writer: " + hd["base"].dump());
+        if (argc > 3) std::ofstream(std::string(argv[3]) + ".hosted.json") << hd.dump(2);
+    }
+
+    // ---- review-j3: effect replay's residue (replay.h: a package is replayed whole or not at all, and only where a proven
+    // Kiln field holds what it changed). A list's membership changed (an element removed: "recipes[]" alone, nothing named
+    // by index) and a member path wider than the Kiln fields under it ("damageSetup" holds power's "damageSetup.dmgMod" and
+    // members no field covers) are residue; a path a field's member holds ("input[1].itemStack.count" under inputs' "input")
+    // and a field's own member are not ----
+    {
+        std::string g7;
+        for (int i = 0; i < 32; ++i) g7 += "7c";
+        const std::string stone = "11111111-0000-4000-8000-000000000001", logs = "11111111-0000-4000-8000-000000000002",
+                          recipes = "11111111-0000-4000-8000-0000000000aa";
+        auto pkg = [](const std::string& id, const std::string& guid, std::vector<std::string> paths) {
+            return json{{"id", id}, {"version", "1.0.0"}, {"kind", "shroudforge"}, {"contentSha256", nullptr}, {"settingsSha256", nullptr}, {"truncated", false},
+                        {"changed", json::array({{{"guid", guid}, {"typeHash", "8b4f2d1e"}, {"part", 0}, {"createdBy", nullptr}, {"paths", paths}}})},
+                        {"created", json::array()}, {"contents", json::array()}};
+        };
+        const json doc = {{"format", 2}, {"stem", "enshrouded_server"}, {"generation", g7}, {"receiptSha256", g7}, {"dialect", "shroudforge"},
+                          {"attempt", "first"}, {"truncated", false},
+                          {"packages", json::array({pkg("remover", recipes, {"recipes[]"}), pkg("structy", stone, {"damageSetup"}),
+                                                    pkg("exact", logs, {"maxStackSize"}), pkg("deep", recipes, {"recipes[0].input[1].itemStack.count"})})},
+                          {"unattributed", {{"truncated", false}, {"changed", json::array()}, {"created", json::array()}, {"contents", json::array()}}},
+                          {"writer", "kiln-eml"}};
+        const ArchiveJournal rj = parse_archive_journal(doc.dump(), g7);
+        CHECK(rj.state == "read" && rj.packages.size() == 4, "the residue journal reads: " + rj.state + " " + rj.text);
+        BaseModel rb;
+        auto e1 = [](const std::string& id, std::initializer_list<std::pair<const char*, Value>> f) {
+            BaseModel::Entry x;
+            x.id = id;
+            for (const auto& [n, v] : f) x.fields[n] = v;
+            return x;
+        };
+        rb.registries["items"] = {e1("game:stone", {{"maxStack", Value::integer(100)}, {"power", Value::number(3)}}), e1("game:logs", {{"maxStack", Value::integer(10)}})};
+        rb.registries["recipes"] = {e1("game:a", {{"duration", Value::number(1)}, {"inputs", Value::of_list({})}})};
+        ArchiveFields rf;
+        rf.rows["items"] = {{"maxStack", {"maxStackSize"}}, {"power", {"damageSetup.dmgMod"}}};
+        rf.rows["recipes"] = {{"duration", {"craftingDuration"}}, {"inputs", {"input"}}};
+        rf.array = {{"recipes", "recipes"}};
+        const std::map<int32_t, std::string> rels = {{0, "game:a"}};
+        rf.elements = [&](const std::string& reg, const std::string& guid) -> const std::map<int32_t, std::string>* {
+            return reg == "recipes" && guid == recipes ? &rels : nullptr;
+        };
+        std::map<std::string, std::vector<std::string>> un;
+        name_archive_writers(rj, {{"items|game:stone", stone}, {"items|game:logs", logs}}, {"items"}, &rb, &rf, &un);
+        auto has = [&](const std::string& who, const std::string& part) {
+            for (const std::string& l : un[who])
+                if (l.find(part) != std::string::npos) return true;
+            return false;
+        };
+        CHECK(has("shroudforge:remover", "membership"), "a recipe removed (recipes[] alone) is residue, not a replay without it: " + json(un["shroudforge:remover"]).dump());
+        CHECK(has("shroudforge:structy", "damageSetup") && has("shroudforge:structy", "power"),
+              "a member path wider than its Kiln fields (damageSetup over power's damageSetup.dmgMod) is residue: " + json(un["shroudforge:structy"]).dump());
+        CHECK(un["shroudforge:exact"].empty() && un["shroudforge:deep"].empty(),
+              "a field's own member, and a path inside a field's member, are no residue: " + json(un).dump());
     }
 
     std::printf("registry writers: %d passed, %d failed\n", g_pass, g_fail);

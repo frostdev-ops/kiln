@@ -6237,22 +6237,46 @@
     "baseOrigin": "Herkunft der Basis: {origin}",
     "archiveWriter": "Archiv-Schreiber: {writer}",
     "journal": {
-      "read": "Archiv-Schreiber-Pakete aus dem Änderungsjournal von kiln-eml benannt: {packages} Pakete, {entries} Einträge (ein ShroudForge-Durchlauf benennt Gegenstände, Drops und Balance je Eintrag; ein EML-Durchlauf benennt die Felder, die seine Mods geschrieben haben, bei Rezepten und Beute über ihr Element).",
-      "truncated": "Archiv-Schreiber-Pakete aus dem Änderungsjournal von kiln-eml benannt: {packages} Pakete, {entries} Einträge (ein ShroudForge-Durchlauf benennt Gegenstände, Drops und Balance je Eintrag; ein EML-Durchlauf benennt die Felder, die seine Mods geschrieben haben, bei Rezepten und Beute über ihr Element). Das Journal ist gekürzt, daher kann ein Paket Einträge geschrieben haben, die es nicht nennt.",
+      "read": "Archiv-Schreiber-Pakete aus dem Änderungsjournal von kiln-eml benannt: {packages} Pakete, {entries} Einträge (benannt auf den Feldern, die sie geändert haben, bei Rezepten und Beute über ihr Element; ein älteres Journal benennt ShroudForge-Pakete je Eintrag, nur bei Gegenständen, Drops und Balance).",
+      "truncated": "Archiv-Schreiber-Pakete aus dem Änderungsjournal von kiln-eml benannt: {packages} Pakete, {entries} Einträge (benannt auf den Feldern, die sie geändert haben, bei Rezepten und Beute über ihr Element; ein älteres Journal benennt ShroudForge-Pakete je Eintrag, nur bei Gegenständen, Drops und Balance). Das Journal ist gekürzt, daher kann ein Paket Einträge geschrieben haben, die es nicht nennt.",
       "notNamed": "Archiv-Schreiber-Pakete werden in diesem Start nicht benannt: {reason}",
       "none": "der Archiv-Schreiber dieses Starts führt kein Änderungsjournal.",
       "stale": "das Änderungsjournal gehört zu einem früheren Start.",
-      "unreadable": "das Änderungsjournal konnte nicht gelesen werden."
+      "unreadable": "das Änderungsjournal konnte nicht gelesen werden.",
+      "readHosted": "Archiv-Schreiber-Pakete aus dem Änderungsjournal des gehosteten ShroudForge benannt: {packages} Pakete, {entries} Einträge (benannt auf den Feldern, die sie geändert haben, bei Rezepten und Beute über ihr Element).",
+      "truncatedHosted": "Archiv-Schreiber-Pakete aus dem Änderungsjournal des gehosteten ShroudForge benannt: {packages} Pakete, {entries} Einträge (benannt auf den Feldern, die sie geändert haben, bei Rezepten und Beute über ihr Element). Das Journal ist gekürzt, daher kann ein Paket Einträge geändert haben, die es nicht nennt."
     },
     "sfPackage": "{id} (ShroudForge-Paket)",
     "emlPackage": "{id} (EML-Paket)",
     "archiveUnattributed": "Ein Schreibvorgang beim Start, den Kiln keinem Paket zuordnen kann (kiln-eml)",
+    "archiveUnattributedHosted": "Ein Schreibvorgang beim Start, den Kiln keinem Paket zuordnen kann (gehostetes ShroudForge)",
+    "replayedSf": "{id} (ShroudForge-Paket, aus seiner aufgezeichneten Wirkung wiederholt)",
+    "replayedEml": "{id} (EML-Paket, aus seiner aufgezeichneten Wirkung wiederholt)",
+    "replay": {
+      "row": "Wirkungswiederholung, {who}: {state}. {text}",
+      "optIn": "die Opt-in-Datei",
+      "title": "Wirkungswiederholung",
+      "sub": "Kiln zeichnet auf, was jedes ShroudForge- und EML-Paket in der Registry geändert hat. Ein Paket, für das du dich entscheidest, wird nach einem Spiel-Update aus dieser Aufzeichnung wiederholt, wenn sein Lua nicht mehr läuft. Der nächste Start liest deine Wahl.",
+      "toggle": "Nach einem Spiel-Update wiederholen",
+      "toggleFor": "{who} nach einem Spiel-Update wiederholen",
+      "saved": "Gespeichert. Der nächste Start liest es.",
+      "notSaved": "Die Wahl konnte nicht gespeichert werden",
+      "unavailable": "Die Opt-in-Datei konnte nicht gelesen werden",
+      "none": "Kein ShroudForge- oder EML-Paket beim letzten Start",
+      "state": {
+        "recorded": "aufgezeichnet",
+        "replayed": "wiederholt",
+        "refused": "nicht wiederholt",
+        "none": "nichts zu tun"
+      }
+    },
     "archiveOp": "Nicht bekannt (das Journal von kiln-eml nennt den Eintrag, den dieses Paket geschrieben hat, nicht dieses Feld)",
     "archiveOpField": "Nicht bekannt (das Journal von kiln-eml nennt dieses Feld als von diesem Paket geschrieben, nicht den Wert)",
     "kind": {
       "archiveWriter": "Hat diesen Eintrag vor Kiln geschrieben (Archiv)",
       "archiveWriterField": "Hat dieses Feld vor Kiln geschrieben (Archiv)",
-      "drift": "Außerhalb von Kiln geändert"
+      "drift": "Außerhalb von Kiln geändert",
+      "runtimeWriter": "Zur Laufzeit geändert (Kilns Interpreter)"
     },
     "unverified": "Zuordnung nicht geprüft",
     "unverifiedBody": "Feldänderungen können als Unproven abgelehnt werden. Lies bei jeder Ablehnung ihren Grund.",
@@ -6360,6 +6384,7 @@
     "certainty": {
       "certain": "Sicher",
       "named": "Aus Journal benannt",
+      "namedRecords": "Aus Kilns Schreibaufzeichnungen benannt",
       "bestEffort": "Abweichung nach bestem Wissen",
       "unknown": "Unbekannt"
     },

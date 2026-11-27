@@ -149,14 +149,15 @@
         },
         "journal": {
           "type": "object",
-          "description": "The archive writer's change journal (kiln-eml's <stem>.change-journal.json: format 1 from a kiln-mode start, format 2 (0.2.0-dev.31.18) from an EML start, EML's own pass): read when it is this start's and its packages are named where they wrote (writer rows of kind archiveWriter, certainty named; format 1 per entry, on registries whose entries are each a whole resource only: items, drops, balance, never a recipe or loot entry; format 2 per field from its member paths, recipe and loot entries by their element); none when this start has none (hosted or installed ShroudForge and other loaders keep none: what they changed is part of the base, unnamed); stale when the file names another generation; unreadable when it is not a journal of format 1 or 2. Since 0.2.0-dev.31.17 (format 2: 0.2.0-dev.31.18).",
+          "description": "The archive writer's change journal: kiln-eml's <stem>.change-journal.json (format 1 from a kiln-mode start; format 2 (0.2.0-dev.31.18) from an EML start, EML's own pass, and (next release) from a kiln-mode start, ShroudForge's or EML's pass) or (next release) Kiln's hosted ShroudForge's <stem>.kfc.change-journal.json (format 2, bound to the live <stem>.kfc): read when it is this start's and its packages are named where they wrote (writer rows of kind archiveWriter, certainty named; format 1 per entry, on registries whose entries are each a whole resource only: items, drops, balance, never a recipe or loot entry; format 2 per field from its member paths, recipe and loot entries by their element); none when this start has none (the player's own installed ShroudForge and other loaders keep none: what they changed is part of the base, unnamed); stale when the file names another generation; unreadable when it is not a journal of format 1 or 2. Since 0.2.0-dev.31.17 (format 2: 0.2.0-dev.31.18).",
           "required": ["state", "packages", "entries", "truncated"],
           "properties": {
             "state": { "enum": ["read", "none", "stale", "unreadable"] },
             "packages": { "type": "integer", "minimum": 0, "description": "The packages the journal lists (0 unless read)." },
             "entries": { "type": "integer", "minimum": 0, "description": "The registry entries of this start's base it named." },
             "truncated": { "type": "boolean", "description": "The journal left entries out past its bounds: a package may have written entries it does not name." },
-            "text": { "type": "string", "description": "One English sentence: what was read, or why nothing is named." }
+            "text": { "type": "string", "description": "One English sentence: what was read, or why nothing is named." },
+            "writer": { "enum": ["kiln-eml", "shroudforge"], "description": "Whose record was looked at (next release): kiln-eml's, or Kiln's hosted ShroudForge's (a start whose base.writer is shroudforge-hosted or shroudforge-installed)." }
           },
           "additionalProperties": false
         }
@@ -391,6 +392,24 @@
             "type": "string",
             "description": "Why it stays a resource patch, in Kiln words."
           }
+        }
+      }
+    },
+    "replay": {
+      "description": "Effect replay (next release; owner decision D6, opt-in per package): what became of each ShroudForge and EML package this start's change journal lists, and of each package kiln/data/content/registry/replay/opt-in.json opts in that it does not. Every package's effect is recorded by default (kiln/data/content/registry/replay/, cached: recorded again only when the journal's generation, the game build or the side changes); only an opted-in one is replayed. recorded: its Lua ran this start and its effect (the registry fields it changed, with their values) is kept for a later game build, recorded now or current; replayed: its Lua was not applied on this game build and its effect recorded on another build was applied through the registry as a stand-in writer below every mod; refused: an opted-in package not replayed, the text says why (a package is replayed whole or not at all); none: nothing was done (not opted in, or the journal does not list it). Absent: the journal lists no package and none is opted in.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["who", "state", "text", "fields", "optIn"],
+        "additionalProperties": false,
+        "properties": {
+          "who": { "type": "string", "description": "shroudforge:<id> or eml:<id>; empty for the opt-in file itself when it cannot be read." },
+          "optIn": { "type": "boolean", "description": "The opt-in file opts the package in (read at this start)." },
+          "mod": { "type": "string", "description": "The Kiln mod id its replayed edits carry as a stand-in writer (writer rows with standIn): replay.sf.<id> or replay.eml.<id>, lower case, an id with a capital letter or a long one told apart by 8 hex digits." },
+          "state": { "enum": ["recorded", "replayed", "refused", "none"] },
+          "text": { "type": "string", "description": "One English sentence." },
+          "fields": { "type": "integer", "minimum": 0, "description": "The fields recorded or replayed." },
+          "recordedOn": { "type": "string", "description": "The game build (exe SHA-256) its effect was recorded on, when there is a record." }
         }
       }
     },
@@ -747,9 +766,10 @@
             "code",
             "registry",
             "check",
-            "drift"
+            "drift",
+            "runtimeWriter"
           ],
-          "description": "archiveWriter: a ShroudForge or EML package that wrote the entry's resource (or, see named, this field) in the archive before Kiln (named from kiln-eml's change journal; its value is the base); oldPatch: an older Kiln boot resource patch; oldPack: an older Kiln data pack; code: a Content.* change made by code; registry: a registry edit. check: the stage's reference check (list elements naming an entry the stage removed, taken out of an entry of a registry whose entries are not removed). drift (since 0.2.0-dev.31.17): the best-effort drift probe found the game's value changed outside Kiln (between the stage's read and Kiln's first write in the world, or after Kiln's layer) with no writer Kiln knows to explain it; who names the suspects Kiln can see, certainty bestEffort."
+          "description": "archiveWriter: a ShroudForge or EML package that wrote the entry's resource (or, see named, this field) in the archive before Kiln (named from kiln-eml's change journal; its value is the base); oldPatch: an older Kiln boot resource patch; oldPack: an older Kiln data pack; code: a Content.* change made by code; registry: a registry edit. check: the stage's reference check (list elements naming an entry the stage removed, taken out of an entry of a registry whose entries are not removed). drift (since 0.2.0-dev.31.17): the best-effort drift probe found the game's value changed outside Kiln (between the stage's read and Kiln's first write in the world, or after Kiln's layer) with no writer Kiln knows to explain it; who names the suspects Kiln can see, certainty bestEffort. runtimeWriter (next release, sfi R3): the same change, named: a ShroudForge package of kiln mode wrote the field at run time (through kiln.assets' named loaded writes) and kiln.assets' write records prove it (its writes taken back give what Kiln expected there: what the stage read, or Kiln's own last write); who is \"shroudforge:<package>\", certainty named, the row's value what the game holds after its writes. A value no record proves (an unnamed write, an older Kiln interpreter or kiln.assets) stays a drift row."
         },
         "mod": {
           "type": "string",
@@ -757,7 +777,7 @@
         },
         "who": {
           "type": "string",
-          "description": "What the writer is called when that is not just the mod: \"<mod>: content/<file>\", \"<mod>/<key>\", \"<mod or loader's mod>: <Kiln place>\" (a code change made through Kiln's content service, also another loader's: \"emf:big_stacks: items[game:material_t1_wood_logs].maxStack\"; since 0.2.0-dev.31.18, before it the game's item and member), \"shroudforge:<package>\", \"eml:<package>\" (an EML mod: of EML's own pass, or an EML package of the kiln-mode startup pass), \"kiln-eml:unattributed\" (a startup write no package made, or an EML mod whose id the journal cannot name), \"outside Kiln (best effort; suspects: ...)\" (a drift row)."
+          "description": "What the writer is called when that is not just the mod: \"<mod>: content/<file>\", \"<mod>/<key>\", \"<mod or loader's mod>: <Kiln place>\" (a code change made through Kiln's content service, also another loader's: \"emf:big_stacks: items[game:material_t1_wood_logs].maxStack\"; since 0.2.0-dev.31.18, before it the game's item and member), \"shroudforge:<package>\", \"eml:<package>\" (an EML mod: of EML's own pass, or an EML package of the kiln-mode startup pass), \"kiln-eml:unattributed\" (a startup write no package made, or an EML mod whose id the journal cannot name), \"outside Kiln (best effort; suspects: ...)\" (a drift row); a runtimeWriter row (next release): \"shroudforge:<package>\"."
         },
         "stage": {
           "enum": [
@@ -779,6 +799,10 @@
         "frontEnd": {
           "const": true,
           "description": "Since 0.2.0-dev.32: this old-path row's value was written by the registry's boot back-end (a front-end, registry.json frontEnds), not by its resource patch."
+          },
+        "standIn": {
+          "const": true,
+          "description": "Effect replay (next release): this registry row is a replayed ShroudForge or EML package's recorded value (mod replay.sf.<id> or replay.eml.<id>), standing in for the write its Lua no longer makes; see the top-level replay list."
         },
         "raw": {
           "type": "string",
@@ -910,7 +934,7 @@
             "named",
             "bestEffort"
           ],
-          "description": "certain: Kiln's own writers; named: an archive-writer package, from its journal; bestEffort: other loaders' DLLs and hooks."
+          "description": "certain: Kiln's own writers; named: an archive-writer package, from its journal, or (next release) a run-time writer, from kiln.assets' write records; bestEffort: other loaders' DLLs and hooks."
         }
       },
       "additionalProperties": false

@@ -621,6 +621,15 @@ Each is marked `kiln-eml:` in the source.
     `value::tests::writes_are_named_by_their_published_member_paths`, `a_replaced_value_keeps_the_writes_made_in_it_before`,
     `kept_writes_move_with_the_members_of_the_copy`, `journal_cost_copy_back` (ignored),
     `journal_cost` (ignored: times the log and the walk), kiln-eml `m6_eml_journal`.
+45. `mod-loader-lua` `startup_host.rs` (`PreparedEmlRun::record`) (kiln-eml's own code, 0.2.0-dev.32): a prepared EML run
+    (kiln mode's EML dialect) keeps the run's record of who wrote what (change 44), so kiln-eml writes that dialect's
+    change journal once its generation is published (`startup.rs` `eml_pass`, format 2 of dialect `eml`, bound to the
+    generation digest). kiln-eml's own SF-dialect pass (not EML's code) also records the member paths each package changed
+    (`sf_startup/journal_paths.rs`, `game/assets.rs` `compare_running`: after each entrypoint its written resources are
+    encoded as the commit encodes them and compared with what they held before it ran; only those that differ are
+    decoded and walked), written as format 2 of dialect `shroudforge` with `notApplied`; the startup cache's record is
+    format 3 (a record of format 2 names a format-1 journal: it misses once). Tests: `sf_startup::journal_paths` (5),
+    kiln-eml `m6_startup_journal` (the SF dialect's paths, a kiln-mode EML-dialect journal).
 
 The plugin validates paths from each authorized root down (root included), leaving linked Steam/Wine layout
 ancestors alone; it also checks final resolved containment. Profile paths resolve against `<game>/kiln`.

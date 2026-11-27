@@ -9,7 +9,7 @@ here=$(cd "$(dirname "$0")" && pwd)
 out=$KILN_OUT/content-tests
 mkdir -p "$out"
 echo "== registry-writers-test (host)"
-g++ -std=c++20 -O1 -g -Wall -Wextra -Wno-unused-function -fsanitize=address,undefined -I"$here/../../../third_party" \
+g++ -std=c++20 -O1 -g -Wall -Wextra -Wno-unused-function -fsanitize=address,undefined -I"$here/../../../core/abi" -I"$here/../../../third_party" \
     "$here/registry_writers_test.cpp" "$here/../registry/archive_journal.cpp" "$here/../registry/ir.cpp" "$here/../registry/compose.cpp" \
     "$here/../registry/report.cpp" -o "$out/registry-writers-test"
 "$out/registry-writers-test" "$here/../../../.." "$out/registry-writers.json" "$out/registry-writers-eml.json"

@@ -6237,22 +6237,46 @@
     "baseOrigin": "Origen de la base: {origin}",
     "archiveWriter": "Escritor del archivo: {writer}",
     "journal": {
-      "read": "Paquetes del escritor del archivo nombrados por el diario de cambios de kiln-eml: {packages} paquetes, {entries} entradas (un pase de ShroudForge nombra objetos, drops y equilibrio por entrada; un pase de EML nombra los campos que escribieron sus mods, en recetas y botín por su elemento).",
-      "truncated": "Paquetes del escritor del archivo nombrados por el diario de cambios de kiln-eml: {packages} paquetes, {entries} entradas (un pase de ShroudForge nombra objetos, drops y equilibrio por entrada; un pase de EML nombra los campos que escribieron sus mods, en recetas y botín por su elemento). El diario está truncado, así que un paquete puede haber escrito entradas que no nombra.",
+      "read": "Paquetes del escritor del archivo nombrados por el diario de cambios de kiln-eml: {packages} paquetes, {entries} entradas (nombrados en los campos que cambiaron, en recetas y botín por su elemento; un diario más antiguo nombra los paquetes de ShroudForge por entrada, solo en objetos, drops y equilibrio).",
+      "truncated": "Paquetes del escritor del archivo nombrados por el diario de cambios de kiln-eml: {packages} paquetes, {entries} entradas (nombrados en los campos que cambiaron, en recetas y botín por su elemento; un diario más antiguo nombra los paquetes de ShroudForge por entrada, solo en objetos, drops y equilibrio). El diario está truncado, así que un paquete puede haber escrito entradas que no nombra.",
       "notNamed": "Los paquetes del escritor del archivo no se nombran en este inicio: {reason}",
       "none": "el escritor del archivo de este inicio no lleva un diario de cambios.",
       "stale": "el diario de cambios pertenece a un inicio anterior.",
-      "unreadable": "no se pudo leer el diario de cambios."
+      "unreadable": "no se pudo leer el diario de cambios.",
+      "readHosted": "Paquetes del escritor del archivo nombrados por el diario de cambios del ShroudForge alojado: {packages} paquetes, {entries} entradas (nombrados en los campos que cambiaron, en recetas y botín por su elemento).",
+      "truncatedHosted": "Paquetes del escritor del archivo nombrados por el diario de cambios del ShroudForge alojado: {packages} paquetes, {entries} entradas (nombrados en los campos que cambiaron, en recetas y botín por su elemento). El diario está truncado, así que un paquete puede haber cambiado entradas que no nombra."
     },
     "sfPackage": "{id} (paquete de ShroudForge)",
     "emlPackage": "{id} (paquete de EML)",
     "archiveUnattributed": "Una escritura al iniciar de ningún paquete que Kiln pueda nombrar (kiln-eml)",
+    "archiveUnattributedHosted": "Una escritura al iniciar de ningún paquete que Kiln pueda nombrar (ShroudForge alojado)",
+    "replayedSf": "{id} (paquete de ShroudForge, repetido desde su efecto registrado)",
+    "replayedEml": "{id} (paquete de EML, repetido desde su efecto registrado)",
+    "replay": {
+      "row": "Repetición de efectos, {who}: {state}. {text}",
+      "optIn": "el archivo de activación",
+      "title": "Repetición de efectos",
+      "sub": "Kiln registra lo que cada paquete de ShroudForge y EML cambió en el registro. Un paquete que actives se repite desde ese registro tras una actualización del juego, cuando su Lua ya no funciona. El próximo inicio lee tu elección.",
+      "toggle": "Repetir tras una actualización del juego",
+      "toggleFor": "Repetir {who} tras una actualización del juego",
+      "saved": "Guardado. El próximo inicio lo lee.",
+      "notSaved": "No se pudo guardar la elección",
+      "unavailable": "No se pudo leer el archivo de activación",
+      "none": "Ningún paquete de ShroudForge o EML en el último inicio",
+      "state": {
+        "recorded": "registrado",
+        "replayed": "repetido",
+        "refused": "no repetido",
+        "none": "nada que hacer"
+      }
+    },
     "archiveOp": "Desconocida (el diario de kiln-eml nombra la entrada que escribió este paquete, no este campo)",
     "archiveOpField": "Desconocida (el diario de kiln-eml nombra este campo como escrito por este paquete, no el valor)",
     "kind": {
       "archiveWriter": "Escribió esta entrada antes de Kiln (archivo)",
       "archiveWriterField": "Escribió este campo antes de Kiln (archivo)",
-      "drift": "Cambiado fuera de Kiln"
+      "drift": "Cambiado fuera de Kiln",
+      "runtimeWriter": "Cambiado durante la ejecución (intérprete de Kiln)"
     },
     "unverified": "Asignación sin verificar",
     "unverifiedBody": "Los cambios de campos pueden rechazarse como Unproven. Lee el motivo de cada rechazo.",
@@ -6360,6 +6384,7 @@
     "certainty": {
       "certain": "Seguro",
       "named": "Nombrado por el diario",
+      "namedRecords": "Nombrado por los registros de escritura de Kiln",
       "bestEffort": "Deriva aproximada",
       "unknown": "Desconocido"
     },

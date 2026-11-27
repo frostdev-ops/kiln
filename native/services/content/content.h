@@ -224,6 +224,7 @@ struct Slot {
     bool dirty = false;
     bool registry = false;  // a registry layer was on it at the last flush or since (its revert is compared too)
     bool foreign = false;   // another writer wrote it after Kiln's registry layer: registry layers left out for this world
+    uint8_t foreign_was[kSlotBytes] = {};  // foreign: what Kiln last wrote there before the other writer (current: its bytes)
     bool old_changed = false;  // a layer of an older path (not the registry) was put or dropped since the last flush
     bool gate = false;      // store_set_gate: written after a flush's other writes when it opens, before them when it closes
     std::vector<Layer> layers;
@@ -311,6 +312,8 @@ uint64_t store_slot_signature(uintptr_t addr);
 // it since. Each such slot once per world (store_reset forgets them).
 struct StoreSkipped {
     uintptr_t addr = 0;
+    uint8_t n = 0;                     // the slot's bytes
+    uint8_t was[kSlotBytes] = {};      // what Kiln last wrote there before the other writer (sfi R3 names it from this)
     uint32_t kind = 0, id = 0;
     std::string what;  // "items Material_T1_Wood_Logs.maxStackSize": game names, diagnostics only, never in a report (P32)
     std::string mod, source;  // the registry layer's

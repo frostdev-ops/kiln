@@ -27,6 +27,7 @@ const char* writer_kind_name(WriterKind k) {
     switch (k) {
         case WriterKind::ArchiveWriter: return "archiveWriter";
         case WriterKind::Drift: return "drift";
+        case WriterKind::Runtime: return "runtimeWriter";
         case WriterKind::OldPatch: return "oldPatch";
         case WriterKind::OldPack: return "oldPack";
         case WriterKind::Code: return "code";
@@ -463,7 +464,9 @@ bool select(const View& v, const Schema& schema, const State& s, const std::stri
 void note_row(FieldOutcome& fo) {
     const int k = static_cast<int>(fo.chain.size()) - 1;
     const ChainRow& r = fo.chain[static_cast<size_t>(k)];
-    if (r.kind == WriterKind::ArchiveWriter) return;  // its value is base (D1): never "another writer" for exclusive or yield
+    // its value is base (D1), or a replayed package's recorded value standing in for its archive write (D6): never "another
+    // writer" for exclusive or yield
+    if (r.kind == WriterKind::ArchiveWriter || r.stand_in) return;
     auto& sm = fo.summary;
     auto differs = [&](int at) {
         const ChainRow& l = fo.chain[static_cast<size_t>(at)];
@@ -534,7 +537,9 @@ struct Target {
 bool absolute(const Target& t) { return t.elem() ? false : t.list == ListOp::None ? t.op().set : (t.list == ListOp::Clear || t.list == ListOp::Replace); }
 bool absolute(const ChainRow& r) { return r.element.on ? false : r.list == ListOp::None ? r.op.set : (r.list == ListOp::Clear || r.list == ListOp::Replace); }
 Certainty certainty_of(WriterKind k) {
-    return k == WriterKind::ArchiveWriter ? Certainty::Named : k == WriterKind::Drift ? Certainty::BestEffort : Certainty::Certain;
+    return k == WriterKind::ArchiveWriter || k == WriterKind::Runtime ? Certainty::Named
+           : k == WriterKind::Drift                                    ? Certainty::BestEffort
+                                                                       : Certainty::Certain;
 }
 
 // The place a target names, for messages: "items[game:x].maxStack", "items[game:x].damageSetup.dmgMod (raw)".
@@ -727,6 +732,7 @@ bool apply_targets(Ctx& c, State& s, const Who& w, const Edit& e, const std::vec
         r.list_values = t.values();
         if (t.elem()) r.element = *t.elem(), r.element_spec = t.element_spec;
         r.exclusive = e.exclusive;
+        r.stand_in = e.stand_in;
         r.after = st.next;
         fo.chain.push_back(std::move(r));
         note_row(fo);

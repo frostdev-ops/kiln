@@ -6577,22 +6577,46 @@
     "baseOrigin": "基础来源：{origin}",
     "archiveWriter": "存档写入方：{writer}",
     "journal": {
-      "read": "按 kiln-eml 的变更日志指认的存档写入方包：{packages} 个包，{entries} 个条目（ShroudForge 流程按条目指认物品、掉落和平衡；EML 流程指认其模组写入的字段，配方和战利品按其元素指认）。",
-      "truncated": "按 kiln-eml 的变更日志指认的存档写入方包：{packages} 个包，{entries} 个条目（ShroudForge 流程按条目指认物品、掉落和平衡；EML 流程指认其模组写入的字段，配方和战利品按其元素指认）。日志已被截断，因此某个包可能还写入了未指认的条目。",
+      "read": "按 kiln-eml 的变更日志指认的存档写入方包：{packages} 个包，{entries} 个条目（按其更改的字段指认，配方和战利品按其元素指认；较旧的日志按条目指认 ShroudForge 包，仅限物品、掉落和平衡）。",
+      "truncated": "按 kiln-eml 的变更日志指认的存档写入方包：{packages} 个包，{entries} 个条目（按其更改的字段指认，配方和战利品按其元素指认；较旧的日志按条目指认 ShroudForge 包，仅限物品、掉落和平衡）。日志已被截断，因此某个包可能还写入了未指认的条目。",
       "notNamed": "本次启动未指认存档写入方包：{reason}",
       "none": "本次启动的存档写入方不保留变更日志。",
       "stale": "该变更日志属于更早的一次启动。",
-      "unreadable": "无法读取该变更日志。"
+      "unreadable": "无法读取该变更日志。",
+      "readHosted": "按托管 ShroudForge 的变更日志指认的存档写入方包：{packages} 个包，{entries} 个条目（按其更改的字段指认，配方和战利品按其元素指认）。",
+      "truncatedHosted": "按托管 ShroudForge 的变更日志指认的存档写入方包：{packages} 个包，{entries} 个条目（按其更改的字段指认，配方和战利品按其元素指认）。日志已被截断，因此某个包可能还更改了未指认的条目。"
     },
     "sfPackage": "{id}（ShroudForge 包）",
     "emlPackage": "{id}（EML 包）",
     "archiveUnattributed": "Kiln 无法指认到任何包的启动时写入（kiln-eml）",
+    "archiveUnattributedHosted": "Kiln 无法指认到任何包的启动时写入（托管 ShroudForge）",
+    "replayedSf": "{id}（ShroudForge 包，按其记录的效果重放）",
+    "replayedEml": "{id}（EML 包，按其记录的效果重放）",
+    "replay": {
+      "row": "效果重放，{who}：{state}。{text}",
+      "optIn": "选择加入文件",
+      "title": "效果重放",
+      "sub": "Kiln 会记录每个 ShroudForge 和 EML 包在注册表中改动的内容。你选择加入的包，在游戏更新后其 Lua 不再运行时，会按这份记录重放。下次启动时读取你的选择。",
+      "toggle": "游戏更新后重放",
+      "toggleFor": "游戏更新后重放 {who}",
+      "saved": "已保存。下次启动时读取。",
+      "notSaved": "无法保存该选择",
+      "unavailable": "无法读取选择加入文件",
+      "none": "上次启动中没有 ShroudForge 或 EML 包",
+      "state": {
+        "recorded": "已记录",
+        "replayed": "已重放",
+        "refused": "未重放",
+        "none": "无需操作"
+      }
+    },
     "archiveOp": "未知（kiln-eml 的日志只指出此包写入的条目，而非此字段）",
     "archiveOpField": "未知（kiln-eml 的日志只指出此字段由此包写入，而非其值）",
     "kind": {
       "archiveWriter": "在 Kiln 之前写入了此条目（存档）",
       "archiveWriterField": "在 Kiln 之前写入了此字段（存档）",
-      "drift": "在 Kiln 之外被修改"
+      "drift": "在 Kiln 之外被修改",
+      "runtimeWriter": "运行时更改（Kiln 解释器）"
     },
     "unverified": "映射未验证",
     "unverifiedBody": "字段修改可能会以 Unproven 被拒绝。请查看每条拒绝的原因。",
@@ -6692,6 +6716,7 @@
     "certainty": {
       "certain": "确定",
       "named": "按日志指认",
+      "namedRecords": "按 Kiln 的写入记录指认",
       "bestEffort": "尽力检测的偏差",
       "unknown": "未知"
     },

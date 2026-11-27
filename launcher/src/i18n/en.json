@@ -6838,22 +6838,46 @@
     "baseOrigin": "Base origin: {origin}",
     "archiveWriter": "Archive writer: {writer}",
     "journal": {
-      "read": "Archive-writer packages named from kiln-eml's change journal: {packages} packages, {entries} entries (a ShroudForge pass names items, drops and balance per entry; an EML pass names the fields its mods wrote, on recipes and loot by their element).",
-      "truncated": "Archive-writer packages named from kiln-eml's change journal: {packages} packages, {entries} entries (a ShroudForge pass names items, drops and balance per entry; an EML pass names the fields its mods wrote, on recipes and loot by their element). The journal is truncated, so a package may have written entries it does not name.",
+      "read": "Archive-writer packages named from kiln-eml's change journal: {packages} packages, {entries} entries (named on the fields they changed, on recipes and loot by their element; an older journal names ShroudForge packages per entry, on items, drops and balance only).",
+      "truncated": "Archive-writer packages named from kiln-eml's change journal: {packages} packages, {entries} entries (named on the fields they changed, on recipes and loot by their element; an older journal names ShroudForge packages per entry, on items, drops and balance only). The journal is truncated, so a package may have written entries it does not name.",
       "notNamed": "Archive-writer packages are not named in this start: {reason}",
       "none": "this start's archive writer keeps no change journal.",
       "stale": "the change journal belongs to an earlier start.",
-      "unreadable": "the change journal could not be read."
+      "unreadable": "the change journal could not be read.",
+      "readHosted": "Archive-writer packages named from hosted ShroudForge's change journal: {packages} packages, {entries} entries (named on the fields they changed, on recipes and loot by their element).",
+      "truncatedHosted": "Archive-writer packages named from hosted ShroudForge's change journal: {packages} packages, {entries} entries (named on the fields they changed, on recipes and loot by their element). The journal is truncated, so a package may have changed entries it does not name."
     },
     "sfPackage": "{id} (ShroudForge package)",
     "emlPackage": "{id} (EML package)",
     "archiveUnattributed": "A startup write of no package Kiln can name (kiln-eml)",
+    "archiveUnattributedHosted": "A startup write of no package Kiln can name (hosted ShroudForge)",
+    "replayedSf": "{id} (ShroudForge package, replayed from its recorded effect)",
+    "replayedEml": "{id} (EML package, replayed from its recorded effect)",
+    "replay": {
+      "row": "Effect replay, {who}: {state}. {text}",
+      "optIn": "the opt-in file",
+      "title": "Effect replay",
+      "sub": "Kiln records what each ShroudForge and EML package changed in the registry. A package you opt in is replayed from that record after a game update, when its Lua no longer runs. The next start reads your choice.",
+      "toggle": "Replay after a game update",
+      "toggleFor": "Replay {who} after a game update",
+      "saved": "Saved. The next start reads it.",
+      "notSaved": "The choice could not be saved",
+      "unavailable": "The opt-in file could not be read",
+      "none": "No ShroudForge or EML package in the last start",
+      "state": {
+        "recorded": "recorded",
+        "replayed": "replayed",
+        "refused": "not replayed",
+        "none": "nothing to do"
+      }
+    },
     "archiveOp": "Not known (kiln-eml's journal names the entry this package wrote, not this field)",
     "archiveOpField": "Not known (kiln-eml's journal names this field as written by this package, not the value)",
     "kind": {
       "archiveWriter": "Wrote this entry before Kiln (archive)",
       "archiveWriterField": "Wrote this field before Kiln (archive)",
-      "drift": "Changed outside Kiln"
+      "drift": "Changed outside Kiln",
+      "runtimeWriter": "Changed at run time (Kiln's interpreter)"
     },
     "unverified": "Mapping unverified",
     "unverifiedBody": "Field edits may be refused as Unproven. Read each refusal for its reason.",
@@ -6961,6 +6985,7 @@
     "certainty": {
       "certain": "Certain",
       "named": "Named from journal",
+      "namedRecords": "Named from Kiln's write records",
       "bestEffort": "Best-effort drift",
       "unknown": "Unknown"
     },

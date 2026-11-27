@@ -35,6 +35,7 @@ json writer_json(const ChainRow& r, size_t list_cap) {
         if (!r.source.empty()) w["source"] = r.source;
         w["n"] = r.n;
         if (r.exclusive) w["exclusive"] = true;
+        if (r.stand_in) w["standIn"] = true;  // a replayed package's recorded value (effect replay, replay.h)
     }
     if (r.front) w["frontEnd"] = true;  // an old path's value the registry's back-end wrote (compose.h OldWrite::front)
     if (!r.raw.empty()) w["raw"] = r.raw;
@@ -56,8 +57,11 @@ json writer_json(const ChainRow& r, size_t list_cap) {
         if (r.list_values.size() > list_cap) w["listEntriesLeftOut"] = r.list_values.size() - list_cap;
     }
     write_value(w, "value", r.after, "valueEntriesLeftOut", list_cap);
-    // the check's own rows too are Kiln's: certain; a package from the journal: named; the drift probe: best effort
-    w["certainty"] = r.kind == WriterKind::ArchiveWriter ? "named" : r.kind == WriterKind::Drift ? "bestEffort" : "certain";
+    // the check's own rows too are Kiln's: certain; a package from the journal, or a run-time writer from kiln.assets' write
+    // records (sfi R3): named; the drift probe: best effort
+    w["certainty"] = r.kind == WriterKind::ArchiveWriter || r.kind == WriterKind::Runtime ? "named"
+                     : r.kind == WriterKind::Drift                                         ? "bestEffort"
+                                                                                           : "certain";
     return w;
 }
 
@@ -86,6 +90,7 @@ json report_json(const Schema& schema, const Result& r, const ReportMeta& meta, 
         const auto& jr = meta.base.journal;
         json journal = {{"state", jr.state}, {"packages", jr.packages}, {"entries", jr.entries}, {"truncated", jr.truncated}};
         if (!jr.text.empty()) journal["text"] = jr.text;
+        if (!jr.writer.empty()) journal["writer"] = jr.writer;
         doc["base"]["journal"] = std::move(journal);
     }
     json order = json::array();
@@ -107,6 +112,7 @@ json report_json(const Schema& schema, const Result& r, const ReportMeta& meta, 
     if (meta.saves.is_array() && !meta.saves.empty()) doc["saves"] = meta.saves;
     if (meta.migrated.is_array() && !meta.migrated.empty()) doc["migrated"] = meta.migrated;
     if (meta.front_ends.is_array() && !meta.front_ends.empty()) doc["frontEnds"] = meta.front_ends;
+    if (meta.replay.is_array() && !meta.replay.empty()) doc["replay"] = meta.replay;
 
     std::set<EntryRef> added(r.added.begin(), r.added.end());
     size_t writers_cut = 0;

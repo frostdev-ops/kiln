@@ -334,7 +334,7 @@ impl<'guard> StartupHost<'guard> {
         );
         let executed = crate::execute(env, app_state, planned, progress, &mut prints)?;
         let applied = executed.applied;
-        let crate::Executed { runner, staged, .. } = executed;
+        let crate::Executed { runner, staged, record, .. } = executed;
         // The VM, the AppState and its reader of the vanilla data close here, before a prepared token exists.
         drop(runner);
         let staged = staged.ok_or_else(|| anyhow::anyhow!("prepared EML run staged nothing"))?;
@@ -359,6 +359,7 @@ impl<'guard> StartupHost<'guard> {
                 guard: commit_guard,
             },
             patched: applied,
+            record,
         })))
     }
     /// A reader of the baseline this host captured (`<stem>.kfc.bak` and its resources), the same reader a prepared
@@ -1001,8 +1002,15 @@ pub struct PreparedEmlRun<'guard> {
     archive: PreparedArchive<'guard>,
     commit: CacheCommit<'guard>,
     patched: usize,
+    /// kiln-eml: who wrote what in the run (its change journal's record, env/writes.rs); kiln mode's EML dialect writes it
+    /// once the generation is published (0.2.0-dev.32).
+    record: Option<crate::WriteRecord>,
 }
 impl<'guard> PreparedEmlRun<'guard> {
+    /// kiln-eml: the run's record of who wrote what (None: the run recorded nothing).
+    pub fn record(&self) -> Option<&crate::WriteRecord> {
+        self.record.as_ref()
+    }
     pub fn archive(&self) -> &PreparedArchive<'guard> {
         &self.archive
     }

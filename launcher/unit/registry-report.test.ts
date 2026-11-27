@@ -108,7 +108,7 @@ describe("untrusted registry report", () => {
   });
   test("base.journal says whether the archive writer's packages are named", () => {
     const read = parse({ ...registryFixture(), base: { origin: "live", writer: "kiln-eml", journal: { state: "read", packages: 2, entries: 3, truncated: false, text: "x" } } });
-    expect(read.journal).toBe("Archive-writer packages named from kiln-eml's change journal: 2 packages, 3 entries (a ShroudForge pass names items, drops and balance per entry; an EML pass names the fields its mods wrote, on recipes and loot by their element).");
+    expect(read.journal).toBe("Archive-writer packages named from kiln-eml's change journal: 2 packages, 3 entries (named on the fields they changed, on recipes and loot by their element; an older journal names ShroudForge packages per entry, on items, drops and balance only).");
     const truncated = parse({ ...registryFixture(), base: { origin: "live", writer: "kiln-eml", journal: { state: "read", packages: 1, entries: 1, truncated: true } } });
     expect(truncated.journal).toContain("truncated");
     const none = parse({ ...registryFixture(), base: { origin: "live", writer: "shroudforge-hosted", journal: { state: "none", packages: 0, entries: 0, truncated: false, text: "hosted ShroudForge keeps no change journal" } } });
@@ -117,6 +117,80 @@ describe("untrusted registry report", () => {
     expect(parse(registryFixture()).journal).toBe("");  // a report from an older Kiln has no journal
     const stale = parse({ ...registryFixture(), base: { origin: "live", writer: "kiln-eml", journal: { state: "stale", packages: 0, entries: 0, truncated: false, text: "left by an earlier start" } } });
     expect(stale.journal).toBe("Archive-writer packages are not named in this start: left by an earlier start");
+  });
+  test("hosted ShroudForge's journal, a replayed package's writer and the replay lines (0.2.0-dev.32)", () => {
+    const hosted = parse({ ...registryFixture(), base: { origin: "live", writer: "shroudforge-hosted", journal: { state: "read", packages: 2, entries: 3, truncated: false, text: "x", writer: "shroudforge" } } });
+    expect(hosted.journal).toBe("Archive-writer packages named from hosted ShroudForge's change journal: 2 packages, 3 entries (named on the fields they changed, on recipes and loot by their element).");
+    const r = registryFixture();
+    r.fields[0].writers = [
+      { kind: "archiveWriter", who: "shroudforge-hosted:unattributed", value: 10, certainty: "named" },
+      { kind: "registry", mod: "replay.sf.betterstacks", standIn: true, op: 33, value: 33, certainty: "certain" },
+      { kind: "registry", mod: "replay.eml.morestacks", standIn: true, op: 34, value: 34, certainty: "certain" },
+      { kind: "registry", mod: "replay.sf.realmod", op: 35, value: 35, certainty: "certain" },
+      ...r.fields[0].writers,
+    ] as typeof r.fields[0].writers;
+    const out = parse({ ...r, replay: [
+      { who: "shroudforge:betterstacks", state: "replayed", text: "its Lua was not applied on this game build (boom); its effect recorded on build 0123abcd is replayed through the registry: 1 field(s)", fields: 1, recordedOn: "0123abcd" },
+      { who: "", state: "refused", text: "replay/opt-in.json is not {...}: no package is opted in to effect replay", fields: 0 },
+    ] });
+    expect(out.fields[0].writers.map(w => w.owner).slice(0, 4)).toEqual([
+      "A startup write of no package Kiln can name (hosted ShroudForge)",
+      "betterstacks (ShroudForge package, replayed from its recorded effect)",
+      "morestacks (EML package, replayed from its recorded effect)",
+      "replay.sf.realmod",  // a Kiln mod with such an id, no standIn row: named as itself
+    ]);
+    // a winner that is a stand-in names the package; a Kiln mod of such an id stays itself
+    const won = parse({ ...r, fields: [{ ...r.fields[0], winner: "replay.sf.betterstacks" }, { ...r.fields[0], winner: "replay.sf.realmod" }] });
+    expect(won.fields.map(f => f.winner)).toEqual(["betterstacks (ShroudForge package, replayed from its recorded effect)", "replay.sf.realmod"]);
+    expect(out.replay.map(x => x.line)).toEqual([
+      "Effect replay, betterstacks (ShroudForge package): replayed. its Lua was not applied on this game build (boom); its effect recorded on build 0123abcd is replayed through the registry: 1 field(s)",
+      "Effect replay, the opt-in file: not replayed. replay/opt-in.json is not {...}: no package is opted in to effect replay",
+    ]);
+    expect(out.replay.map(x => [x.who, x.state, x.optIn])).toEqual([["shroudforge:betterstacks", "replayed", false], ["", "refused", false]]);
+    expect(parse(registryFixture()).replay).toEqual([]);  // a report without replay rows
+    expect(() => parse({ ...registryFixture(), replay: [{ who: 7, state: "replayed", text: "x", fields: 0 }] })).toThrow();
+  });
+  // review-j3: every package is recorded by default and listed with its opt-in (the Conflicts page's toggle); a stand-in
+  // writer is named by its package through the row's "mod", so an id with a capital letter (a hashed mod id) reads as itself
+  test("effect replay rows: every package with its opt-in, and the stand-in named through the row's mod id", () => {
+    const r = registryFixture();
+    r.fields[0].writers = [
+      { kind: "registry", mod: "replay.sf.betterstacks.1a2b3c4d", standIn: true, op: 33, value: 33, certainty: "certain" },
+      ...r.fields[0].writers,
+    ] as typeof r.fields[0].writers;
+    const out = parse({ ...r, replay: [
+      { who: "shroudforge:BetterStacks", state: "replayed", text: "x", fields: 1, optIn: true, mod: "replay.sf.betterstacks.1a2b3c4d" },
+      { who: "eml:more-recipes", state: "recorded", text: "its Lua ran this start: its effect is recorded (2 field(s)), replayable after a game update", fields: 2, optIn: false, mod: "replay.eml.more-recipes" },
+    ] });
+    expect(out.replay.map(x => [x.who, x.state, x.optIn])).toEqual([["shroudforge:BetterStacks", "replayed", true], ["eml:more-recipes", "recorded", false]]);
+    expect(out.replay[1].line).toBe("Effect replay, more-recipes (EML package): recorded. its Lua ran this start: its effect is recorded (2 field(s)), replayable after a game update");
+    expect(out.fields[0].writers[0].owner).toBe("BetterStacks (ShroudForge package, replayed from its recorded effect)");
+    // a conflict line whose loser is the stand-in names the package too
+    const lost = parse({ ...r, replay: [{ who: "shroudforge:BetterStacks", state: "replayed", text: "x", fields: 1, optIn: true, mod: "replay.sf.betterstacks.1a2b3c4d" }],
+      conflicts: [{ ...r.conflicts[0], winner: "stacker", loser: "replay.sf.betterstacks.1a2b3c4d" }] });
+    expect(lost.conflicts[0].loser).toBe("BetterStacks (ShroudForge package, replayed from its recorded effect)");
+  });
+  // review-j3 (J3b, sfi R3): a run-time writer of kiln mode (kind runtimeWriter, who shroudforge:<package>) is named as an
+  // archive-writer package is, with its own kind text; so is the field's winner and a conflict line's writer it names
+  test("a run-time writer of kiln mode is named as its package, with its kind", () => {
+    const r = registryFixture();
+    r.fields[0].writers = [
+      ...r.fields[0].writers,
+      { kind: "runtimeWriter", who: "shroudforge:big_stacks", op: 777, value: 777, certainty: "named" },
+    ] as typeof r.fields[0].writers;
+    const out = parse({ ...r, fields: [{ ...r.fields[0], winner: "shroudforge:big_stacks" }],
+      conflicts: [{ ...r.conflicts[0], winner: "shroudforge:big_stacks", loser: "stacker" }] });
+    const w = out.fields[0].writers[out.fields[0].writers.length - 1];
+    expect([w.owner, w.kind, w.certain]).toEqual(["big_stacks (ShroudForge package)", "Changed at run time (Kiln's interpreter)", false]);
+    expect(out.fields[0].winner).toBe("big_stacks (ShroudForge package)");
+    expect(out.conflicts[0].winner).toBe("big_stacks (ShroudForge package)");
+    // named from kiln.assets' write records, not a journal (the J3b lab's registry.json said "Named from journal" here)
+    expect(w.certainty).toBe("Named from Kiln's write records");
+    const line = parse({ ...r, fields: [{ ...r.fields[0], winner: "shroudforge:big_stacks" }],
+      conflicts: [{ ...r.conflicts[0], winner: "shroudforge:big_stacks", loser: "stacker", certainty: "named" }] });
+    expect(line.conflicts[0].certainty).toBe("Named from Kiln's write records");
+    // a Kiln mod's own id is never read as a package (mod ids have no ':')
+    expect(parse({ ...r, fields: [{ ...r.fields[0], winner: "stacker" }] }).fields[0].winner).toBe("stacker");
   });
   test.each(["null", "[]", "{}", "{", '{"format":2}'])("rejects invalid or unsupported document %s", text => {
     expect(() => parseRegistryReport(text)).toThrow();
@@ -324,7 +398,11 @@ describe("snapshot freshness", () => {
 // the EML pass's field-level ones included, and no locale still says a recipe or loot entry is never named (an EML pass
 // names them by their element).
 test("every locale has the archive-writer texts, the EML pass's field-level ones too, with English's placeholders", () => {
-  const keys = ["journal.read", "journal.truncated", "archiveUnattributed", "archiveOp", "archiveOpField", "kind.archiveWriter", "kind.archiveWriterField", "certaintyHint"];
+  const keys = ["journal.read", "journal.truncated", "archiveUnattributed", "archiveOp", "archiveOpField", "kind.archiveWriter", "kind.archiveWriterField", "certaintyHint",
+    // review-j3: the effect replay card (its toggle writes the opt-in file)
+    "replay.row", "replay.title", "replay.sub", "replay.toggle", "replay.toggleFor", "replay.saved", "replay.notSaved", "replay.unavailable", "replay.none",
+    // review-j3 (J3b): a run-time writer's kind
+    "kind.runtimeWriter", "certainty.namedRecords"];
   const at = (o: unknown, k: string) => k.split(".").reduce<unknown>((x, p) => (x as Record<string, unknown> | undefined)?.[p], (o as Record<string, unknown>).registry);
   const ph = (s: unknown) => (String(s).match(/\{[a-z]+\}/gi) ?? []).sort().join();
   const old: Record<string, string> = { de: "Rezept- oder Beute-Eintrag wird nicht benannt", es: "no se nombra ninguna entrada de receta", fr: "recette ou de butin n'est pas nommée",

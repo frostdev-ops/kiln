@@ -283,10 +283,19 @@ Codes are the sfi-state code grammar, not a closed list (the witness refusal rea
 ## The startup change journal
 
 A kiln-mode start in the ShroudForge dialect that publishes a generation also writes its change journal beside the
-ownership receipt: `<game>/kiln/eml/ownership/<stem>.change-journal.json` (`schema/sfi/eml-journal/startup-journal.schema.json`,
-its own record: the outcome above and its strict reader do not change). Per package of the committed attempt, in run
-order, with its plan identity: the resources its entrypoint wrote, the ones it created (by ordinal) and the contents it
-created, never a value; at most 4096 entries per package and 32768 in all (`truncated` past that).
+ownership receipt: `<game>/kiln/eml/ownership/<stem>.change-journal.json` (its own record: the outcome above and its strict
+reader do not change). Per package of the committed attempt, in run order, with its plan identity: the resources its
+entrypoint changed, each with the member paths it changed there, the ones it created (by ordinal) and the contents it
+created, never a value; at most 4096 entries per package and 32768 in all (`truncated` past that). Since the next release
+this is format 2 of dialect `shroudforge` (`schema/sfi/eml-journal/eml-journal-2.schema.json`): after each entrypoint the
+asset session compares the resources it wrote (format 1's rule) with what they held before it ran, as the commit encodes
+them, and names the package on the members that differ (`sf_startup/journal_paths.rs`; kiln-eml README change 45); a
+resource it wrote back as it was is left out. The record lists the plan's packages the committed attempt did not run
+(`notApplied`: the failed package and those left out with it, with the row's text; never a package left out as
+`package-changed`, which is not as the plan lists it rather than failed on this build), which the registry's effect replay
+reads. Before, format 1 (`startup-journal.schema.json`): the resources each package wrote, per resource. The startup
+cache's record is format 3 since (a record of format 2 names a format-1 journal: it misses once, and the pass journals its
+publication anew).
 
 - **Binding:** it names one generation (`generation` is the outcome's `archiveSha256`, `receiptSha256` the receipt
   beside it). kiln-eml writes it after its one publication, under the install guard, only while the receipt is still the
@@ -296,16 +305,22 @@ created, never a value; at most 4096 entries per package and 32768 in all (`trun
 - **Removal:** every publication (`prepare_from`, before it writes anything), the verified BASE (`restore_base`,
   `forget_receipt`) and EML's own no-mod restore (`before_restore`) remove it before the receipt or a live file changes;
   one that cannot be removed refuses that publication or restore, with nothing changed. A kiln-mode start in the EML
-  dialect writes none (its publication removes the previous one).
+  dialect writes its own after its publication (next release; before, none): format 2 of dialect `eml` from EML's record
+  of who wrote what (change 44), bound like the ShroudForge dialect's to the outcome's `archiveSha256`, with the plan
+  digests and `notApplied`; an unchanged EML-dialect start keeps it.
 - **Readers** use it only when `generation` is the start's live generation: a writer that ignores the receipt (hosted
   ShroudForge, another loader) can leave it naming a generation that is no longer live. Read it and close it at once (a
   reader that keeps it open on Windows can make the next kiln-mode start fail its removal).
 - **Kiln's registry stage** is one reader (since 0.2.0-dev.31.17, `native/services/content/registry/archive_journal.cpp`,
   MIT code over this file format): once per start it checks `generation` against the identity kiln-eml granted for the
-  launch (`published_identity`'s `archive_sha256`) and names each package on the registry entries whose resource GUID it
-  lists (`changed` and `created`; only registries whose entries are whole resources: items, drops, balance, never the
-  elements of a shared resource such as a recipe), as `archiveWriter` rows of certainty `named` in `kiln/state/registry.json`
-  ([registries guide](../modding/registries/README.md#who-else-wrote-a-field)).
+  launch (`published_identity`'s `archive_sha256`) and names each package on the registry fields its member paths name
+  (format 2; recipe and loot entries by their element), or (format 1) on the entries whose resource GUID it lists
+  (`changed` and `created`; only registries whose entries are whole resources: items, drops, balance), as `archiveWriter`
+  rows of certainty `named` in `kiln/state/registry.json` ([registries guide](../modding/registries/README.md#who-else-wrote-a-field)).
+- **Hosted ShroudForge** (Kiln's bundled ShroudForge, next release) writes the same format 2 of its own pass beside its
+  record of the pass, `<game>/<stem>.kfc.change-journal.json` (`writer` `shroudforge`), bound to the SHA-256 of the
+  published `<stem>.kfc`; Kiln reads it in a start whose backend is hosted or installed ShroudForge (kiln-eml stood
+  aside), never kiln-eml's place.
 
 ### EML's own pass (format 2)
 

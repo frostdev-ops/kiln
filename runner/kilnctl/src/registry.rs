@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
-//! `kilnctl registry status|rollback`: the registry stage's plans (kiln_manage::registry_plan). A rollback starts the next
-//! boot on the previous (last good) plan's edits; it writes one request file beside the plans and never touches a save.
+//! `kilnctl registry status|rollback|replay`: the registry stage's plans (kiln_manage::registry_plan). A rollback starts the
+//! next boot on the previous (last good) plan's edits; it writes one request file beside the plans and never touches a save.
+//! `replay` opts ShroudForge and EML packages in to effect replay (the same opt-in file the launcher's Conflicts page writes).
 use crate::util::Km;
 use anyhow::{Result, bail};
 use kiln_manage::registry_plan::{self as rp, Change};
@@ -113,5 +114,46 @@ pub fn rollback(a: RollbackArgs) -> Result<i32> {
     rp::ask(&game, &to, Some(&from), "kilnctl").km()?;
     println!("wrote {}/{}: the next start runs on plan {} (and every start after it, until `kilnctl registry rollback --clear`)",
         rp::DATA_REL, rp::REQUEST_NAME, short(&to));
+    Ok(0)
+}
+
+/// `kilnctl registry replay [<server>] [--opt-in|--opt-out <mod>]`: writes the opt-in file (kiln_manage::registry_plan, the
+/// same one the launcher's Conflicts page writes); without a flag, says what it holds and what the last start did.
+pub fn replay(name: Option<String>, dir: Option<PathBuf>, opt_in: Option<String>, opt_out: Option<String>, real: bool) -> Result<i32> {
+    let write = opt_in.is_some() || opt_out.is_some();
+    let game = game_of(name.as_deref(), dir.as_deref(), write, real)?;
+    if let Some((spec, on)) = opt_in.map(|s| (s, true)).or(opt_out.map(|s| (s, false))) {
+        let who = rp::replay_package(&game, &spec).km()?;
+        rp::set_replay_opt_in(&game, &who, on).km()?;
+        println!("{who}: opted {} effect replay ({}/{}); the next start reads it", if on { "in to" } else { "out of" }, rp::DATA_REL, rp::REPLAY_OPT_IN_REL);
+        println!("{}", if on {
+            "its effect is recorded while its Lua runs; after a game update where it is not applied, Kiln replays that record through the registry (or says why not)"
+        } else {
+            "its effect is still recorded; it is never replayed"
+        });
+        return Ok(0);
+    }
+    let opted = rp::replay_opt_ins(&game).km()?;
+    if opted.is_empty() {
+        println!("opted in to effect replay: none ({}/{} names none)", rp::DATA_REL, rp::REPLAY_OPT_IN_REL);
+    }
+    for (who, on) in &opted {
+        println!("{who}: {}", if *on { "opted in" } else { "opted out" });
+    }
+    let rows = std::fs::read_to_string(game.join(rp::REPORT_REL)).ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .and_then(|d| d.get("replay").and_then(|r| r.as_array()).cloned())
+        .unwrap_or_default();
+    if rows.is_empty() {
+        println!("the last start: no ShroudForge or EML package (or no {} yet)", rp::REPORT_REL);
+    }
+    for r in rows.iter().take(SHOWN) {
+        let s = |k: &str| r.get(k).and_then(|v| v.as_str()).unwrap_or("");
+        println!("  {}: {} ({}) {}", if s("who").is_empty() { "the opt-in file" } else { s("who") }, s("state"),
+            if r.get("optIn").and_then(|v| v.as_bool()).unwrap_or(false) { "opted in" } else { "not opted in" }, s("text"));
+    }
+    if rows.len() > SHOWN {
+        println!("  ... and {} more in {}", rows.len() - SHOWN, rp::REPORT_REL);
+    }
     Ok(0)
 }

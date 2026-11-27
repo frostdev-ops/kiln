@@ -172,18 +172,24 @@ std::string utc_now() {
 // This start's archive writer and what Kiln knows it from (archive_base.h, registry-followups 2): kiln.launch's backend,
 // kiln-eml's state (kiln.eml state_json: the text of kiln/state/eml.json), and whether kiln-eml's ownership receipt and
 // ShroudForge's record of its pass exist (their names only; neither is read).
-registry::ArchiveBase archive_writer() {
-    registry::ArchiveBaseInputs in;
+// kiln.launch's ShroudForge backend of this start: "kiln", "hosted", "installed", "none" (also: no kiln.launch).
+std::string launch_backend() {
     if (const auto* t = g_api ? static_cast<const KilnLaunchApi*>(g_api->service(KilnStr{KILN_LAUNCH_SERVICE, sizeof(KILN_LAUNCH_SERVICE) - 1}, KILN_LAUNCH_VERSION)) : nullptr;
         t && t->header.size >= offsetof(KilnLaunchApi, status) + sizeof(void*) && t->status) {
         KilnLaunchStatus st{};
         st.size = sizeof st;
         if (t->status(&st) == KILN_OK)
-            in.backend = st.backend == KILN_LAUNCH_BACKEND_KILN        ? "kiln"
-                         : st.backend == KILN_LAUNCH_BACKEND_HOSTED    ? "hosted"
-                         : st.backend == KILN_LAUNCH_BACKEND_INSTALLED ? "installed"
-                                                                       : "none";
+            return st.backend == KILN_LAUNCH_BACKEND_KILN        ? "kiln"
+                   : st.backend == KILN_LAUNCH_BACKEND_HOSTED    ? "hosted"
+                   : st.backend == KILN_LAUNCH_BACKEND_INSTALLED ? "installed"
+                                                                 : "none";
     }
+    return "none";
+}
+
+registry::ArchiveBase archive_writer() {
+    registry::ArchiveBaseInputs in;
+    in.backend = launch_backend();
     if (const auto* e = g_api ? static_cast<const KilnEmlApi*>(g_api->service(KilnStr{KILN_EML_SERVICE, sizeof(KILN_EML_SERVICE) - 1}, 1)) : nullptr;
         e && e->header.size >= offsetof(KilnEmlApi, state_json) + sizeof(void*) && e->state_json) {
         size_t len = 0;
@@ -228,6 +234,40 @@ std::optional<std::string> archive_journal(std::string* generation, std::string*
     return read_archive_journal(u8(api_path(KILN_PATH_KILN)), fs::path(exe).stem(), reparse, why);
 }
 
+// Kiln's hosted ShroudForge's change journal of its pass (archive_journal.h read_hosted_journal): <game>/<exe stem>
+// .kfc.change-journal.json, only from the game folder itself (neither it nor the game folder a link or another reparse
+// point), bound to the SHA-256 of the live <exe stem>.kfc (hashed only when there is a journal: about 9 MB).
+// Its text alone (Env::archive_journal_text: effect replay's check that nothing changed, no hash of the <stem>.kfc).
+std::optional<std::string> hosted_journal_text(std::string* why) {
+    wchar_t exe[MAX_PATH * 2] = {};
+    const DWORD n = GetModuleFileNameW(nullptr, exe, static_cast<DWORD>(std::size(exe)));
+    if (n == 0 || n >= std::size(exe)) return *why = "the game's file name is not known", std::nullopt;
+    const std::string game = api_path(KILN_PATH_GAME);
+    if (game.empty()) return *why = "the game folder is not known", std::nullopt;
+    const auto reparse = [](const fs::path& p) {
+        const DWORD a = GetFileAttributesW(p.c_str());
+        return a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+    };
+    return read_hosted_journal(u8(game), fs::path(exe).stem(), reparse, why);
+}
+
+std::optional<std::string> hosted_journal(std::string* generation, std::string* why) {
+    wchar_t exe[MAX_PATH * 2] = {};
+    const DWORD n = GetModuleFileNameW(nullptr, exe, static_cast<DWORD>(std::size(exe)));
+    if (n == 0 || n >= std::size(exe)) return *why = "the game's file name is not known", std::nullopt;
+    const std::string game = api_path(KILN_PATH_GAME);
+    if (game.empty()) return *why = "the game folder is not known", std::nullopt;
+    const auto reparse = [](const fs::path& p) {
+        const DWORD a = GetFileAttributesW(p.c_str());
+        return a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+    };
+    const fs::path stem = fs::path(exe).stem();
+    auto text = read_hosted_journal(u8(game), stem, reparse, why);
+    if (!text) return std::nullopt;
+    if (!hosted_generation(u8(game), stem, reparse, generation, why)) return std::nullopt;
+    return text;
+}
+
 // The drift probe's suspects (drift.h): the hook map's foreign modules and hosted ShroudForge. Once per world, no lock held.
 std::vector<std::string> drift_suspects_now() {
     bool hosted = false;
@@ -254,6 +294,34 @@ std::vector<std::string> drift_suspects_now() {
     return drift_suspects(map, hosted);
 }
 
+// sfi R3: kiln.assets' run-time write records (loaded_write_records, since 0.2.0-dev.32), each placed where its resource's
+// bytes live now (resource_data), for the live back-end's run-time writer rows (runtime_writes.h). Asked under the store's
+// lock: both members copy under kiln.assets' own locks and call nothing back. An older kiln.assets: none.
+std::vector<RuntimeWrite> runtime_writes_now() {
+    const auto* a = g_api ? static_cast<const KilnAssetsApi*>(g_api->service(KilnStr{KILN_ASSETS_SERVICE, sizeof(KILN_ASSETS_SERVICE) - 1}, 1))
+                          : nullptr;
+    if (!a || a->header.size < offsetof(KilnAssetsApi, loaded_write_records) + sizeof(void*) || !a->loaded_write_records ||
+        !a->resource_data)
+        return {};
+    std::vector<KilnLoadedWriteRecord> records;
+    size_t n = 0;
+    for (int attempt = 0; attempt < 3; ++attempt) {
+        const KilnResult rc = a->loaded_write_records(records.data(), sizeof(KilnLoadedWriteRecord), records.size(), &n);
+        if (rc == KILN_OK) {
+            records.resize(n);
+            return place_runtime_writes(records, [a](const KilnAssetKey& key, uintptr_t* at, size_t* len) {
+                const void* p = nullptr;
+                if (a->resource_data(&key, &p, len) != KILN_OK || !p) return false;
+                *at = reinterpret_cast<uintptr_t>(p);
+                return true;
+            });
+        }
+        if (rc != KILN_ERR_BUFFER_TOO_SMALL || n > KILN_LOADED_WRITE_PLACES) return {};
+        records.resize(n + 16);  // a few more may come before the next call
+    }
+    return {};
+}
+
 Env make_env() {
     Env e;
     KilnBuildInfo bi{};
@@ -277,8 +345,16 @@ Env make_env() {
         const registry::ArchiveBase a = archive_writer();
         e.writer = a.writer;
         e.archive = a.archive;
+        // hosted or installed ShroudForge has the start (kiln-eml stood aside, or is not installed): Kiln's hosted ShroudForge
+        // keeps the journal of its pass beside its record (a player's own installed copy keeps none; a hosted record names
+        // its packages only while the <stem>.kfc it is bound to is the live one)
+        const std::string backend = launch_backend();
+        const bool sf = a.writer == "shroudforge-hosted" || a.writer == "shroudforge-installed" ||
+                        ((backend == "hosted" || backend == "installed") && a.writer == "none");
+        e.archive_journal = sf ? &hosted_journal : &archive_journal;
+        e.archive_journal_writer = sf ? "shroudforge" : "kiln-eml";
+        if (sf) e.archive_journal_text = &hosted_journal_text;
     }
-    e.archive_journal = &archive_journal;
     e.source = [](std::string* why) -> std::unique_ptr<model::Source> {
         kiln::boot_view::LiveView& v = live_view();
         v.restart(); // each owned source is a new read generation; the prior stage/ledger source may be released
@@ -787,6 +863,7 @@ void bind_service() {
         in.on_world_thread = [](uint32_t kind) { return g_api && g_api->on_world_thread && g_api->on_world_thread(kind); };
         in.suspects = &drift_suspects_now;
         in.owner_name = &owner_text;
+        in.runtime_writes = &runtime_writes_now;
         if (!in.result.definitions.empty()) registry_entries_prepare(&in);
         Result reconciled = in.result;
         registry_live_install(std::move(in));

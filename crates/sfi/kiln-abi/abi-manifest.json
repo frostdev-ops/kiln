@@ -463,7 +463,9 @@
             "load_manifest": 136,
             "loaded_list": 240,
             "loaded_scalar_compare_exchange": 248,
+            "loaded_scalar_compare_exchange_named": 256,
             "loaded_snapshot": 232,
+            "loaded_write_records": 264,
             "resource_data": 144,
             "resource_is_new": 152,
             "resource_list": 64,
@@ -477,7 +479,7 @@
             "texture_rgba": 216,
             "when_resources_ready": 168
           },
-          "size": 256
+          "size": 272
         },
         "KilnBlobCatalogEntry": {
           "align": 8,
@@ -524,9 +526,26 @@
             "status": 4
           },
           "size": 24
+        },
+        "KilnLoadedWriteRecord": {
+          "align": 8,
+          "fields": {
+            "after": 72,
+            "before": 64,
+            "field": 208,
+            "id": 8,
+            "key": 32,
+            "offset": 56,
+            "owner": 16,
+            "session": 24,
+            "size": 0,
+            "width": 4,
+            "writer": 80
+          },
+          "size": 336
         }
       },
-      "sha256": "d71f9b211dd4a0445be1771fc1b54c42d5d27651b532b700ad911228d9f71fa5"
+      "sha256": "d75574fdf7d8ea93cd9c39aeb07713f865012b97f88477cf316b04cbf4ec8ddd"
     },
     "native/core/abi/services/kiln_assets_vfx.h": {
       "function_macros": [],
@@ -10595,9 +10614,9 @@
   },
   "outputs": {
     "src/bindings.rs": "134028a6a9914076cab3f71f98d356141d4fe36c4d7f51bac6a11819501ed935",
-    "src/layout.rs": "f1ac1bc9093495101488185fe183fad4c47ecabf4e4f4f3b527a2d2bd55cc44d",
+    "src/layout.rs": "67cb1686ac62f29bf8fab0baaf253fc37cb0add1314e79137f6b3d468dba0593",
     "src/services/kiln_abilities.rs": "a24dff6123db80e30ed1b2e33f87c772a40982ec3ce379347ca96bb81579f6cb",
-    "src/services/kiln_assets.rs": "e7fe4eb1c4d53ad31eeaf05be06f41c551a49362ad5bd4174465ec18a03effe0",
+    "src/services/kiln_assets.rs": "287a32b2aa886078e3e85ab797cdf50d7f52de565d334bdc97544015d4f943a9",
     "src/services/kiln_assets_vfx.rs": "90ed8ce5ad512bbf4f002db3277bc3b439d648ca437a58d4477eac4ce46c3b81",
     "src/services/kiln_audio.rs": "52a49e9a14975f3abecbe7200bb2dce40c0af7fd54f50faf7890befe559d8d7c",
     "src/services/kiln_base_rules.rs": "051981ceeb97a78f02f625d8fb573289c0b388bd10a2dd303fa99a20fd53c53a",

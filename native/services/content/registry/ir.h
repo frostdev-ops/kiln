@@ -203,6 +203,10 @@ struct Edit {
     // Kiln-internal, never read from IR: a target this edit cannot take (a conflict, a value that does not fit) refuses that
     // entry alone, named, and the edit applies to the others (entry-point live changes, review4 NS6). Off: the whole edit.
     bool per_entry = false;
+    // Kiln-internal, never read from IR: a replayed archive-writer package's recorded value (effect replay, D6; replay.h),
+    // standing in for the write its Lua no longer makes: like an archive row it is never "an earlier writer" for another
+    // edit's exclusive or yield, so a replay never refuses or holds back a mod's edit.
+    bool stand_in = false;
 };
 
 struct Batch {

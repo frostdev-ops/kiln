@@ -5,7 +5,10 @@ async function report(page: Page, value: unknown, error = false) {
   await page.route("**/src/registry/mock.ts*", route => route.fulfill({
     contentType: "application/javascript",
     body: `export async function readMockRegistryReport() { ${error ? 'throw new Error("fixture: report unreadable")' : `return ${JSON.stringify(value === null ? null : typeof value === "string" ? value : JSON.stringify(value))}`}; }
-export async function mockRegistryRollback(o) { return { plan: null, previous: null, rollback: null, pending: null, target: null, changes: [], changesUnknown: null, blocked: "fixture: no plans", dryRun: o.dryRun, wrote: false, cleared: o.clear ? false : null }; }`,
+export async function mockRegistryRollback(o) { return { plan: null, previous: null, rollback: null, pending: null, target: null, changes: [], changesUnknown: null, blocked: "fixture: no plans", dryRun: o.dryRun, wrote: false, cleared: o.clear ? false : null }; }
+const optIns = {};
+export async function mockRegistryReplayOptIns() { return { ...optIns }; }
+export async function mockRegistryReplayOpt(who, on) { optIns[who] = on; return { ...optIns }; }`,
   }));
   await page.goto("/#/conflicts");
   await expect(page.getByRole("heading", { name: "Registry conflicts", exact: true })).toBeVisible();
@@ -143,7 +146,7 @@ test("names archive-writer packages from kiln-eml's journal and labels drift bes
     text: "items[game:fixture_stack].maxStack: betterstacks (ShroudForge package) wrote this entry in the game's archive before Kiln; stacker's edit wins (D1): 10 -> 20" }];
   await report(page, { ...r, base: { origin: "live", writer: "kiln-eml", journal: { state: "read", packages: 1, entries: 1, truncated: false } },
     fields: [row], conflicts, counts: { ...r.counts, conflicts: 1 } });
-  await expect(page.getByText("Archive-writer packages named from kiln-eml's change journal: 1 packages, 1 entries (a ShroudForge pass names items, drops and balance per entry; an EML pass names the fields its mods wrote, on recipes and loot by their element).", { exact: true })).toBeVisible();
+  await expect(page.getByText("Archive-writer packages named from kiln-eml's change journal: 1 packages, 1 entries (named on the fields they changed, on recipes and loot by their element; an older journal names ShroudForge packages per entry, on items, drops and balance only).", { exact: true })).toBeVisible();
   await expect(page.getByText(/betterstacks \(ShroudForge package\) wrote this entry in the game's archive before Kiln; stacker's edit wins \(D1\)/)).toBeVisible();
   await expect(page.getByText("Named from journal", { exact: true }).first()).toBeVisible();
   const field = page.locator(".registry-field").first();
@@ -183,4 +186,45 @@ test("a start whose archive writer keeps no journal says its packages are not na
   await report(page, { ...registryFixture(), base: { origin: "live", writer: "shroudforge-hosted",
     journal: { state: "none", packages: 0, entries: 0, truncated: false, text: "hosted ShroudForge keeps no change journal" } } });
   await expect(page.getByText("Archive-writer packages are not named in this start: hosted ShroudForge keeps no change journal", { exact: true })).toBeVisible();
+});
+
+test("hosted ShroudForge's journal, a replayed package's stand-in writer and the effect replay lines", async ({ page }) => {
+  const r = registryFixture();
+  const row = { ...r.fields[0], writers: [
+    { kind: "archiveWriter", who: "shroudforge:betterstacks", value: 10, certainty: "named", named: "field" },
+    { kind: "registry", mod: "replay.sf.betterstacks", stage: "alter", n: 0, standIn: true, op: 33, value: 33, certainty: "certain" },
+    { kind: "registry", mod: "stacker", stage: "alter", n: 0, op: { mul: 2 }, value: 66, certainty: "certain" },
+  ], result: 66, winner: "stacker" };
+  await report(page, { ...r, base: { origin: "live", writer: "shroudforge-hosted", journal: { state: "read", packages: 1, entries: 1, truncated: false, writer: "shroudforge" } },
+    fields: [row], replay: [
+      { who: "shroudforge:betterstacks", state: "replayed", text: "its Lua was not applied on this game build (boom); its effect recorded on build 0123abcd is replayed through the registry: 1 field(s)", fields: 1, recordedOn: "0123abcd" },
+    ] });
+  await expect(page.getByText("Archive-writer packages named from hosted ShroudForge's change journal: 1 packages, 1 entries (named on the fields they changed, on recipes and loot by their element).", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("registry-replay")).toHaveText("Effect replay, betterstacks (ShroudForge package): replayed. its Lua was not applied on this game build (boom); its effect recorded on build 0123abcd is replayed through the registry: 1 field(s)");
+  const field = page.locator(".registry-field").first();
+  await field.locator("summary").click();
+  await expect(field.getByText("betterstacks (ShroudForge package, replayed from its recorded effect)", { exact: true })).toBeVisible();
+});
+
+// review-j3: the effect replay card's toggle per package writes the opt-in file (the browser mock here; the Tauri command
+// is kiln_manage::registry_plan::set_replay_opt_in, the one kilnctl registry replay --opt-in|--opt-out calls)
+test("the effect replay card opts a package in and out", async ({ page }) => {
+  const r = registryFixture();
+  await report(page, { ...r, replay: [
+    { who: "shroudforge:betterstacks", state: "recorded", text: "its Lua ran this start: its effect is recorded (1 field(s)), replayable after a game update", fields: 1, optIn: false, mod: "replay.sf.betterstacks" },
+  ] });
+  const card = page.getByTestId("registry-replay-card");
+  await expect(card.getByText("Effect replay", { exact: true })).toBeVisible();
+  const toggle = card.getByRole("switch", { name: "Replay shroudforge:betterstacks after a game update" });
+  await expect(toggle).not.toBeChecked();
+  // the splash gone and the file's opt-ins read (the switch is enabled then), as chain-order.spec.ts waits; the switch's track
+  // lies over its input, so it is clicked as community-posts.spec.ts clicks one
+  await page.locator(".k-splash").waitFor({ state: "detached" });
+  await expect(toggle).toBeEnabled();
+  await toggle.click({ force: true });
+  await expect(toggle).toBeChecked();
+  await expect(card.getByTestId("registry-replay-saved")).toHaveText("Saved. The next start reads it.");
+  await expect(toggle).toBeEnabled();
+  await toggle.click({ force: true });
+  await expect(toggle).not.toBeChecked();
 });

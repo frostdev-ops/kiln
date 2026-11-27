@@ -2172,6 +2172,8 @@ pub struct LoadedFake {
     pub torn_reads: u32,
     /// Every committed write: (key, offset, the scalar's bytes, session).
     pub writes: Vec<(KilnAssetKey, usize, Vec<u8>, u64)>,
+    /// The names of every committed write, as `writes` (sfi R3): (writer, field), both empty for the unnamed member.
+    pub names: Vec<(String, String)>,
 }
 static LOADED: LazyLock<Mutex<HashMap<KilnOwner, LoadedFake>>> = LazyLock::new(Default::default);
 pub fn set_loaded(owner: KilnOwner, fake: Option<LoadedFake>) {
@@ -2385,6 +2387,90 @@ unsafe extern "C" fn loaded_scalar_compare_exchange(
     reply: *mut KilnMutationReply,
 ) -> KilnResult {
     let knob = enter(owner, "loaded_scalar_compare_exchange");
+    // SAFETY: the caller's arguments, passed on as they came.
+    unsafe {
+        loaded_cas(
+            knob,
+            owner,
+            key,
+            expected_session,
+            expected_full,
+            resource_size,
+            offset,
+            desired,
+            width,
+            (String::new(), String::new()),
+            reply,
+        )
+    }
+}
+
+/// kiln.assets' name check (kiln_assets.h loaded_scalar_compare_exchange_named): at most 127 bytes of UTF-8 without a
+/// control character; `None` when the name is not such text.
+fn loaded_name(text: KilnStr) -> Option<String> {
+    if text.len == 0 {
+        return Some(String::new());
+    }
+    if text.ptr.is_null() || text.len > 127 {
+        return None;
+    }
+    // SAFETY: the caller's text, readable for `len` bytes.
+    let bytes = unsafe { std::slice::from_raw_parts(text.ptr.cast::<u8>(), text.len) };
+    let name = std::str::from_utf8(bytes).ok()?;
+    (!name.chars().any(char::is_control)).then(|| name.to_owned())
+}
+
+#[allow(clippy::too_many_arguments)]
+unsafe extern "C" fn loaded_scalar_compare_exchange_named(
+    owner: KilnOwner,
+    key: *const KilnAssetKey,
+    expected_session: u64,
+    expected_full: *const c_void,
+    resource_size: usize,
+    offset: usize,
+    desired: *const c_void,
+    width: u32,
+    writer: KilnStr,
+    field: KilnStr,
+    reply: *mut KilnMutationReply,
+) -> KilnResult {
+    let knob = enter(owner, "loaded_scalar_compare_exchange_named");
+    let (Some(writer), Some(field)) = (loaded_name(writer), loaded_name(field)) else {
+        return KILN_ERR_INVALID_ARGUMENT;
+    };
+    // SAFETY: the caller's arguments, passed on as they came.
+    unsafe {
+        loaded_cas(
+            knob,
+            owner,
+            key,
+            expected_session,
+            expected_full,
+            resource_size,
+            offset,
+            desired,
+            width,
+            (writer, field),
+            reply,
+        )
+    }
+}
+
+/// Both members' write: the unnamed one passes empty names.
+#[allow(clippy::too_many_arguments)]
+unsafe fn loaded_cas(
+    knob: Knob,
+    owner: KilnOwner,
+    key: *const KilnAssetKey,
+    expected_session: u64,
+    expected_full: *const c_void,
+    resource_size: usize,
+    offset: usize,
+    desired: *const c_void,
+    width: u32,
+    name: (String, String),
+    reply: *mut KilnMutationReply,
+) -> KilnResult {
     let width = width as usize;
     // SAFETY: the caller's record, when not NULL.
     if owner == 0
@@ -2441,6 +2527,7 @@ unsafe extern "C" fn loaded_scalar_compare_exchange(
                             bytes[offset..offset + width].copy_from_slice(&desired);
                             fake.writes
                                 .push((key, offset, desired.clone(), expected_session));
+                            fake.names.push(name.clone());
                             KILN_ECS_OK
                         }
                     }
@@ -2476,6 +2563,7 @@ pub static ASSETS: KilnAssetsApi = {
     table.loaded_snapshot = Some(loaded_snapshot);
     table.loaded_list = Some(loaded_list);
     table.loaded_scalar_compare_exchange = Some(loaded_scalar_compare_exchange);
+    table.loaded_scalar_compare_exchange_named = Some(loaded_scalar_compare_exchange_named);
     table
 };
 

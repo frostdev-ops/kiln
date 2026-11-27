@@ -152,3 +152,61 @@ fn the_eml_pass_makes_the_record_kilns_reader_is_tested_on() {
         eml_fixture_path().display()
     );
 }
+
+// ---- the ShroudForge dialect with member paths (format 2, 0.2.0-dev.32): kiln mode's record of a fixed pass (the
+// recorder's per-resource rule, then the member paths each package changed, `Journal::with_member_paths`, written with
+// `notApplied`), fixture schema/sfi/eml-journal/fixtures/kiln-eml-writer-sf2.json, which the native reader names per field
+// and per element from (registry_writers_test.cpp). ----
+fn sf2_fixture_path() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../schema/sfi/eml-journal/fixtures/kiln-eml-writer-sf2.json")
+}
+
+/// One kiln-mode pass: "alpha" (ShroudForge) changes the stone's stack size and a recipe's duration and creates an item;
+/// "bravo" (an EML package of the pass) appends a recipe and wrote the stone back as it was (so it is not listed there);
+/// "charlie" changes nothing; "broken" failed and the retry ran without it.
+fn sf2_record() -> String {
+    use kiln_eml::sf_startup::journal::{NotApplied, Tail};
+    let stone = ResourceId::new(key(STONE), ITEM_TYPE, 0);
+    let recipes = ResourceId::new(key(RECIPES), RECIPE_TYPE, 0);
+    let r = Recorder::default();
+    r.begin("alpha");
+    r.wrote(stone);
+    r.wrote(recipes);
+    r.created(ResourceId::new(key(CREATED), ITEM_TYPE, 0), false);
+    r.end();
+    r.begin("bravo");
+    r.wrote(stone);
+    r.wrote(recipes);
+    r.end();
+    r.begin("charlie");
+    r.end();
+    let journal = r.take().with_member_paths(|bucket, id| {
+        let paths: &[&str] = match (bucket, *id == stone, *id == recipes) {
+            (1, true, _) => &["maxStackSize"],
+            (1, _, true) => &["recipes[1].craftingDuration"],
+            (2, true, _) => &[],
+            (2, _, true) => &["recipes[2]", "recipes[]"],
+            _ => return None,
+        };
+        Some(paths.iter().map(|p| p.to_string()).collect())
+    });
+    let header = Header { stem: "enshrouded_server", generation: [0x7c; 32], receipt_sha256: [0x3e; 32], dialect: "shroudforge", attempt: "retry" };
+    let identity = |id: &str| {
+        Some(Identity { version: Some("1.2.0".into()), kind: if id == "bravo" { "eml" } else { "shroudforge" }, content_sha256: [0x11; 32], settings_sha256: [0x22; 32] })
+    };
+    let not_applied = [NotApplied { id: "broken".into(), version: Some("0.9.0".into()), kind: "shroudforge", content_sha256: [0x11; 32],
+        reason: "runtime error: [string \"broken\"]:2: boom\nstack traceback:".into() }];
+    journal.json_with(&header, &identity, &Tail { writer: None, not_applied: Some(&not_applied) })
+}
+
+#[test]
+fn the_shroudforge_dialect_with_paths_makes_the_record_kilns_reader_is_tested_on() {
+    let made = sf2_record();
+    let kept = std::fs::read_to_string(sf2_fixture_path()).unwrap_or_default();
+    assert!(
+        made == kept.trim_end(),
+        "kiln-eml's format-2 ShroudForge-dialect record is no longer the fixture Kiln's reader is tested on ({}).\nMake the \
+         fixture this one line and run the native registry_writers test:\n{made}",
+        sf2_fixture_path().display()
+    );
+}

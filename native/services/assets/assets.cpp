@@ -922,6 +922,15 @@ KilnResult KILN_CALL t_loaded_cas(KilnOwner o, const KilnAssetKey* k, uint64_t s
                                   size_t offset, const void* desired, uint32_t width, KilnMutationReply* reply) {
     return op_loaded_scalar_cas(o, k, session, expected, size, offset, desired, width, reply);
 }
+// The named loaded writes (sfi R3): the same write, its record naming the writer and field; the records (loaded_prod.cpp).
+KilnResult KILN_CALL t_loaded_cas_named(KilnOwner o, const KilnAssetKey* k, uint64_t session, const void* expected, size_t size,
+                                        size_t offset, const void* desired, uint32_t width, KilnStr writer, KilnStr field,
+                                        KilnMutationReply* reply) {
+    return op_loaded_scalar_cas_named(o, k, session, expected, size, offset, desired, width, writer, field, reply);
+}
+KilnResult KILN_CALL t_loaded_write_records(KilnLoadedWriteRecord* out, uint32_t record_size, size_t capacity, size_t* required) {
+    return op_loaded_write_records(out, record_size, capacity, required);
+}
 
 const KilnAssetsApi kTable = {
     {sizeof(KilnAssetsApi), KILN_ASSETS_VERSION},
@@ -939,6 +948,7 @@ const KilnAssetsApi kTable = {
     &t_tex_rgba,  // since 0.2.0-dev.29.15
     &t_blob_read_resident,
     &t_loaded_snapshot, &t_loaded_list, &t_loaded_cas,  // since 0.2.0-dev.30.3
+    &t_loaded_cas_named, &t_loaded_write_records,       // since 0.2.0-dev.32
 };
 
 const KilnAssetsVfxApi kVfxTable = {

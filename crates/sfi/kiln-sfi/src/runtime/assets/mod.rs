@@ -38,10 +38,10 @@ use super::write_fault::WriteOutcome;
 use crate::service_member;
 use kiln_abi::services::kiln_assets::{
     KILN_ASSETS_SERVICE, KILN_ASSETS_VERSION, KILN_ECS_CONFLICT, KILN_ECS_OK, KILN_ECS_UNCERTAIN,
-    KILN_ECS_WRITE_WHY_TARGET_LATCHED, KILN_LOADED_CHANGED, KilnAssetKey, KilnAssetsApi,
-    KilnLoadedInfo, KilnMutationReply,
+    KILN_ECS_WRITE_WHY_TARGET_LATCHED, KILN_LOADED_CHANGED, KILN_LOADED_WRITE_NAME_MAX, KilnAssetKey,
+    KilnAssetsApi, KilnLoadedInfo, KilnMutationReply,
 };
-use kiln_abi::{KILN_ERR_BUFFER_TOO_SMALL, KILN_ERR_NOT_FOUND, KILN_OK, KilnOwner};
+use kiln_abi::{KILN_ERR_BUFFER_TOO_SMALL, KILN_ERR_NOT_FOUND, KILN_OK, KilnOwner, KilnStr};
 use mlua::{Table, Value};
 use std::cell::{Cell, RefCell, RefMut};
 use std::collections::HashMap;
@@ -286,7 +286,9 @@ impl Assets {
 
     /// The bridge's `resource_compare_exchange_scalar_for_session` (update_resource_scalar.rs:5-75) and the session's
     /// `compare_exchange_loaded_resource_scalar`: one scalar `desired` at `offset` of the complete snapshot `expected`,
-    /// in `session`. An uncertain outcome latches the session's writes (the runtime-create's write fault).
+    /// in `session`. An uncertain outcome latches the session's writes (the runtime-create's write fault). The write
+    /// names `name` (sfi R3: kiln.assets' `loaded_scalar_compare_exchange_named`, since 0.2.0-dev.32), so Kiln's registry
+    /// report names the package on the field it changed; an older kiln.assets without that member gets the unnamed write.
     pub fn compare_exchange(
         &self,
         key: &KilnAssetKey,
@@ -294,6 +296,7 @@ impl Assets {
         offset: usize,
         desired: &[u8],
         session: u64,
+        name: &WriteName,
     ) -> Result<(), String> {
         let end = offset
             .checked_add(desired.len())
@@ -307,31 +310,51 @@ impl Assets {
         if session == 0 || self.world_session() != session {
             return Err(text::WRITE_SESSION.into());
         }
-        let cas = self
-            .table()
-            .and_then(|table| {
-                service_member!(table, KilnAssetsApi, loaded_scalar_compare_exchange).ok()
-            })
-            .ok_or(text::NO_WRITE)?;
+        let table = self.table().ok_or(text::NO_WRITE)?;
+        let cas = service_member!(table, KilnAssetsApi, loaded_scalar_compare_exchange)
+            .map_err(|_| text::NO_WRITE)?;
+        let named = service_member!(table, KilnAssetsApi, loaded_scalar_compare_exchange_named).ok();
         // SAFETY: an all-zero reply is valid (integers only).
         let mut reply: KilnMutationReply = unsafe { std::mem::zeroed() };
         reply.size = std::mem::size_of::<KilnMutationReply>() as u32;
-        // SAFETY: kiln_assets.h loaded_scalar_compare_exchange: the caller's key, snapshot, scalar and reply.
-        let result = unsafe {
-            self.services.call(
-                cas,
-                (
-                    self.owner,
-                    std::ptr::from_ref(key),
-                    session,
-                    expected.as_ptr().cast::<core::ffi::c_void>(),
-                    expected.len(),
-                    offset,
-                    desired.as_ptr().cast::<core::ffi::c_void>(),
-                    width as u32,
-                    &raw mut reply,
-                ),
-            )
+        let result = match named {
+            // SAFETY: kiln_assets.h loaded_scalar_compare_exchange_named: the caller's key, snapshot, scalar, the two
+            // names (checked text, borrowed for the call) and reply.
+            Some(named) => unsafe {
+                self.services.call(
+                    named,
+                    (
+                        self.owner,
+                        std::ptr::from_ref(key),
+                        session,
+                        expected.as_ptr().cast::<core::ffi::c_void>(),
+                        expected.len(),
+                        offset,
+                        desired.as_ptr().cast::<core::ffi::c_void>(),
+                        width as u32,
+                        name.writer_str(),
+                        name.field_str(),
+                        &raw mut reply,
+                    ),
+                )
+            },
+            // SAFETY: kiln_assets.h loaded_scalar_compare_exchange: the caller's key, snapshot, scalar and reply.
+            None => unsafe {
+                self.services.call(
+                    cas,
+                    (
+                        self.owner,
+                        std::ptr::from_ref(key),
+                        session,
+                        expected.as_ptr().cast::<core::ffi::c_void>(),
+                        expected.len(),
+                        offset,
+                        desired.as_ptr().cast::<core::ffi::c_void>(),
+                        width as u32,
+                        &raw mut reply,
+                    ),
+                )
+            },
         };
         let outcome = match reply.status {
             // a refusal leaves the zeroed reply (KILN_ECS_OK): only the member's KILN_OK is a written scalar
@@ -441,6 +464,61 @@ impl Assets {
         Err(text::LISTING_CHANGED.into())
     }
 }
+
+/// Who a loaded-resource write is for (sfi R3; kiln_assets.h named loaded writes): kiln.assets records it with the write,
+/// and kiln.content's registry report names the package on the field it changed instead of "another writer".
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WriteName {
+    writer: String,
+    field: String,
+}
+
+impl WriteName {
+    /// A package's write: writer `shroudforge:<package id>` (empty when that is not a plain id of at most
+    /// [`NAME_MAX`] bytes: the write then names nobody), and the field path the package gave, cut to [`NAME_MAX`] bytes on a
+    /// character boundary with control characters as `?` (diagnostics only: a name never refuses a write).
+    pub fn package(package_id: &str, field: &str) -> Self {
+        let writer = format!("shroudforge:{package_id}");
+        let plain = !package_id.is_empty()
+            && writer.len() <= NAME_MAX
+            && package_id
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'));
+        let mut text = String::new();
+        for c in field.chars() {
+            let c = if c.is_control() { '?' } else { c };
+            if text.len() + c.len_utf8() > NAME_MAX {
+                break;
+            }
+            text.push(c);
+        }
+        Self {
+            writer: if plain { writer } else { String::new() },
+            field: text,
+        }
+    }
+    pub fn writer(&self) -> &str {
+        &self.writer
+    }
+    pub fn field(&self) -> &str {
+        &self.field
+    }
+    fn writer_str(&self) -> KilnStr {
+        KilnStr {
+            ptr: self.writer.as_ptr().cast(),
+            len: self.writer.len(),
+        }
+    }
+    fn field_str(&self) -> KilnStr {
+        KilnStr {
+            ptr: self.field.as_ptr().cast(),
+            len: self.field.len(),
+        }
+    }
+}
+
+/// The longest writer or field name kiln.assets keeps (`KILN_LOADED_WRITE_NAME_MAX`).
+pub const NAME_MAX: usize = KILN_LOADED_WRITE_NAME_MAX as usize;
 
 fn info() -> KilnLoadedInfo {
     KilnLoadedInfo {

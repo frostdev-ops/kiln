@@ -29,6 +29,7 @@
 #include "content.h"
 #include "registry/compose.h"
 #include "registry/regmap.h"
+#include "registry/runtime_writes.h"
 
 namespace kc {
 namespace registry::stage { struct LiveData; }
@@ -84,6 +85,12 @@ struct RegistryLive {
     // writer's row whose owner no "mod <id>" label names (registry-followups 1). Asked once per owner, under the store's lock
     // (a leaf lookup in the core that never calls out). Unset or empty: the owner's label names it.
     std::function<std::string(KilnOwner)> owner_name;
+    // sfi R3: the newest recorded run-time write of each loaded-resource place, where it lies in game memory now
+    // (kiln.assets loaded_write_records, placed through resource_data: registry/runtime_writes.h). Asked under the store's
+    // lock, at most once per report and only when a row needs a name (a value that changed outside Kiln's layers: the drift
+    // probe, a later write, a write compare-before-write skipped); kiln.assets copies under its own lock and calls nothing
+    // back. Unset or empty: those rows stay "another writer" (an older kiln.assets, or no named write).
+    std::function<std::vector<registry::RuntimeWrite>()> runtime_writes;
 };
 
 // One pack file's "registry" section, lowered (packs.cpp registry_sections).

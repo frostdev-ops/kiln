@@ -292,6 +292,11 @@ fn write_field_compare_exchanges_one_scalar_of_the_shared_template() {
         (writes[0].1, writes[0].2.clone(), writes[0].3),
         (40, 20f32.to_le_bytes().to_vec(), FAKE_SESSION)
     );
+    // sfi R3: the write names the view's package and the field path, for Kiln's registry report
+    assert_eq!(
+        fs::loaded(t.s.owner, |f| f.names.clone()).unwrap(),
+        vec![("shroudforge:alpha".to_owned(), "start".to_owned())]
+    );
     assert_eq!(&stored(&t)[40..44], &20f32.to_le_bytes());
     assert_eq!(
         t.s.eval::<f64>("return view:read_fields({'start'}).start"),

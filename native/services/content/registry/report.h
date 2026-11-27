@@ -42,6 +42,7 @@ struct ReportMeta {
             std::string state = "none", text;
             size_t packages = 0, entries = 0;
             bool truncated = false;
+            std::string writer;  // whose record was looked at: "kiln-eml" | "shroudforge" (hosted); empty: none was asked
         } journal;
         // registry.json base.archive (archive_base.h): what Kiln knows the archive writer did and what it rests on; null: none.
         json archive;
@@ -58,6 +59,9 @@ struct ReportMeta {
     // registry.json "rollback" (stage.cpp fills it when kiln/data/content/registry/rollback.json asks for one): {plan, from,
     // requested, state applied | refused, reason, changedBack [{field, from, to}], changedBackTotal, leftOut}; null: none asked.
     json rollback;
+    // registry.json "replay" (stage.cpp, effect replay D6, replay.h): what became of each package opted in to effect replay
+    // [{who, state recorded | replayed | refused | none, text, fields, recordedOn}]; null: none is opted in.
+    json replay = nullptr;
     // registry.json "saves": edits that change what existing saves hold (saves.h), one row each; null: none.
     json saves;
     // registry.json "migrated": what the schemas' id migrations renamed in this start's edits ({mod, source, stage, note}).

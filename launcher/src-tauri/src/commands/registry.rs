@@ -5,6 +5,7 @@ use kiln_manage::registry_plan::{self as rp, Change, PlanMod, Request};
 use kiln_manage::{Error, ErrorCode};
 use serde::Serialize;
 use serde_json::Value;
+use std::collections::BTreeMap;
 use std::path::Path;
 #[path = "registry_report_file.rs"]
 mod file;
@@ -99,6 +100,32 @@ pub async fn registry_rollback(game_id: String, clear: bool, dry_run: bool) -> R
     }).await
 }
 
+/// Effect replay's opt-in file (kiln_manage::registry_plan::REPLAY_OPT_IN_REL, the one `kilnctl registry replay` writes): the
+/// packages it names, true when opted in. The Conflicts page shows a toggle per package registry.json's `replay` lists.
+#[tauri::command]
+pub async fn registry_replay_opt_ins(game_id: String) -> Result<BTreeMap<String, bool>, Error> {
+    blocking(move || {
+        let game = crate::state::game(&game_id)?;
+        rp::replay_opt_ins(&game.path)
+    }).await
+}
+
+/// Opts one package (`shroudforge:<id>` / `eml:<id>`) in to effect replay or out of it; the next start reads it.
+pub fn replay_opt(game: &Path, who: &str, on: bool) -> Result<BTreeMap<String, bool>, Error> {
+    if !rp::replay_package_ok(who) {
+        return Err(Error::invalid(format!("{who:?} is not shroudforge:<id> or eml:<id>")));
+    }
+    rp::set_replay_opt_in(game, who, on)
+}
+
+#[tauri::command]
+pub async fn registry_replay_opt(game_id: String, who: String, on: bool) -> Result<BTreeMap<String, bool>, Error> {
+    blocking(move || {
+        let game = crate::state::game(&game_id)?;
+        replay_opt(&game.path, &who, on)
+    }).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -166,5 +193,14 @@ mod tests {
         g.plan(&h('a'), json!({}));
         let r = rollback(&g.0, false, true).unwrap();
         assert!(r.blocked.is_none() && r.changes_unknown.is_some(), "the plan rolled away from is gone: the changes are unknown, the rollback still possible");
+    }
+
+    #[test]
+    fn the_replay_toggle_writes_the_file_kilnctl_writes() {
+        let g = Game::new("replay");
+        assert_eq!(replay_opt(&g.0, "shroudforge:betterstacks", true).unwrap().get("shroudforge:betterstacks"), Some(&true));
+        assert_eq!(rp::replay_opt_ins(&g.0).unwrap().get("shroudforge:betterstacks"), Some(&true), "kiln_manage's file");
+        assert_eq!(replay_opt(&g.0, "shroudforge:betterstacks", false).unwrap().get("shroudforge:betterstacks"), Some(&false));
+        assert!(replay_opt(&g.0, "../x", true).is_err() && replay_opt(&g.0, "betterstacks", true).is_err(), "only a package name crosses");
     }
 }

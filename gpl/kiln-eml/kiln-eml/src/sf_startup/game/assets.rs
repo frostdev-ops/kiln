@@ -73,6 +73,7 @@ use super::{
         attributes::Catalog,
         format_adapter,
         journal::{Journal, Recorder, ResourceOwner},
+        journal_paths::{self, Paths},
         resource_values::{self, TypeHandle, ValueObjects, is_dirty_lua_value},
     },
     add_function,
@@ -98,6 +99,11 @@ pub(crate) struct AssetInner {
     /// kiln-eml: the startup change journal's recorder: every resource value this session decodes, validates or
     /// copies carries its resource as owner (`resource_objects`), creations and contents are noted here.
     journal: Rc<Recorder>,
+    /// kiln-eml (format 2 of the ShroudForge dialect): what each resource a package wrote held before the package that
+    /// last changed it ran, as bytes (absent: its archive bytes), and the member paths each package changed there
+    /// (`journal_paths.rs`; a resource is in `paths` once some package's writes into it were compared).
+    before: RefCell<HashMap<ResourceId, Rc<[u8]>>>,
+    paths: RefCell<HashMap<ResourceId, Paths>>,
 }
 
 /// A handle to the VM's asset session. Clones share it. Worker-local, like the type session.
@@ -142,6 +148,8 @@ impl AssetSession {
             objects,
             attributes: OnceCell::new(),
             journal: Rc::new(Recorder::default()),
+            before: RefCell::new(HashMap::new()),
+            paths: RefCell::new(HashMap::new()),
         }))
     }
 
@@ -150,14 +158,21 @@ impl AssetSession {
         self.0.journal.begin(package);
     }
 
-    /// kiln-eml: the running entrypoint returned (or failed).
+    /// kiln-eml: the running entrypoint returned (or failed). Its resources are compared with what they held before it
+    /// ran (format 2 of the ShroudForge dialect: the members it changed). No Lua runs here (the values are converted, not
+    /// called).
     pub fn end_package(&self) {
+        self.0.compare_running();
         self.0.journal.end();
     }
 
-    /// kiln-eml: what each package's entrypoint changed; nothing is noted afterwards.
+    /// kiln-eml: what each package's entrypoint changed, with the member paths it changed in each resource (format 2 of the
+    /// ShroudForge dialect); nothing is noted afterwards.
     pub fn take_journal(&self) -> Journal {
-        self.0.journal.take()
+        let journal = self.0.journal.take();
+        let paths = self.0.paths.take();
+        self.0.before.take();
+        journal.with_member_paths(|bucket, id| paths.get(id).map(|p| p.of(bucket)))
     }
 
     /// SF `AppState::attribute_catalog` (session/mod.rs:123-136): the reference archive's attribute catalog, built once
@@ -264,6 +279,83 @@ impl AssetSession {
 }
 
 impl AssetInner {
+    /// The running entrypoint's resources against what they held before it (`AssetSession::end_package`): a created one
+    /// is kept as its creator left it (the creator is named on it whole); a written one, encoded as the commit will, is
+    /// compared with its bytes before (its archive bytes the first time), and only when they differ decoded and walked
+    /// member by member. A resource that cannot be compared names the package on the whole of it.
+    fn compare_running(&self) {
+        let (bucket, written, created) = self.journal.running();
+        if bucket == 0 {
+            return;
+        }
+        for id in created.iter().chain(&written) {
+            let Some(record) = self.resources.borrow().get(id).cloned() else {
+                continue;
+            };
+            let now = match self.current(&record) {
+                Ok(Some(now)) => now,
+                Ok(None) => {
+                    // never edited nor replaced: what it held before
+                    self.paths.borrow_mut().entry(*id).or_default();
+                    continue;
+                }
+                Err(_) => {
+                    self.paths.borrow_mut().entry(*id).or_default().whole(bucket);
+                    continue;
+                }
+            };
+            if created.contains(id) {
+                self.before.borrow_mut().insert(*id, now.1.into());
+                continue;
+            }
+            let was = match self.before.borrow().get(id).cloned() {
+                Some(was) => Some(was),
+                None => self.archive_bytes(id),
+            };
+            let mut paths = self.paths.borrow_mut();
+            let entry = paths.entry(*id).or_default();
+            match was {
+                Some(was) if *was == *now.1 => {}
+                Some(was) => match self.decoded(id, was) {
+                    Some(before) => entry.changed(bucket, journal_paths::diff(&before, &now.0, super::super::journal::RESOURCE_PATHS)),
+                    None => entry.whole(bucket),
+                },
+                None => entry.whole(bucket),
+            }
+            drop(paths);
+            self.before.borrow_mut().insert(*id, now.1.into());
+        }
+    }
+
+    /// A record's value now as the commit encodes it (`apply`), with the converted value; None: never edited nor replaced.
+    fn current(&self, record: &ResourceInfo) -> anyhow::Result<Option<(kfc::resource::value::Value, Vec<u8>)>> {
+        let value = record.value.borrow();
+        let Some(value) = value.as_ref() else {
+            return Ok(None);
+        };
+        if !record.replaced.get() && !is_dirty_lua_value(value)? {
+            return Ok(None);
+        }
+        let r#type = self.resource_type(&record.resource_id)?;
+        let converted = resource_values::convert_lua_to_value(value, &r#type, &self.objects)?;
+        let bytes = resource_values::value_bytes(&converted, &r#type).map_err(anyhow::Error::msg)?;
+        Ok(Some((converted, bytes)))
+    }
+
+    /// A resource's bytes in the archive (the baseline the pass reads), None when it has none or the reader is closed.
+    fn archive_bytes(&self, id: &ResourceId) -> Option<Rc<[u8]>> {
+        let mut reader = self.reader.borrow_mut();
+        reader.as_mut()?.read_resource(id).ok().flatten().map(Rc::from)
+    }
+
+    /// Bytes of resource `id`'s type as a value (None: they do not decode).
+    fn decoded(&self, id: &ResourceId, bytes: Rc<[u8]>) -> Option<kfc::resource::value::Value> {
+        let r#type = self.resource_type(id).ok()?;
+        let len = bytes.len();
+        let mapped = resource_values::decode_mapped(bytes, &r#type).ok()?;
+        resource_values::mapped_to_value(mapped, len).ok()
+    }
+
     fn resource(this: &Rc<Self>, info: Rc<ResourceInfo>) -> Resource {
         Resource::new(info, Rc::downgrade(this))
     }

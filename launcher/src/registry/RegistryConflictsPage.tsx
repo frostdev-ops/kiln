@@ -2,9 +2,9 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 import { useGame, useGameStatus, usePoll } from "../api/hooks";
 import { useLanguage, useT } from "../i18n";
-import { Banner, Button, Card, EmptyState, Page, PageHeader, Skeleton, StatusPill, WellInput, errorText } from "../ui";
-import { readRegistryReport, registryRollback, type RegistryRollback } from "./api";
-import { parseRegistryReport, reportFreshness, type RegistryField } from "./report";
+import { Banner, Button, Card, EmptyState, Page, PageHeader, Skeleton, StatusPill, Toggle, WellInput, errorText } from "../ui";
+import { readRegistryReport, registryReplayOpt, registryReplayOptIns, registryRollback, type RegistryRollback } from "./api";
+import { parseRegistryReport, reportFreshness, type RegistryField, type RegistryReplayRow } from "./report";
 import "./registry.css";
 
 export default function RegistryConflictsPage() {
@@ -43,6 +43,7 @@ function RegistryFor({ gameId }: { gameId: string }) {
           {!r.verified && <Banner tone="warn" title={t("registry.unverified")}>{t("registry.unverifiedBody")}</Banner>}
           <p className="registry-hint">{t("registry.certaintyHint")}</p>
         </Card>
+        {r.replay.length > 0 && <RegistryReplayCard gameId={gameId} rows={r.replay} />}
         <RegistryPlanCard gameId={gameId} snapshot={`${r.written}#${r.generation}`} />
         {(r.omitted > 0 || r.writersOmitted > 0) && <Banner tone="warn" title={t("registry.partial")}>
           {r.omitted > 0 && `${t("registry.partialRows", { count: r.omitted })} `}
@@ -174,5 +175,33 @@ function RegistryPlanCard({ gameId, snapshot }: { gameId: string; snapshot: stri
     {act.error && <Banner tone="warn" title={t("registry.plan.failed")}>{errorText(act.error)}</Banner>}
     {done && <Banner tone="ok" title={done.cleared !== null ? (done.cleared ? t("registry.plan.cleared") : t("registry.plan.nothingToClear"))
       : t("registry.plan.requested", { plan: short(done.pending?.plan ?? done.target?.hash) })}>{t("registry.plan.savesUntouched")}</Banner>}
+  </Card>;
+}
+
+/** Effect replay (owner decision D6, opt-in per package): what the last start did with each ShroudForge and EML package, and
+ * a toggle per package that writes the opt-in file `kilnctl registry replay --opt-in|--opt-out` writes. Kiln records every
+ * package's effect by default; an opted-in one is replayed from that record after a game update when its Lua no longer runs.
+ * The toggle shows the file as it is now (the next start reads it), the rows what the last start read. */
+function RegistryReplayCard({ gameId, rows }: { gameId: string; rows: RegistryReplayRow[] }) {
+  const t = useT();
+  const file = useQuery({ queryKey: ["registry_replay_opt_ins", gameId], retry: false, queryFn: () => registryReplayOptIns(gameId) });
+  const [saved, setSaved] = useState(false);
+  // the choice shows at once; the file's answer replaces it (an error puts the file's value back)
+  const [chosen, setChosen] = useState<Record<string, boolean>>({});
+  const opt = useMutation({
+    mutationFn: ({ who, on }: { who: string; on: boolean }) => registryReplayOpt(gameId, who, on),
+    onSuccess: () => { setSaved(true); void file.refetch(); },
+    onError: (_e, { who }) => setChosen(c => { const { [who]: _, ...rest } = c; return rest; }),
+  });
+  return <Card title={t("registry.replay.title")} sub={t("registry.replay.sub")} data-testid="registry-replay-card">
+    {file.error && <Banner tone="warn" title={t("registry.replay.unavailable")}>{errorText(file.error)}</Banner>}
+    {opt.error && <Banner tone="warn" title={t("registry.replay.notSaved")}>{errorText(opt.error)}</Banner>}
+    {saved && !opt.error && <p className="registry-hint" data-testid="registry-replay-saved">{t("registry.replay.saved")}</p>}
+    <Rows rows={rows} empty={t("registry.replay.none")} render={(x, i) => <article key={i} className="registry-line">
+      <p className="registry-journal" data-testid="registry-replay">{x.line}</p>
+      {x.who && <Toggle checked={chosen[x.who] ?? (file.data ? file.data[x.who] === true : x.optIn)} disabled={!file.data || opt.isPending}
+        onChange={on => { setSaved(false); setChosen(c => ({ ...c, [x.who]: on })); opt.mutate({ who: x.who, on }); }} label={t("registry.replay.toggle")}
+        aria-label={t("registry.replay.toggleFor", { who: x.who })} />}
+    </article>} />
   </Card>;
 }

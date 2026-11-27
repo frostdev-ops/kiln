@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! The startup change journal of a kiln-mode ShroudForge-dialect start (`kiln/eml/ownership/<stem>.change-journal.json`,
-//! sf_startup/journal.rs, startup.rs): per package of the committed attempt the resources its entrypoint wrote, the
-//! ones it created (by ordinal) and the contents it created, bound to the published generation; a cache hit keeps it
-//! byte for byte; a verified BASE removes it; an injected failure and a real kill at each new step never leave a
-//! journal for another generation than the live one.
+//! sf_startup/journal.rs, startup.rs): per package of the committed attempt the resources its entrypoint changed, each
+//! with the member paths it changed there (format 2 of dialect shroudforge, 0.2.0-dev.32; sf_startup/journal_paths.rs),
+//! the ones it created (by ordinal) and the contents it created, the packages not applied, bound to the published
+//! generation; a cache hit keeps it byte for byte; a verified BASE removes it; an injected failure and a real kill at each
+//! new step never leave a journal for another generation than the live one; kiln mode's EML dialect journals its pass too.
 #[path = "support/m6_fixture/mod.rs"]
 mod fixture;
 #[path = "support/m6_startup/mod.rs"]
@@ -71,8 +72,8 @@ fn hex(bytes: &[u8]) -> String {
 fn type_hash() -> String {
     format!("{:08x}", kfc::hash::fnv("m6.Root"))
 }
-fn changed(part: u32) -> Value {
-    json!({"guid": RESOURCE_GUID, "typeHash": type_hash(), "part": part, "createdBy": null})
+fn changed(part: u32, paths: &[&str]) -> Value {
+    json!({"guid": RESOURCE_GUID, "typeHash": type_hash(), "part": part, "createdBy": null, "paths": paths})
 }
 fn package<'a>(j: &'a Value, id: &str) -> &'a Value {
     j["packages"]
@@ -199,8 +200,9 @@ fn the_journal_names_each_packages_changes_of_the_committed_attempt_only() {
     bound_to(&j, &out);
     assert_eq!(
         (&j["format"], &j["dialect"], &j["attempt"], &j["truncated"]),
-        (&json!(1), &json!("shroudforge"), &json!("retry"), &json!(false))
+        (&json!(2), &json!("shroudforge"), &json!("retry"), &json!(false))
     );
+    assert!(j.get("writer").is_none(), "kiln-eml's own record names no writer (absent: kiln-eml)");
     assert_eq!(
         ids(&j),
         ["alpha", "bravo", "charlie", "delta"],
@@ -215,9 +217,9 @@ fn the_journal_names_each_packages_changes_of_the_committed_attempt_only() {
         assert_eq!(p["kind"], if id == "bravo" { "eml" } else { "shroudforge" });
         assert_eq!(p["truncated"], false);
     }
-    // alpha: R0 written; two creations by ordinal (its own edit of the first not listed again); its content
+    // alpha: R0's child.extra changed; two creations by ordinal (its own edit of the first not listed again); its content
     let alpha = package(&j, "alpha");
-    assert_eq!(alpha["changed"], json!([changed(0)]));
+    assert_eq!(alpha["changed"], json!([changed(0, &["child.extra"])]));
     let created = alpha["created"].as_array().unwrap();
     assert_eq!(created.len(), 2, "{alpha}");
     assert_eq!(
@@ -243,8 +245,11 @@ fn the_journal_names_each_packages_changes_of_the_committed_attempt_only() {
         let id = ResourceId::new(Guid::parse(guid).unwrap(), kfc::hash::fnv("m6.Root"), 0);
         assert!(index.resources().contains_key(&id), "{guid} not published");
     }
-    // bravo (an EML package of the pass): R0 again and R3
-    assert_eq!(changed_set(package(&j, "bravo")), set(&[changed(0), changed(3)]));
+    // bravo (an EML package of the pass): R0's child.extra again, and the element it appended to R3's children
+    assert_eq!(
+        changed_set(package(&j, "bravo")),
+        set(&[changed(0, &["child.extra"]), changed(3, &["children[2]", "children[]"])])
+    );
     assert_eq!(package(&j, "bravo")["created"], json!([]));
     // charlie only read
     let charlie = package(&j, "charlie");
@@ -253,11 +258,18 @@ fn the_journal_names_each_packages_changes_of_the_committed_attempt_only() {
         (&json!([]), &json!([]), &json!([]))
     );
     // delta wrote through alpha's references: R0, and alpha's first creation named by its creator's ordinal
-    let made =
-        json!({"guid": random, "typeHash": type_hash(), "part": 0, "createdBy": {"package": "alpha", "ordinal": 1}});
-    assert_eq!(changed_set(package(&j, "delta")), set(&[changed(0), made]));
-    // nothing of bad's: not R9, not its creation, not its content
-    let text = j.to_string();
+    let made = json!({"guid": random, "typeHash": type_hash(), "part": 0, "createdBy": {"package": "alpha", "ordinal": 1},
+        "paths": ["child.extra"]});
+    assert_eq!(changed_set(package(&j, "delta")), set(&[changed(0, &["child.extra"]), made]));
+    // nothing of bad's changes: not R9, not its creation, not its content; it is listed as not applied, with its error
+    let not = j["notApplied"].as_array().unwrap_or_else(|| panic!("no notApplied: {j}"));
+    assert_eq!(not.len(), 1, "{not:?}");
+    assert_eq!((&not[0]["id"], &not[0]["kind"], &not[0]["version"]), (&json!("bad"), &json!("shroudforge"), &json!("1.0.0")));
+    assert_eq!(not[0]["contentSha256"], hex(&plan.package("bad").unwrap().content_sha256));
+    assert!(not[0]["reason"].as_str().unwrap().contains("bad fails"), "{}", not[0]["reason"]);
+    let mut text = j.clone();
+    text.as_object_mut().unwrap().remove("notApplied");
+    let text = text.to_string();
     assert!(!text.contains("\"bad\""));
     assert!(!text.contains(&ContentHash::from_data(b"bad blob").to_string()));
     assert_eq!(
@@ -275,6 +287,24 @@ fn the_journal_names_each_packages_changes_of_the_committed_attempt_only() {
     );
 }
 
+// review-j3: a package Kiln left out because it is not as the launch plan lists it (package-changed: its files changed, it
+// was switched off or removed since the plan, or it needs such a one) did not fail on this game build: its record must
+// never be replayed for it, so the journal leaves it out of notApplied (the package whose Lua failed stays).
+#[test]
+fn a_package_not_as_planned_is_never_listed_as_not_applied() {
+    let s = Start::new("r1-not-as-planned");
+    mixed_packages(&s);
+    let mut plan = mixed_plan(&s);
+    plan.packages.iter_mut().find(|p| p.id == "charlie").unwrap().content_sha256 = [9; 32];
+    let (_, out) = s.start(&plan, &native());
+    assert_eq!(out.state, State::Committed, "{out:?}");
+    let charlie = out.packages.iter().find(|r| r.id == "charlie").unwrap();
+    assert_eq!((charlie.data, charlie.code.as_deref()), (Data::Excluded, Some("package-changed")), "{out:?}");
+    let j = journal(&s, "not-as-planned");
+    let not: Vec<&str> = j["notApplied"].as_array().unwrap().iter().map(|n| n["id"].as_str().unwrap()).collect();
+    assert_eq!(not, ["bad"], "{j}");
+}
+
 // Each kind of write names its writer, and only the resource it wrote: a mapped field, an array element, an insertion,
 // a removal, a variant's value, a whole data assignment (a copy of another resource), a write into that copy, a write
 // into a copy assigned into another resource (the copy is the target's, never its source's), a refused insertion
@@ -282,6 +312,10 @@ fn the_journal_names_each_packages_changes_of_the_committed_attempt_only() {
 // into a resource's field, an array assigned whole) that another package made and shared through its module: a field
 // assignment, an insertion, an element assignment, a removal and a clear each name the resource the value was
 // validated into; a clear of a mapped array; an owned variant's value (every write site of the six wrappers).
+// 0.2.0-dev.32 (format 2 of the ShroudForge dialect): each is named by the members it CHANGED, at their published places:
+// an insertion or removal by the list's membership (and the elements between its unchanged ends), and a change a later
+// package took away again (k02's element, cleared by k17; k11's and k14's elements of R9, removed by k15) is no longer
+// in the published resource, so it is not named there.
 #[test]
 fn every_kind_of_write_is_named_and_a_copy_belongs_to_its_target() {
     let s = Start::new("r1-kinds");
@@ -332,28 +366,31 @@ fn every_kind_of_write_is_named_and_a_copy_belongs_to_its_target() {
     assert_eq!((out.state, out.attempt), (State::Committed, Attempt::First), "{out:?}");
     let j = journal(&s, "write-kinds");
     bound_to(&j, &out);
+    let choice: &[&str] = &["choice.base", "choice.extra"];
+    let maybe: &[&str] = &["maybe.base", "maybe.extra"];
+    let items: &[&str] = &["children[]"];
     for (id, parts) in [
-        ("k01", vec![0]),
-        ("k02", vec![3]),
-        ("k03", vec![9]),
-        ("k04", vec![0]),
-        ("k05", vec![3]),
-        ("k06", vec![9]),
-        ("k07", vec![9]),
-        ("k08", vec![3]),
+        ("k01", vec![(0, &["child.extra"][..])]),
+        ("k02", vec![]),
+        ("k03", vec![(9, items)]),
+        ("k04", vec![(0, items)]),
+        ("k05", vec![(3, choice)]),
+        ("k06", vec![(9, &["child.extra", "children[]"][..])]),
+        ("k07", vec![(9, &["child.extra"][..])]),
+        ("k08", vec![(3, maybe)]),
         ("k09", vec![]),
         ("k10", vec![]),
-        ("k11", vec![0, 9]),
-        ("k12", vec![0]),
-        ("k13", vec![9]),
-        ("k14", vec![9]),
-        ("k15", vec![9]),
-        ("k16", vec![9]),
-        ("k17", vec![3]),
-        ("k18", vec![0]),
-        ("k19", vec![0]),
+        ("k11", vec![(0, maybe)]),
+        ("k12", vec![(0, &["maybe.extra"][..])]),
+        ("k13", vec![(9, items)]),
+        ("k14", vec![]),
+        ("k15", vec![(9, items)]),
+        ("k16", vec![(9, items)]),
+        ("k17", vec![(3, items)]),
+        ("k18", vec![(0, choice)]),
+        ("k19", vec![(0, choice)]),
     ] {
-        let expected: Vec<Value> = parts.into_iter().map(changed).collect();
+        let expected: Vec<Value> = parts.into_iter().map(|(part, paths)| changed(part, paths)).collect();
         assert_eq!(package(&j, id)["changed"], json!(expected), "{id}");
     }
     assert_eq!(s.extra(9), 10);
@@ -398,7 +435,8 @@ fn a_cache_hit_keeps_the_journal_byte_for_byte_and_a_missing_one_is_a_miss() {
 
 // A verified BASE removes the journal: a double failure over a journaled generation (restored), a start that admits
 // nothing (the BASE, unchanged) with a stray journal; an EML-dialect publication removes the ShroudForge dialect's
-// journal and writes none.
+// journal and (0.2.0-dev.32) writes its own: format 2 of dialect eml, bound to the published generation, the EML mod
+// named on the member it wrote.
 #[test]
 fn a_verified_base_and_an_eml_publication_remove_the_journal() {
     let s = Start::new("r1-restore");
@@ -452,11 +490,15 @@ fn a_verified_base_and_an_eml_publication_remove_the_journal() {
     let out = s.run_with(&w, &plan, &native(), &env, &|_| {});
     assert_eq!(out.state, State::Committed, "{out:?}");
     assert_eq!(s.extra(0), 66);
-    assert_eq!(
-        journal_bytes(&s),
-        None,
-        "the EML dialect left the ShroudForge dialect's journal"
-    );
+    let j = journal(&s, "kiln-mode-eml");
+    bound_to(&j, &out);
+    assert_eq!((&j["format"], &j["dialect"]), (&json!(2), &json!("eml")), "{j}");
+    assert_eq!(ids(&j), ["eml-mod"], "the ShroudForge dialect's journal is gone, the EML dialect's names its mod");
+    let mod_ = package(&j, "eml-mod");
+    assert_eq!(mod_["kind"], "eml");
+    assert_eq!(mod_["contentSha256"], hex(&plan.packages[0].content_sha256), "kiln mode froze its digests");
+    assert_eq!(mod_["changed"], json!([changed(0, &["child.extra"])]));
+    assert_eq!(j["notApplied"], json!([]));
 }
 
 // Injected failures at the journal's steps. A journal that cannot be removed refuses the publication before anything
@@ -555,7 +597,7 @@ fn a_package_over_the_bound_is_truncated_never_failed() {
     let created = many["created"].as_array().unwrap();
     assert_eq!(created.len(), PACKAGE_ENTRIES);
     assert_eq!(created.last().unwrap()["ordinal"], PACKAGE_ENTRIES);
-    assert_eq!(package(&j, "after")["changed"], json!([changed(3)]));
+    assert_eq!(package(&j, "after")["changed"], json!([changed(3, &["child.extra"])]));
     assert_eq!(package(&j, "after")["truncated"], false);
     assert!(journal_bytes(&s).unwrap().len() < 16 << 20);
 }

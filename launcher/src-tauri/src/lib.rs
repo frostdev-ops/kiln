@@ -168,6 +168,8 @@ pub fn run() {
             commands::logs::logs_crash_reports,
             commands::registry::registry_report_read,
             commands::registry::registry_rollback,
+            commands::registry::registry_replay_opt_ins,
+            commands::registry::registry_replay_opt,
             commands::saves::saves_list,
             commands::saves::saves_backups,
             commands::saves::saves_backup,

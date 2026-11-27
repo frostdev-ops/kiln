@@ -44,6 +44,12 @@
 //! `paths` list on each changed resource (`[""]`: the whole resource) and no plan digests (`null`: no launch plan froze
 //! them). The runner writes it beside the receipt the publication wrote, bound to that receipt (`generation` is its
 //! SHA-256, as kiln-eml's eml.json reports the live generation).
+//!
+//! **Member paths of the ShroudForge dialect (format 2, dialect `shroudforge`; 0.2.0-dev.32).** The asset session compares,
+//! after each entrypoint, the resources it wrote with what they held before it ran (`journal_paths.rs`) and gives each
+//! changed resource the member paths the package CHANGED there ([`Journal::member_paths`]): a resource a package wrote back
+//! as it was is then left out of its `changed`. Such a journal is written as format 2 of dialect `shroudforge` (plan
+//! digests as format 1's), with `notApplied` (the packages the committed attempt did not run, [`NotApplied`]).
 use std::{
     cell::{Cell, RefCell},
     collections::{BTreeSet, HashMap, HashSet},
@@ -108,6 +114,23 @@ pub struct Journal {
     pub packages: Vec<Changes>,
     pub unattributed: Changes,
     pub truncated: bool,
+    /// Every changed resource has its member paths (format 2): the EML dialect's record, and (0.2.0-dev.32) the ShroudForge
+    /// dialect's when the asset session compared each package's resources (`AssetSession::take_journal`).
+    pub member_paths: bool,
+}
+
+/// A package of the plan whose pregame Lua the committed attempt did not run (format 2's `notApplied`): the package that
+/// failed (the retry ran without it) and those left out with it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NotApplied {
+    pub id: String,
+    pub version: Option<String>,
+    /// `shroudforge` or `eml`.
+    pub kind: &'static str,
+    /// The plan's content digest (all zero: none, written null).
+    pub content_sha256: [u8; 32],
+    /// One line (cut to 512 bytes, control characters as spaces).
+    pub reason: String,
 }
 
 #[derive(Default)]
@@ -191,6 +214,15 @@ impl Recorder {
         self.epoch.set(self.epoch.get() + 1);
     }
 
+    /// kiln-eml (format 2 of the ShroudForge dialect): the running entrypoint's bucket (0: none runs; the packages' are 1, 2,
+    /// ... in the order they began, as [`Recorder::take`] lists them), the resources it wrote and the ones it created.
+    pub(crate) fn running(&self) -> (u32, Vec<ResourceId>, Vec<ResourceId>) {
+        let state = self.state.borrow();
+        let current = state.current;
+        let created = state.creators.iter().filter(|(_, (by, _))| *by == current).map(|(id, _)| *id).collect();
+        (current as u32, state.buckets[current].written.iter().copied().collect(), created)
+    }
+
     /// The running entrypoint returned (or failed): what is noted from now on is unattributed.
     pub fn end(&self) {
         self.state.borrow_mut().current = 0;
@@ -271,6 +303,7 @@ impl Recorder {
             packages: buckets.collect(),
             unattributed,
             truncated: state.truncated,
+            member_paths: false,
         }
     }
 }
@@ -321,6 +354,29 @@ pub struct Header<'a> {
     pub receipt_sha256: [u8; 32],
     pub dialect: &'static str,
     pub attempt: &'static str,
+}
+
+/// Format 2's optional tail: who wrote the record (`writer`, left out: kiln-eml) and the packages not applied (left out:
+/// none were given, as 0.2.0-dev.31.18's EML record).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Tail<'a> {
+    pub writer: Option<&'static str>,
+    pub not_applied: Option<&'a [NotApplied]>,
+}
+
+/// One line of reason as the record keeps it: control characters as spaces, at most 512 bytes (at a character boundary).
+pub fn one_line(text: &str) -> String {
+    let mut s: String = text.chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
+    let s2 = s.trim().to_owned();
+    s = if s2.is_empty() { "failed".to_owned() } else { s2 };
+    if s.len() > 512 {
+        let mut end = 512;
+        while !s.is_char_boundary(end) {
+            end -= 1;
+        }
+        s.truncate(end);
+    }
+    s
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -406,6 +462,37 @@ fn bounded_paths(paths: &[String]) -> Vec<String> {
 }
 
 impl Journal {
+    /// kiln-eml (format 2 of the ShroudForge dialect, 0.2.0-dev.32): each changed resource's member paths from
+    /// `of(bucket, resource)` (the recorder's bucket: 0 the unattributed one, the packages 1, 2, ... in run order).
+    /// `Some(empty)`: the package changed nothing there (it wrote a value back as it was), so the row goes; `None`: not
+    /// compared (a write outside every entrypoint), the whole resource. Bounded as [`Journal::from_eml`] bounds the EML
+    /// record's paths (per path, per resource, the journal's path budget).
+    pub fn with_member_paths(mut self, of: impl Fn(u32, &ResourceId) -> Option<Vec<String>>) -> Journal {
+        let mut path_bytes = 0usize;
+        let mut fill = |c: &mut Changes, bucket: u32| {
+            c.changed.retain_mut(|e| {
+                let mut paths = match of(bucket, &e.id) {
+                    Some(p) if p.is_empty() => return false,
+                    Some(p) => bounded_paths(&p),
+                    None => vec![String::new()],
+                };
+                let cost: usize = paths.iter().map(|p| p.len() + 3).sum();
+                if path_bytes + cost > JOURNAL_PATH_BYTES {
+                    paths = vec![String::new()]; // past the journal's path budget: the whole resource
+                }
+                path_bytes += paths.iter().map(|p| p.len() + 3).sum::<usize>();
+                e.paths = Some(paths);
+                true
+            });
+        };
+        fill(&mut self.unattributed, 0);
+        for (i, p) in self.packages.iter_mut().enumerate() {
+            fill(p, i as u32 + 1);
+        }
+        self.member_paths = true;
+        self
+    }
+
     /// The EML dialect's journal (format 2) from the record of EML's pass (mod-loader-lua `WriteRecord`), bounded as the
     /// ShroudForge dialect's: at most [`PACKAGE_ENTRIES`] entries per package and in the unattributed bucket (created
     /// first, then contents, then changed), [`TOTAL_ENTRIES`] in all, what is over left out and marked `truncated`. A mod
@@ -480,7 +567,7 @@ impl Journal {
         };
         let unattributed = bound(&unattributed);
         let packages = packages.iter().map(&mut bound).collect();
-        Journal { packages, unattributed, truncated }
+        Journal { packages, unattributed, truncated, member_paths: true }
     }
 
     /// The record, compact, every field in the schema's order (a typed serializer): format 1
@@ -489,8 +576,14 @@ impl Journal {
     /// `identity`: each package's plan identity (a package the plan does not name has none, which the startup controller never
     /// passes: every package of the pass is a plan member).
     pub fn json(&self, header: &Header<'_>, identity: &dyn Fn(&str) -> Option<Identity>) -> String {
+        self.json_with(header, identity, &Tail::default())
+    }
+
+    /// [`Journal::json`] with format 2's optional tail (0.2.0-dev.32).
+    pub fn json_with(&self, header: &Header<'_>, identity: &dyn Fn(&str) -> Option<Identity>, tail: &Tail<'_>) -> String {
         let eml = header.dialect == "eml";
-        let digest = |d: &[u8; 32]| if eml && *d == [0; 32] { "null".to_owned() } else { format!("\"{}\"", hex(d)) };
+        let format2 = eml || self.member_paths;
+        let digest = |d: &[u8; 32]| if format2 && *d == [0; 32] { "null".to_owned() } else { format!("\"{}\"", hex(d)) };
         let packages: Vec<String> = self
             .packages
             .iter()
@@ -513,10 +606,33 @@ impl Journal {
                 )
             })
             .collect();
+        let mut extra = String::new();
+        if format2 {
+            if let Some(writer) = tail.writer {
+                extra.push_str(&format!(",\"writer\":\"{writer}\""));
+            }
+            if let Some(rows) = tail.not_applied {
+                let rows: Vec<String> = rows
+                    .iter()
+                    .filter(|n| is_sf_id(&n.id))
+                    .map(|n| {
+                        format!(
+                            "{{\"id\":{},\"version\":{},\"kind\":\"{}\",\"contentSha256\":{},\"reason\":{}}}",
+                            text(&n.id),
+                            n.version.as_deref().map_or_else(|| "null".into(), text),
+                            if eml { "eml" } else { n.kind },
+                            digest(&n.content_sha256),
+                            text(&one_line(&n.reason))
+                        )
+                    })
+                    .collect();
+                extra.push_str(&format!(",\"notApplied\":[{}]", rows.join(",")));
+            }
+        }
         format!(
             "{{\"format\":{},\"stem\":{},\"generation\":\"{}\",\"receiptSha256\":\"{}\",\"dialect\":\"{}\",\
-             \"attempt\":\"{}\",\"truncated\":{},\"packages\":[{}],\"unattributed\":{{{}}}}}",
-            if eml { 2 } else { 1 },
+             \"attempt\":\"{}\",\"truncated\":{},\"packages\":[{}],\"unattributed\":{{{}}}{extra}}}",
+            if format2 { 2 } else { 1 },
             text(header.stem),
             hex(&header.generation),
             hex(&header.receipt_sha256),

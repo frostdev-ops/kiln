@@ -40,6 +40,8 @@ pub const KILN_LOADED_MISSING: i32 = 1;
 pub const KILN_LOADED_NOT_READY: i32 = 2;
 pub const KILN_LOADED_OK: i32 = 0;
 pub const KILN_LOADED_SERVED: i32 = 1;
+pub const KILN_LOADED_WRITE_NAME_MAX: u32 = 127;
+pub const KILN_LOADED_WRITE_PLACES: u32 = 16384;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -93,6 +95,22 @@ pub struct KilnLoadedInfo {
 
 #[repr(C)]
 #[derive(Clone, Copy)]
+pub struct KilnLoadedWriteRecord {
+    pub size: u32,
+    pub width: u32,
+    pub id: u64,
+    pub owner: KilnOwner,
+    pub session: u64,
+    pub key: KilnAssetKey,
+    pub offset: u64,
+    pub before: [u8; 8],
+    pub after: [u8; 8],
+    pub writer: [core::ffi::c_char; 128],
+    pub field: [core::ffi::c_char; 128],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
 pub struct KilnAssetsApi {
     pub header: KilnServiceHeader,
     pub icon_register_png: Option<unsafe extern "C" fn(KilnOwner, *const u8, *const core::ffi::c_void, usize) -> KilnResult>,
@@ -126,4 +144,6 @@ pub struct KilnAssetsApi {
     pub loaded_snapshot: Option<unsafe extern "C" fn(KilnOwner, *const KilnAssetKey, *mut core::ffi::c_void, usize, *mut usize, *mut KilnLoadedInfo) -> KilnResult>,
     pub loaded_list: Option<unsafe extern "C" fn(KilnOwner, u32, *mut KilnAssetKey, usize, *mut usize, *mut KilnLoadedInfo) -> KilnResult>,
     pub loaded_scalar_compare_exchange: Option<unsafe extern "C" fn(KilnOwner, *const KilnAssetKey, u64, *const core::ffi::c_void, usize, usize, *const core::ffi::c_void, u32, *mut KilnMutationReply) -> KilnResult>,
+    pub loaded_scalar_compare_exchange_named: Option<unsafe extern "C" fn(KilnOwner, *const KilnAssetKey, u64, *const core::ffi::c_void, usize, usize, *const core::ffi::c_void, u32, KilnStr, KilnStr, *mut KilnMutationReply) -> KilnResult>,
+    pub loaded_write_records: Option<unsafe extern "C" fn(*mut KilnLoadedWriteRecord, u32, usize, *mut usize) -> KilnResult>,
 }
