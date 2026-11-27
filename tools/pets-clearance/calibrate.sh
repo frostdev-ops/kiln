@@ -120,7 +120,7 @@ run() {
 }
 
 profile() {
-  python3 -I "$repo/tools/pets-clearance/profiles.py" "$out"/session-*/runs.jsonl --out "$out/clearance.json" --report "$out/report.md"
+  python3 -I "$repo/tools/pets-clearance/profiles.py" "$out"/session-*/runs.jsonl --out "$out/clearance.json" --report "$out/report.md" --lab "$lab"
 }
 
 case $cmd in

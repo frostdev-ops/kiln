@@ -1,4 +1,630 @@
 {
   "format": 1,
-  "profiles": []
+  "generator": "tools/pets-clearance/profiles.py (dossier 19d, gate C6)",
+  "profiles": [
+    {
+      "creature": "game:enemy_fogger_wildbeast_infestedboar",
+      "scale": 1.0,
+      "game": 1287369,
+      "horizontalSpace": 0.5,
+      "verticalSpace": 2,
+      "body": {
+        "walkerRadius": 0.0,
+        "walkerHeight": 2.0,
+        "colliderWidth": 1.0,
+        "colliderHeight": 1.5
+      },
+      "calibration": {
+        "lab": "dev32-pets-clearance",
+        "date": "2026-11-27",
+        "sessions": 1,
+        "gate": "19d C6",
+        "passed": [
+          "control-w5-open",
+          "corner-w2",
+          "corridor-w2-h2",
+          "corridor-w2-h3",
+          "doorway-w2-h2.5"
+        ],
+        "refused": [
+          "corner-w1",
+          "corridor-w0.5-h1",
+          "corridor-w0.5-h2",
+          "corridor-w0.5-h3",
+          "corridor-w1-h1",
+          "corridor-w1-h2",
+          "corridor-w1-h3",
+          "corridor-w2-h1"
+        ],
+        "pairs": {
+          "0.5/1": "accepted a route the body cannot walk: corridor-w2-h1",
+          "0.5/2": "pass",
+          "0.5/3": "pass",
+          "1/1": "pass",
+          "1/2": "pass",
+          "1/3": "pass",
+          "2/1": "pass",
+          "2/2": "pass",
+          "2/3": "pass"
+        },
+        "bodyLength": 1.47
+      }
+    },
+    {
+      "creature": "game:enemy_scavenger_hound",
+      "scale": 1.0,
+      "game": 1287369,
+      "horizontalSpace": 0.5,
+      "verticalSpace": 2,
+      "body": {
+        "walkerRadius": 0.0,
+        "walkerHeight": 2.0,
+        "colliderWidth": 1.0,
+        "colliderHeight": 1.0
+      },
+      "calibration": {
+        "lab": "dev32-pets-clearance",
+        "date": "2026-11-27",
+        "sessions": 1,
+        "gate": "19d C6",
+        "passed": [
+          "control-w5-open",
+          "corner-w2",
+          "corridor-w2-h2",
+          "corridor-w2-h3",
+          "doorway-w2-h2.5"
+        ],
+        "refused": [
+          "corner-w1",
+          "corridor-w0.5-h1",
+          "corridor-w0.5-h2",
+          "corridor-w0.5-h3",
+          "corridor-w1-h1",
+          "corridor-w1-h2",
+          "corridor-w1-h3",
+          "corridor-w2-h1"
+        ],
+        "pairs": {
+          "0.5/1": "accepted a route the body cannot walk: corridor-w2-h1",
+          "0.5/2": "pass",
+          "0.5/3": "pass",
+          "1/1": "pass",
+          "1/2": "pass",
+          "1/3": "pass",
+          "2/1": "pass",
+          "2/2": "pass",
+          "2/3": "pass"
+        },
+        "bodyLength": 1.0
+      }
+    },
+    {
+      "creature": "game:enemy_skeleton_hound",
+      "scale": 1.0,
+      "game": 1287369,
+      "horizontalSpace": 0.5,
+      "verticalSpace": 2,
+      "body": {
+        "walkerRadius": 0.0,
+        "walkerHeight": 2.0,
+        "colliderWidth": 1.0,
+        "colliderHeight": 1.0
+      },
+      "calibration": {
+        "lab": "dev32-pets-clearance",
+        "date": "2026-11-27",
+        "sessions": 1,
+        "gate": "19d C6",
+        "passed": [
+          "control-w5-open",
+          "corner-w2",
+          "corridor-w2-h2",
+          "corridor-w2-h3",
+          "doorway-w2-h2.5"
+        ],
+        "refused": [
+          "corner-w1",
+          "corridor-w0.5-h1",
+          "corridor-w0.5-h2",
+          "corridor-w0.5-h3",
+          "corridor-w1-h1",
+          "corridor-w1-h2",
+          "corridor-w1-h3",
+          "corridor-w2-h1"
+        ],
+        "pairs": {
+          "0.5/1": "accepted a route the body cannot walk: corridor-w2-h1",
+          "0.5/2": "pass",
+          "0.5/3": "pass",
+          "1/1": "pass",
+          "1/2": "pass",
+          "1/3": "pass",
+          "2/1": "pass",
+          "2/2": "pass",
+          "2/3": "pass"
+        },
+        "bodyLength": 1.0
+      }
+    },
+    {
+      "creature": "game:enemy_vukah_melee",
+      "scale": 1.0,
+      "game": 1287369,
+      "horizontalSpace": 0.5,
+      "verticalSpace": 2,
+      "body": {
+        "walkerRadius": 0.0,
+        "walkerHeight": 2.0,
+        "colliderWidth": 1.0,
+        "colliderHeight": 2.0
+      },
+      "calibration": {
+        "lab": "dev32-pets-clearance",
+        "date": "2026-11-27",
+        "sessions": 1,
+        "gate": "19d C6",
+        "passed": [
+          "control-w5-open",
+          "corner-w2",
+          "corridor-w2-h2",
+          "corridor-w2-h3",
+          "doorway-w2-h2.5"
+        ],
+        "refused": [
+          "corner-w1",
+          "corridor-w0.5-h1",
+          "corridor-w0.5-h2",
+          "corridor-w0.5-h3",
+          "corridor-w1-h1",
+          "corridor-w1-h2",
+          "corridor-w1-h3",
+          "corridor-w2-h1"
+        ],
+        "pairs": {
+          "0.5/1": "accepted a route the body cannot walk: corridor-w2-h1",
+          "0.5/2": "pass",
+          "0.5/3": "pass",
+          "1/1": "pass",
+          "1/2": "pass",
+          "1/3": "pass",
+          "2/1": "pass",
+          "2/2": "pass",
+          "2/3": "pass"
+        },
+        "bodyLength": 1.4
+      }
+    },
+    {
+      "creature": "game:enemy_vukah_melee_elite_armored",
+      "scale": 1.0,
+      "game": 1287369,
+      "horizontalSpace": 0.5,
+      "verticalSpace": 3,
+      "body": {
+        "walkerRadius": 0.0,
+        "walkerHeight": 2.0,
+        "colliderWidth": 1.0,
+        "colliderHeight": 2.5
+      },
+      "calibration": {
+        "lab": "dev32-pets-clearance",
+        "date": "2026-11-27",
+        "sessions": 1,
+        "gate": "19d C6",
+        "passed": [
+          "control-w5-open",
+          "corner-w2",
+          "corridor-w2-h3"
+        ],
+        "refused": [
+          "corner-w1",
+          "corridor-w0.5-h1",
+          "corridor-w0.5-h2",
+          "corridor-w0.5-h3",
+          "corridor-w1-h1",
+          "corridor-w1-h2",
+          "corridor-w1-h3",
+          "corridor-w2-h1",
+          "corridor-w2-h2",
+          "doorway-w2-h2.5"
+        ],
+        "pairs": {
+          "0.5/1": "accepted a route the body cannot walk: corridor-w2-h1, corridor-w2-h2",
+          "0.5/2": "accepted a route the body cannot walk: corridor-w2-h2",
+          "0.5/3": "pass",
+          "1/1": "pass",
+          "1/2": "pass",
+          "1/3": "pass",
+          "2/1": "pass",
+          "2/2": "pass",
+          "2/3": "pass"
+        },
+        "bodyLength": 1.7
+      }
+    },
+    {
+      "creature": "game:enemy_wildbeast_boar",
+      "scale": 1.0,
+      "game": 1287369,
+      "horizontalSpace": 0.5,
+      "verticalSpace": 2,
+      "body": {
+        "walkerRadius": 0.0,
+        "walkerHeight": 2.0,
+        "colliderWidth": 1.0,
+        "colliderHeight": 1.0
+      },
+      "calibration": {
+        "lab": "dev32-pets-clearance",
+        "date": "2026-11-27",
+        "sessions": 1,
+        "gate": "19d C6",
+        "passed": [
+          "control-w5-open",
+          "corner-w2",
+          "corridor-w2-h2",
+          "corridor-w2-h3",
+          "doorway-w2-h2.5"
+        ],
+        "refused": [
+          "corner-w1",
+          "corridor-w0.5-h1",
+          "corridor-w0.5-h2",
+          "corridor-w0.5-h3",
+          "corridor-w1-h1",
+          "corridor-w1-h2",
+          "corridor-w1-h3",
+          "corridor-w2-h1"
+        ],
+        "pairs": {
+          "0.5/1": "accepted a route the body cannot walk: corridor-w2-h1",
+          "0.5/2": "pass",
+          "0.5/3": "pass",
+          "1/1": "pass",
+          "1/2": "pass",
+          "1/3": "pass",
+          "2/1": "pass",
+          "2/2": "pass",
+          "2/3": "pass"
+        },
+        "bodyLength": 1.47
+      }
+    },
+    {
+      "creature": "game:enemy_wildbeast_rat_hook",
+      "scale": 1.0,
+      "game": 1287369,
+      "horizontalSpace": 0.5,
+      "verticalSpace": 2,
+      "body": {
+        "walkerRadius": 0.0,
+        "walkerHeight": 2.0,
+        "colliderWidth": 0.75,
+        "colliderHeight": 0.75
+      },
+      "calibration": {
+        "lab": "dev32-pets-clearance",
+        "date": "2026-11-27",
+        "sessions": 1,
+        "gate": "19d C6",
+        "passed": [
+          "control-w5-open",
+          "corner-w2",
+          "corridor-w2-h2",
+          "corridor-w2-h3",
+          "doorway-w2-h2.5"
+        ],
+        "refused": [
+          "corner-w1",
+          "corridor-w0.5-h1",
+          "corridor-w0.5-h2",
+          "corridor-w0.5-h3",
+          "corridor-w1-h1",
+          "corridor-w1-h2",
+          "corridor-w1-h3",
+          "corridor-w2-h1"
+        ],
+        "pairs": {
+          "0.5/1": "accepted a route the body cannot walk: corridor-w2-h1",
+          "0.5/2": "pass",
+          "0.5/3": "pass",
+          "1/1": "pass",
+          "1/2": "pass",
+          "1/3": "pass",
+          "2/1": "pass",
+          "2/2": "pass",
+          "2/3": "pass"
+        },
+        "bodyLength": 1.04
+      }
+    },
+    {
+      "creature": "game:enemy_wildbeast_sabertooth",
+      "scale": 1.0,
+      "game": 1287369,
+      "horizontalSpace": 0.5,
+      "verticalSpace": 2,
+      "body": {
+        "walkerRadius": 0.0,
+        "walkerHeight": 2.0,
+        "colliderWidth": 1.0,
+        "colliderHeight": 1.0
+      },
+      "calibration": {
+        "lab": "dev32-pets-clearance",
+        "date": "2026-11-27",
+        "sessions": 1,
+        "gate": "19d C6",
+        "passed": [
+          "control-w5-open",
+          "corner-w2",
+          "corridor-w2-h2",
+          "corridor-w2-h3",
+          "doorway-w2-h2.5"
+        ],
+        "refused": [
+          "corner-w1",
+          "corridor-w0.5-h1",
+          "corridor-w0.5-h2",
+          "corridor-w0.5-h3",
+          "corridor-w1-h1",
+          "corridor-w1-h2",
+          "corridor-w1-h3",
+          "corridor-w2-h1"
+        ],
+        "pairs": {
+          "0.5/1": "accepted a route the body cannot walk: corridor-w2-h1",
+          "0.5/2": "pass",
+          "0.5/3": "pass",
+          "1/1": "pass",
+          "1/2": "pass",
+          "1/3": "pass",
+          "2/1": "pass",
+          "2/2": "pass",
+          "2/3": "pass"
+        },
+        "bodyLength": 2.68
+      }
+    },
+    {
+      "creature": "game:enemy_wildbeast_spiderant_huge_hookpte",
+      "scale": 1.0,
+      "game": 1287369,
+      "horizontalSpace": 0.5,
+      "verticalSpace": 2,
+      "body": {
+        "walkerRadius": 0.0,
+        "walkerHeight": 2.0,
+        "colliderWidth": 2.0,
+        "colliderHeight": 2.0
+      },
+      "calibration": {
+        "lab": "dev32-pets-clearance",
+        "date": "2026-11-27",
+        "sessions": 1,
+        "gate": "19d C6",
+        "passed": [
+          "control-w5-open",
+          "corner-w2",
+          "corridor-w2-h2",
+          "corridor-w2-h3",
+          "doorway-w2-h2.5"
+        ],
+        "refused": [
+          "corner-w1",
+          "corridor-w0.5-h1",
+          "corridor-w0.5-h2",
+          "corridor-w0.5-h3",
+          "corridor-w1-h1",
+          "corridor-w1-h2",
+          "corridor-w1-h3",
+          "corridor-w2-h1"
+        ],
+        "pairs": {
+          "0.5/1": "accepted a route the body cannot walk: corridor-w2-h1",
+          "0.5/2": "pass",
+          "0.5/3": "pass",
+          "1/1": "pass",
+          "1/2": "pass",
+          "1/3": "pass",
+          "2/1": "pass",
+          "2/2": "pass",
+          "2/3": "pass"
+        },
+        "bodyLength": 3.52
+      }
+    },
+    {
+      "creature": "game:enemy_wildbeast_spiderant_melee",
+      "scale": 1.0,
+      "game": 1287369,
+      "horizontalSpace": 0.5,
+      "verticalSpace": 2,
+      "body": {
+        "walkerRadius": 0.0,
+        "walkerHeight": 2.0,
+        "colliderWidth": 1.0,
+        "colliderHeight": 1.0
+      },
+      "calibration": {
+        "lab": "dev32-pets-clearance",
+        "date": "2026-11-27",
+        "sessions": 1,
+        "gate": "19d C6",
+        "passed": [
+          "control-w5-open",
+          "corner-w2",
+          "corridor-w2-h2",
+          "corridor-w2-h3",
+          "doorway-w2-h2.5"
+        ],
+        "refused": [
+          "corner-w1",
+          "corridor-w0.5-h1",
+          "corridor-w0.5-h2",
+          "corridor-w0.5-h3",
+          "corridor-w1-h1",
+          "corridor-w1-h2",
+          "corridor-w1-h3",
+          "corridor-w2-h1"
+        ],
+        "pairs": {
+          "0.5/1": "accepted a route the body cannot walk: corridor-w2-h1",
+          "0.5/2": "pass",
+          "0.5/3": "pass",
+          "1/1": "pass",
+          "1/2": "pass",
+          "1/3": "pass",
+          "2/1": "pass",
+          "2/2": "pass",
+          "2/3": "pass"
+        },
+        "bodyLength": 1.04
+      }
+    },
+    {
+      "creature": "game:enemy_wildbeast_wolf_earlygame",
+      "scale": 1.0,
+      "game": 1287369,
+      "horizontalSpace": 0.5,
+      "verticalSpace": 2,
+      "body": {
+        "walkerRadius": 0.0,
+        "walkerHeight": 2.0,
+        "colliderWidth": 1.0,
+        "colliderHeight": 1.0
+      },
+      "calibration": {
+        "lab": "dev32-pets-clearance",
+        "date": "2026-11-27",
+        "sessions": 1,
+        "gate": "19d C6",
+        "passed": [
+          "control-w5-open",
+          "corner-w2",
+          "corridor-w2-h2",
+          "corridor-w2-h3",
+          "doorway-w2-h2.5"
+        ],
+        "refused": [
+          "corner-w1",
+          "corridor-w0.5-h1",
+          "corridor-w0.5-h2",
+          "corridor-w0.5-h3",
+          "corridor-w1-h1",
+          "corridor-w1-h2",
+          "corridor-w1-h3",
+          "corridor-w2-h1"
+        ],
+        "pairs": {
+          "0.5/1": "accepted a route the body cannot walk: corridor-w2-h1",
+          "0.5/2": "pass",
+          "0.5/3": "pass",
+          "1/1": "pass",
+          "1/2": "pass",
+          "1/3": "pass",
+          "2/1": "pass",
+          "2/2": "pass",
+          "2/3": "pass"
+        },
+        "bodyLength": 1.0
+      }
+    },
+    {
+      "creature": "game:enemy_wildbeast_wolf_earlygame",
+      "scale": 1.5,
+      "game": 1287369,
+      "horizontalSpace": 2,
+      "verticalSpace": 3,
+      "body": {
+        "walkerRadius": 0.0,
+        "walkerHeight": 2.0,
+        "colliderWidth": 1.0,
+        "colliderHeight": 1.0
+      },
+      "calibration": {
+        "lab": "dev32-pets-clearance",
+        "date": "2026-11-27",
+        "sessions": 1,
+        "gate": "19d C6",
+        "passed": [
+          "control-w5-open"
+        ],
+        "refused": [
+          "corner-w1",
+          "corner-w2",
+          "corridor-w0.5-h1",
+          "corridor-w0.5-h2",
+          "corridor-w0.5-h3",
+          "corridor-w1-h1",
+          "corridor-w1-h2",
+          "corridor-w1-h3",
+          "corridor-w2-h1",
+          "corridor-w2-h2",
+          "corridor-w2-h3",
+          "doorway-w2-h2.5"
+        ],
+        "pairs": {
+          "0.5/1": "accepted a route the body cannot walk: corner-w2, corridor-w2-h1",
+          "0.5/2": "accepted a route the body cannot walk: corner-w2",
+          "0.5/3": "accepted a route the body cannot walk: corner-w2",
+          "1/1": "pass",
+          "1/2": "pass",
+          "1/3": "pass",
+          "2/1": "pass",
+          "2/2": "pass",
+          "2/3": "pass"
+        },
+        "bodyLength": 1.5
+      }
+    },
+    {
+      "creature": "game:enemy_wildbeast_wolf_hook_ag2",
+      "scale": 1.0,
+      "game": 1287369,
+      "horizontalSpace": 0.5,
+      "verticalSpace": 2,
+      "body": {
+        "walkerRadius": 0.0,
+        "walkerHeight": 2.0,
+        "colliderWidth": 1.0,
+        "colliderHeight": 1.0
+      },
+      "calibration": {
+        "lab": "dev32-pets-clearance",
+        "date": "2026-11-27",
+        "sessions": 1,
+        "gate": "19d C6",
+        "passed": [
+          "control-w5-open",
+          "corner-w2",
+          "corridor-w2-h2",
+          "corridor-w2-h3",
+          "doorway-w2-h2.5"
+        ],
+        "refused": [
+          "corner-w1",
+          "corridor-w0.5-h1",
+          "corridor-w0.5-h2",
+          "corridor-w0.5-h3",
+          "corridor-w1-h1",
+          "corridor-w1-h2",
+          "corridor-w1-h3",
+          "corridor-w2-h1"
+        ],
+        "pairs": {
+          "0.5/1": "accepted a route the body cannot walk: corridor-w2-h1",
+          "0.5/2": "pass",
+          "0.5/3": "pass",
+          "1/1": "pass",
+          "1/2": "pass",
+          "1/3": "pass",
+          "2/1": "pass",
+          "2/2": "pass",
+          "2/3": "pass"
+        },
+        "bodyLength": 1.0
+      }
+    }
+  ]
 }

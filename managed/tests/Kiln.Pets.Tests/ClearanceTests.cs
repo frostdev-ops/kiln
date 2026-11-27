@@ -115,6 +115,48 @@ public sealed class ClearanceTests : IDisposable
         Assert.Equal(PetClearance.Format, JsonNode.Parse(text)!["format"]!.GetValue<int>());
     }
 
+    /// <summary>The game creatures Kiln calibrated (tools/pets-clearance, gate C6, on a dedicated lab server): the creature, its
+    /// scale, its body as measured (walker radius and height, collider width and height) and the pair that passed.</summary>
+    public static TheoryData<string, double, double, double, double, double, double, double> Calibrated => new()
+    {
+        { "game:enemy_vukah_melee", 1, 0, 2, 1, 2, 0.5, 2 },
+        { "game:enemy_vukah_melee_elite_armored", 1, 0, 2, 1, 2.5, 0.5, 3 },
+        { "game:enemy_wildbeast_wolf_earlygame", 1, 0, 2, 1, 1, 0.5, 2 },
+        { "game:enemy_wildbeast_wolf_earlygame", 1.5, 0, 2, 1, 1, 2, 3 },
+        { "game:enemy_wildbeast_wolf_hook_ag2", 1, 0, 2, 1, 1, 0.5, 2 },
+        { "game:enemy_wildbeast_boar", 1, 0, 2, 1, 1, 0.5, 2 },
+        { "game:enemy_fogger_wildbeast_infestedboar", 1, 0, 2, 1, 1.5, 0.5, 2 },
+        { "game:enemy_wildbeast_sabertooth", 1, 0, 2, 1, 1, 0.5, 2 },
+        { "game:enemy_scavenger_hound", 1, 0, 2, 1, 1, 0.5, 2 },
+        { "game:enemy_skeleton_hound", 1, 0, 2, 1, 1, 0.5, 2 },
+        { "game:enemy_wildbeast_spiderant_melee", 1, 0, 2, 1, 1, 0.5, 2 },
+        { "game:enemy_wildbeast_spiderant_huge_hookpte", 1, 0, 2, 2, 2, 0.5, 2 },
+        { "game:enemy_wildbeast_rat_hook", 1, 0, 2, 0.75, 0.75, 0.5, 2 },
+    };
+
+    [Theory]
+    [MemberData(nameof(Calibrated))]
+    public void Kiln_ships_the_measured_pair_of_each_calibrated_creature_for_its_game_build_and_body(string creature, double scale,
+        double walkerRadius, double walkerHeight, double colliderWidth, double colliderHeight, double h, double v)
+    {
+        PetClearance.ResetForTests();   // the real shipped resource
+        PetClearance.SourcesOn = true;
+        PetClearance.GameBuild = () => Build;
+        PetClearance.BodyOf = _ => new PetClearanceBody(walkerRadius, walkerHeight, colliderWidth, colliderHeight);
+        PetClearance.ServerFile = () => ServerFile;
+        PetClearance.ModFolder = id => Path.Combine(_dir, "mods", id);
+        PetClearance.Clock = () => _clock;
+        var def = new PetDefinition { Id = "mod-a:pet", Creature = creature, Level = new PetLevelPolicy { Scale = scale } };
+        Assert.Equal(new PetClearanceProfile(h, v), PetClearance.For(def, out var why));
+        Assert.Null(why);
+        // measured at that scale only
+        Assert.Null(PetClearance.For(def with { Level = new PetLevelPolicy { Scale = 2 } }, out _));
+        // a game update: catch-up only until Kiln ships a new calibration
+        PetClearance.GameBuild = () => Build + 1;
+        Assert.Null(PetClearance.For(def, out why));
+        Assert.Contains("was measured on game build 1287369", why);
+    }
+
     // ---- the answer ----
 
     [Fact]
