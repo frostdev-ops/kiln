@@ -96,7 +96,9 @@ settings' bounds); `limits` are numbers the game keeps in its code, which Kiln a
 for a value that is not the game's. What existing mods do that these cover: EMBER's build anywhere and no boundary
 (`world.noBuildZones`, `world.playableAreas` cleared), XHL Enemy Difficulty Limits' raised bounds (`difficulty.<setting>.max`),
 XHL Unlimited Gifting Range (`limits.giftingRange`), More Flame Altars' altars above 16 (`limits.maxAltars` with
-`balance.altarsPerFlameLevel` above 16). Not covered: the settings screen's slider steps (only a game client has them; resource
+`balance.altarsPerFlameLevel` above 16: the game's check answers the smaller of the two, and they stay two on purpose, the
+table being the progression and the cap the explicit step past the game's 16 with its costs, so a table edit never crosses
+16 by itself; kiln.log says when a table asks for more than the cap allows). Not covered: the settings screen's slider steps (only a game client has them; resource
 patches still edit them), and what those mods do beyond a number (Enemy Difficulty Limits' wider perception, More Flame Altars'
 merged bases): those stay their own hooks.
 

@@ -327,6 +327,35 @@ int main() {
         CHECK(lm::answering().empty(), "a lab probe is no registry value: nothing answers for the registry");
         lm::probe_clear("altarCap");
     }
+    // ---- dev.32 api-shape: the altar rule's two values. A table above the cap in effect is said, with what to raise ----
+    {
+        auto table = [](std::vector<int64_t> v) {
+            stage::BootOutcome o;
+            o.field = {"balance", "game:balance", "altarsPerFlameLevel"}, o.ok = true;
+            std::vector<Value> l;
+            for (int64_t x : v) l.push_back(Value::integer(x));
+            o.written = Value::of_list(std::move(l));
+            return o;
+        };
+        auto cap = [](int64_t v, bool ok = true) {
+            stage::BootOutcome o;
+            o.field = {"limits", "game:limits", "maxAltars"}, o.ok = ok, o.written = Value::integer(v);
+            return o;
+        };
+        const auto raised = lm::altar_notes({table({1, 2, 4, 20, 20})}, 16);
+        CHECK(raised.size() == 1 && raised[0].find("up to 20 Flame Altars (from Flame level 3)") != std::string::npos &&
+                  raised[0].find("limits.maxAltars 16, the game's own") != std::string::npos && raised[0].find("raise limits.maxAltars too") != std::string::npos,
+              "a table above the game's 16 without the cap raised is said: " + (raised.empty() ? std::string("(none)") : raised[0]));
+        CHECK(lm::altar_notes({table({1, 2, 4, 20, 20}), cap(20)}, 16).empty(), "both raised: nothing to say");
+        CHECK(lm::altar_notes({table({1, 2, 4, 16, 16})}, 16).empty(), "a table at the game's 16: nothing to say");
+        const auto lowered = lm::altar_notes({table({1, 2, 8}), cap(4)}, 16);
+        CHECK(lowered.size() == 1 && lowered[0].find("above the 4 the game's altar check allows") != std::string::npos &&
+                  lowered[0].find("the game's own") == std::string::npos,
+              "a cap a mod lowered below the table is said too (the levels above it allow the cap)");
+        CHECK(lm::altar_notes({table({1, 2, 20}), cap(30, false)}, 16).size() == 1, "a cap that was not taken is the game's 16");
+        CHECK(lm::altar_notes({cap(20)}, 16).empty() && lm::altar_notes({table({1, 20})}, 0).empty(), "no table written, or no cap known: nothing");
+    }
+
     std::printf("limits-test: %d checks, %d failed\n", checks, failed);
     return failed ? 1 : 0;
 }

@@ -215,6 +215,32 @@ json state() {
     return out;
 }
 
+std::vector<std::string> altar_notes(const std::vector<stage::BootOutcome>& outcomes, int64_t game_cap) {
+    const stage::BootOutcome* table = nullptr;
+    int64_t cap = game_cap;
+    bool raised = false;  // the cap is a registry value, not the game's
+    for (const stage::BootOutcome& o : outcomes) {
+        if (!o.ok) continue;
+        if (o.field.registry == "balance" && o.field.field == "altarsPerFlameLevel" && o.written.kind == Value::List) table = &o;
+        if (o.field.registry == "limits" && o.field.field == "maxAltars" && o.written.numeric()) cap = std::llround(o.written.as_double()), raised = true;
+    }
+    if (!table || cap <= 0) return {};
+    int64_t most = 0;
+    size_t from = 0;
+    for (size_t level = 0; level < table->written.list.size(); ++level) {
+        const Value& v = table->written.list[level];
+        if (!v.numeric()) continue;
+        const int64_t n = std::llround(v.as_double());
+        if (n > most) most = n, from = level;
+    }
+    if (most <= cap) return {};
+    const std::string c = std::to_string(cap);
+    return {"registry: balance.altarsPerFlameLevel gives up to " + std::to_string(most) + " Flame Altars (from Flame level " + std::to_string(from) +
+            "), above the " + c + " the game's altar check allows at any level (limits.maxAltars " + c +
+            (raised ? "" : ", the game's own") + "): those levels allow " + c + ". The two are apart on purpose (more than the game's " +
+            std::to_string(game_cap > 0 ? game_cap : cap) + " is its own choice): raise limits.maxAltars too to allow more"};
+}
+
 bool probe_set(const std::string& name, double value, std::string* why) {
     std::lock_guard lk(g_mu);
     double game = 0;
