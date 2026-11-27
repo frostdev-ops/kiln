@@ -277,6 +277,14 @@ int main() {
     CHECK(s.read("items", "game:wood", "nope", &out) == KILN_ERR_NOT_FOUND && out.find("items has no field nope") != std::string::npos);
     CHECK(s.select("items", "*", &out) == KILN_OK && json::parse(out).size() == 2);
     CHECK(s.entry("items", "game:wood", &out) == KILN_OK && json::parse(out)["fields"]["maxStack"] == 500);
+    // the old debug-name form selects a registry's entry too (D3: "Material_T1_Wood_Logs" names game:material_t1_wood_logs), as
+    // it does an advanced view's
+    g.selectors.clear();
+    CHECK(s.select("items", "Wood", &out) == KILN_OK && !g.selectors.empty() && g.selectors.back() == "\"game:wood\"");
+    CHECK(s.select("items", "Material_*", &out) == KILN_OK && g.selectors.back() == "\"game:material_*\"");
+    CHECK(s.select("items", "game:wood", &out) == KILN_OK && g.selectors.back() == "\"game:wood\"");
+    CHECK(s.select("items", "*", &out) == KILN_OK && g.selectors.back() == "\"*\"");
+
     // ---- one call resolves each other view's ids from one listing, not one listing per id
     {
         Game h;

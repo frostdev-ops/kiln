@@ -34,7 +34,7 @@ var maxStack = RegistryViews.Find("items")!["game:material_t1_wood_logs"].Get<in
 | `RegistryViews.All`, `Find(name)` | every view, stable ones first; one by its name |
 | `RegistryView.Tier` | `Stable` (a registry) or `Advanced` |
 | `RegistryView.Fields`, `Field(path)` | the fields on this build: Kiln path, type, element type, values, the view an id names (`Ref`), `ReadOnly`, `State` (`Readable`, `Unread`, `Removed`; a registry field `Mapped`, `Unmapped`, `Unproven`), `Reason`, and `CoveredBy` (`"items.maxStack"`: the registry field over the same member, `Exact` when it is the same value one to one) |
-| `RegistryView.Select(selector)` | ids by an id, a case-insensitive glob over ids, or an entry's debug name |
+| `RegistryView.Select(selector)` | ids by an id, a case-insensitive glob over ids, or an entry's debug name (a stable view reads it as a registry edit does: `Material_T1_Wood_Logs` is `game:material_t1_wood_logs`, `Material_*` `game:material_*`) |
 | `view[id].Get<T>(field)`, `TryGet<T>(field, out value, out reason)` | one field, typed (`int`, `long`, `double`, `bool`, `string`, `string[]`, `RegistryId`, `TimeSpan`, `JsonNode`) |
 | `view.TryRead(id, field, out JsonNode? value, out string? reason)` | one field as JSON |
 | `view[id].Snapshot()` | every field of one entry, and per field why the others did not read |

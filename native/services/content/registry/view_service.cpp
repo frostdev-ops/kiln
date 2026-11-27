@@ -241,7 +241,12 @@ KilnResult Service::select(const std::string& view, const std::string& selector,
     if (selector.empty()) return *out = "a selector is an id, a glob over ids or a name", KILN_ERR_INVALID_ARGUMENT;
     if (v->stable) {
         if (!env_.registry_select) return *out = "the registry is not available here", KILN_ERR_UNAVAILABLE;
-        const KilnResult rc = env_.registry_select(view, json(selector).dump(), out);
+        // the old debug-name forms name game entries, as in a registry edit (D3): "Material_T1_Wood_Logs" is
+        // game:material_t1_wood_logs, "Material_*" game:material_*; Kiln ids are lower case
+        std::string sel = selector;
+        if (sel != "*" && sel.find(':') == std::string::npos) sel = "game:" + sel;
+        for (char& c : sel) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        const KilnResult rc = env_.registry_select(view, json(sel).dump(), out);
         if (rc != KILN_OK) *out = view + ": the registry cannot select now";
         return rc;
     }

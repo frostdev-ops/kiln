@@ -286,7 +286,9 @@ public sealed class RegistryView
     }
 
     /// <summary>The ids a selector names, in the view's order: an id, a case-insensitive glob over ids
-    /// (<c>"game:quest_*"</c>, <c>"*"</c>), or an entry's debug name.</summary>
+    /// (<c>"game:quest_*"</c>, <c>"*"</c>), or an entry's debug name (a stable view reads it as a registry edit does:
+    /// <c>"Material_T1_Wood_Logs"</c> is <c>game:material_t1_wood_logs</c>). The first call on a large advanced view lists its
+    /// entries (seconds): make it off the game's thread.</summary>
     [AnyThread, RequiresCapability(RegistryViews.Service)]
     public IReadOnlyList<RegistryId> Select(string selector = "*")
     {
