@@ -138,12 +138,24 @@ bool resize_list(const std::string& type_name, gd::Root root_kind, const map::Re
 // The old documents' writes on places the registries map, as the stage's old-path rows (they lie below every registry
 // edit). Only what a Kiln field's row covers: a scalar member (int, float, bool, time, enum), an element of a list of
 // scalars ([i] or [*]), and a list's clear, replace or append.
-std::vector<OldWrite> old_writes(const std::vector<OldDoc>& docs, model::Model& m) {
+// fronts: the documents ("<mod>/<key>") the registry's boot back-end may write itself (front-ends, compose.h OldWrite::front).
+// Such a document's rows are front rows when every value it sets is one scalar field this build maps and has proven, as a
+// boot field, by an op that means the same both ways; else none of them is, and its entry mark says why (front_why).
+std::vector<OldWrite> old_writes(const std::vector<OldDoc>& docs, model::Model& m, const std::set<std::string>* fronts) {
     std::vector<OldWrite> out;
     const map::RegMap& rm = m.regmap();
     const Schema& schema = m.schema();
     std::map<FieldRef, Value> lists;  // a list's value as the old documents leave it so far
     for (const OldDoc& d : docs) {
+        const std::string doc_id = d.mod + "/" + d.key;
+        const bool candidate = fronts && fronts->count(doc_id);
+        const size_t first = out.size();
+        std::string front_why;  // the first reason this candidate is not a front-end
+        auto not_front = [&](const std::string& why) {
+            if (front_why.empty()) front_why = why;
+        };
+        if (candidate && !d.lists.empty()) not_front("it changes a list, which the registry's front-end does not write");
+        bool matched_registry = false;
         for (const auto& [regname, rmap] : rm.registries) {
             // a kind arrays registry (randomLoot) has no restart field: the old documents are below its live rows, nothing to read back
             if (rmap.entries.kind == map::EntryKind::Arrays || rmap.entries.resource_type != d.type) continue;
@@ -152,6 +164,7 @@ std::vector<OldWrite> old_writes(const std::vector<OldDoc>& docs, model::Model& 
             if (!es) continue;
             const RegistrySpec* rs = schema.registry(regname);
             if (!rs) continue;
+            matched_registry = true;
             const bool array = rmap.entries.kind == map::EntryKind::Array;
             {
                 // (path as written) -> (entry index, the path below the entry)
@@ -235,7 +248,11 @@ std::vector<OldWrite> old_writes(const std::vector<OldDoc>& docs, model::Model& 
                 for (const auto& [spath, svalue] : d.sets) {
                     size_t i = 0;
                     std::string rest;
-                    if (!locate(spath, &i, &rest)) continue;
+                    if (!locate(spath, &i, &rest)) {
+                        if (candidate) not_front("a value it sets has no registry field on this game build");
+                        continue;
+                    }
+                    size_t scalars = 0;  // the scalar fields this value is (a front-end's must be exactly one)
                     for (const auto& [fname, row] : rmap.rows) {
                         if (row.paths.empty() || fname.find("[]") != std::string::npos) continue;
                         const FieldSpec* f = rs->field(fname);
@@ -244,8 +261,24 @@ std::vector<OldWrite> old_writes(const std::vector<OldDoc>& docs, model::Model& 
                         const FieldRef ref{regname, (*es)[i].id, fname};
                         if ((row.conv == "int" || row.conv == "float" || row.conv == "bool" || row.conv == "time" || row.conv == "enum") && p0 == rest) {
                             Op op;
-                            if (op_for(row, *f, f->type, svalue, &op)) push(ref, std::move(op), ListOp::None, {});
+                            if (!op_for(row, *f, f->type, svalue, &op)) {
+                                if (candidate) not_front(regname + "." + fname + ": its value is not one the registry reads the same way");
+                                continue;
+                            }
+                            ++scalars;
+                            if (candidate) {
+                                std::string reason;
+                                if (rm.mapping(regname, fname, &reason) != map::Mapping::Mapped)
+                                    not_front(regname + "." + fname + " is not proven on this game build" + (reason.empty() ? "" : " (" + reason + ")"));
+                                else if (row.backend != map::Backend::Boot || f->applies != Applies::Restart || f->read_only)
+                                    not_front(regname + "." + fname + " is not a field the registry writes at the game's start");
+                                else if (op.min && op.max && *op.min > *op.max)
+                                    // a resource patch clamps as std::clamp does, the registry min then max: they differ only here
+                                    not_front(regname + "." + fname + ": an operation whose min is above its max");
+                            }
+                            push(ref, std::move(op), ListOp::None, {});
                         } else if (row.conv == "list" && f->element != FieldType::Struct && rest.rfind(p0 + "[", 0) == 0 && rest.back() == ']') {
+                            if (candidate) not_front(regname + "." + fname + ": it sets an element of a list, which the registry's front-end does not write");
                             const std::string ix = rest.substr(p0.size() + 1, rest.size() - p0.size() - 2);
                             auto cur = lists.find(ref);
                             if (cur == lists.end()) {
@@ -269,6 +302,7 @@ std::vector<OldWrite> old_writes(const std::vector<OldDoc>& docs, model::Model& 
                             push(ref, std::move(whole), ListOp::None, {});
                         }
                     }
+                    if (candidate && scalars != 1) not_front(scalars ? "a value it sets is more than one registry field" : "a value it sets has no registry field on this game build");
                 }
                 for (const OldDoc::List& o : d.lists) {
                     size_t i = 0;
@@ -291,6 +325,27 @@ std::vector<OldWrite> old_writes(const std::vector<OldDoc>& docs, model::Model& 
                 }
             }
         }
+        if (!candidate) continue;
+        if (!matched_registry) not_front("no registry maps the resource it patches on this game build");
+        bool any_field = false, any_mark = false;
+        for (size_t k = first; k < out.size(); ++k) (out[k].field.field.empty() ? any_mark : any_field) = true;
+        if (!any_field) not_front("it sets no value a registry field holds");
+        if (front_why.empty()) {
+            for (size_t k = first; k < out.size(); ++k)
+                if (!out[k].field.field.empty()) out[k].front = true;
+            continue;
+        }
+        // the verdict rides on the document's entry mark (the stage reads it for the report); a document no registry entry
+        // holds gets a mark of its own, with no entry
+        if (!any_mark) {
+            OldWrite w;
+            w.kind = WriterKind::OldPatch;
+            w.mod = d.mod;
+            w.who = doc_id;
+            out.push_back(std::move(w));
+        }
+        for (size_t k = first; k < out.size(); ++k)
+            if (out[k].field.field.empty()) out[k].front_why = front_why;
     }
     return out;
 }

@@ -394,6 +394,184 @@ void with_registry() {
           "kiln.base_rules: the effective value after the registry, and that a registry edit changed the rule's value: " + s.dump());
 }
 
+// A data pack's gearRules as a registry front-end (registry/boot_hooks.h): the stage hands over a gearRules document whose
+// values its boot back-end writes itself; the apply builds the table both ways (the documents as before, then the registry's
+// own rows; without that document, then the registry's rows with its front rows) and serves the front-end's copy only when the
+// two are the same bytes, else the old copy, as before. What it did goes to finish, per document.
+void front_ends() {
+    namespace bh = kc::registry::boothook;
+    namespace rs = kc::registry::stage;
+    namespace rg = kc::registry;
+    const std::string doc = "gearmod/gearRules@gear.json";
+    float want = 70;              // what the registry's write puts at altar level 2's y (the document's value: 70)
+    bool registry_row = false;    // the stage also hands over a registry edit of altarsPerFlameLevel[1] (2)
+    std::vector<float> seen;      // altar level 2's y in each copy the registry's write was given
+    std::vector<size_t> rows_seen;
+    std::vector<rs::BootOutcome> outcomes;
+    std::vector<rs::FrontEnd> fronts;
+    // review-j2: a registry edit of the document's own field ({"mul": 2} by bigmod, above the document as in the stage's
+    // chain), the document's value as the stage's front row holds it (a double, front_value); front_off: the stage hands the
+    // document over as an older Kiln and a start with front-ends.off do (no front row, the registry's row alone)
+    bool same_field = false, front_off = false;
+    double front_value = 0;
+    bh::Hooks h;
+    h.run = [&](const std::vector<bh::OldDoc>& d) {
+        std::vector<rs::BootResource> out;
+        for (const auto& o : d) {
+            if (o.mod + "/" + o.key != doc) continue;
+            rs::BootResource b;
+            b.key = o.res, b.type = o.type;
+            if (same_field) {
+                rs::BootField f;
+                f.field = {"balance", "game:balance", "buildzoneSizesPerAltarLevel[2].y"};
+                if (!front_off) {
+                    rg::ChainRow c;
+                    c.kind = rg::WriterKind::OldPatch, c.mod = o.mod, c.who = doc, c.front = true;
+                    f.rows.push_back(c);
+                    b.front = {doc};
+                }
+                rg::ChainRow e;
+                e.kind = rg::WriterKind::Registry, e.mod = "bigmod";
+                e.op.mul = 2;
+                f.rows.push_back(e);
+                b.fields.push_back(f);
+                out.push_back(b);
+                continue;
+            }
+            rs::BootField f;
+            f.field = {"balance", "game:balance", "buildzoneSizesPerAltarLevel[2].y"};
+            rg::ChainRow c;
+            c.kind = rg::WriterKind::OldPatch, c.mod = o.mod, c.who = doc, c.front = true;
+            f.rows.push_back(c);
+            b.fields.push_back(f);
+            if (registry_row) {
+                rs::BootField r;
+                r.field = {"balance", "game:balance", "altarsPerFlameLevel"};
+                rg::ChainRow e;
+                e.kind = rg::WriterKind::Registry, e.mod = "bigmod";
+                r.rows.push_back(e);
+                b.fields.push_back(r);
+            }
+            b.front = {doc};
+            out.push_back(b);
+        }
+        return out;
+    };
+    h.write = [&](const KilnAssetKey&, const std::string&, std::vector<uint8_t>* copy, const rs::BootResource& rb, std::vector<rs::BootOutcome>* out,
+                  std::vector<std::string>*) -> size_t {
+        Table t;
+        std::memcpy(&t, copy->data(), sizeof t);
+        seen.push_back(t.sizes[2][1]);
+        rows_seen.push_back(rb.fields.size());
+        size_t n = 0;  // values changed: as the registry's write, which leaves a value the copy already holds as it is
+        for (const auto& f : rb.fields) {
+            if (same_field) {
+                // as boothook::write: the rows evaluated over the value the copy holds (a double), the float written where it
+                // differs, the evaluated value as the outcome's
+                double v = t.sizes[2][1];
+                for (const rg::ChainRow& c : f.rows) v = c.front ? front_value : v * c.op.mul.value_or(1.0);
+                if (t.sizes[2][1] != static_cast<float>(v)) t.sizes[2][1] = static_cast<float>(v), ++n;
+                out->push_back({f.field, true, kc::registry::Value::number(v), ""});
+                continue;
+            }
+            const bool front = std::any_of(f.rows.begin(), f.rows.end(), [](const rg::ChainRow& c) { return c.front; });
+            if (front && t.sizes[2][1] != want) t.sizes[2][1] = want, ++n;
+            else if (!front && t.altars[1] != 2) t.altars[1] = 2, ++n;
+            out->push_back({f.field, true, {}, ""});
+        }
+        std::memcpy(copy->data(), &t, sizeof t);
+        return n;
+    };
+    h.finish = [&](const std::vector<rs::BootOutcome>& o) { outcomes = o; };
+    h.fronts = [&](const std::vector<rs::FrontEnd>& f) { fronts = f; };
+    bh::set(&h);
+    const json patch = {{"resource", "table"}, {"type", "keen::BalancingTable"}, {"set", {{"buildzoneSizesPerAltarLevel[2].y", 70}}}};
+    auto go = [&](const json& ir) {
+        seen.clear(), rows_seen.clear(), outcomes.clear(), fronts.clear();
+        run(ir);
+    };
+    // the same bytes: the registry's copy is served (built without the document: altar level 2 at the game's 80 when the
+    // registry writes), finish hears "registry"
+    go(envelope({{"gearmod", "gearRules@gear.json", patch}}));
+    check(faults.empty() && put_count == 1 && served.sizes[2][1] == 70 && served.sizes[2][0] == 80, "the table holds the document's value");
+    check(seen.size() == 1 && seen[0] == 80 && rows_seen[0] == 1, "the registry's write was given the copy built without the document (80), with its front row");
+    check(fronts.size() == 1 && fronts[0].mod == "gearmod" && fronts[0].key == "gearRules@gear.json" && fronts[0].state == "registry" && fronts[0].why.empty(),
+          "finish: the registry wrote it");
+    check(outcomes.size() == 1 && outcomes[0].ok, "the front field's outcome is the registry's");
+    // different bytes: the old copy is served, the document as a resource patch, finish hears why
+    want = 71;
+    go(envelope({{"gearmod", "gearRules@gear.json", patch}}));
+    check(faults.empty() && put_count == 1 && served.sizes[2][1] == 70, "the resource patch's value is served (70, not the registry's 71)");
+    check(fronts.size() == 1 && fronts[0].state == "resourcePatch" && has(fronts[0].why, "the registry's bytes differ from its resource patch's (byte 54 of the resource)"),
+          "finish: kept, with where the bytes differ: " + (fronts.empty() ? std::string() : fronts[0].why));
+    check(outcomes.empty(), "no outcome of the front field (the registry did not write it)");
+    want = 70;
+    // a registry edit beside it: the old way writes the registry's row over the document, the front-end way both rows; same bytes
+    registry_row = true;
+    go(envelope({{"gearmod", "gearRules@gear.json", patch}}));
+    check(faults.empty() && served.sizes[2][1] == 70 && served.altars[1] == 2, "the document and the registry's edit, in one copy");
+    check(seen.size() == 2 && rows_seen[0] == 1 && rows_seen[1] == 2, "the old way's write had the registry's row alone, the front-end's both");
+    check(fronts.size() == 1 && fronts[0].state == "registry" && outcomes.size() == 2, "the front-end's copy and outcomes");
+    // a base rule on the same member: the old way's rule floors the document's 70 at the game's 80 (it runs after the
+    // documents), the registry writes after the rule: the bytes differ, so the resource patch is applied, as before
+    go(envelope({{"gearmod", "gearRules@gear.json", patch}, {"rules-a", "baseRules@roomy", roomy()}}));
+    check(faults.empty() && served.sizes[2][1] == 80 && served.altars[1] == 2 && served.altars[0] == 8, "the old copy: the rule's floor, the registry's edit");
+    check(fronts.size() == 1 && fronts[0].state == "resourcePatch" && has(fronts[0].why, "differ"), "finish: kept, the bytes differ: " + (fronts.empty() ? std::string() : fronts[0].why));
+    check(outcomes.size() == 1 && outcomes[0].field.field == "altarsPerFlameLevel", "the old way's outcome: the registry's own row only");
+    registry_row = false;
+    // a document of the value the table already holds: the old way's patch counts it (a copy is served, kiln.base_rules names
+    // the mod), the registry's write changes nothing; the front-end's copy is served all the same, as the old way's was
+    want = 80;
+    go(envelope({{"gearmod", "gearRules@gear.json", {{"resource", "table"}, {"type", "keen::BalancingTable"}, {"set", {{"buildzoneSizesPerAltarLevel[2].y", 80}}}}}}));
+    check(faults.empty() && put_count == 1 && served.sizes[2][1] == 80 && fronts.size() == 1 && fronts[0].state == "registry",
+          "the game's own value: one copy served, the registry's, as the resource patch's was (puts " + std::to_string(put_count) + ")");
+    {
+        char buf[16384];
+        size_t n = 0;
+        check(base_state(buf, sizeof buf, &n) == KILN_OK, "state answers");
+        const json st = json::parse(std::string(buf, n));
+        check(st["patchedBy"] == json::array({"gearmod"}), "kiln.base_rules names the mod whose patch was served, as before: " + st["patchedBy"].dump());
+    }
+    want = 70;
+    // a document the old way cannot apply faults as before; the registry does not write it either
+    go(envelope({{"gearmod", "gearRules@gear.json", {{"resource", "table"}, {"type", "keen::BalancingTable"}, {"set", {{"missingMember", 1}}}}}}));
+    check(faults.size() == 1 && faults[0].mod == "gearmod" && faults[0].key == "gearRules@gear.json", "the fault, as before");
+    check(fronts.size() == 1 && fronts[0].state == "resourcePatch" && has(fronts[0].why, "its resource patch was not applied"), "finish: kept, it was not applied");
+    // review-j2: a registry edit of the document's own field, relative, over a value a float cannot hold. The bytes are the
+    // same both ways (2 x float(70.1) is float(140.2)); the values the two ways evaluate are not (the front-end's 140.2 from the
+    // document's double, the old way's 2 x float(70.1) from the copy). finish hears the old way's outcome, the one an older
+    // Kiln and a start with front-ends.off give: registry.json's result and the join's registry part (kiln.registry.boot,
+    // stage.cpp finish: "the values actually written") stay as they were, so such peers still compare equal.
+    {
+        same_field = true, front_value = 70.1;
+        const json p701 = {{"resource", "table"}, {"type", "keen::BalancingTable"}, {"set", {{"buildzoneSizesPerAltarLevel[2].y", 70.1}}}};
+        front_off = true;
+        go(envelope({{"gearmod", "gearRules@gear.json", p701}}));
+        const std::vector<rs::BootOutcome> off = outcomes;
+        const Table off_served = served;
+        check(faults.empty() && fronts.empty() && off.size() == 1 && off[0].ok && served.sizes[2][1] == static_cast<float>(2.0 * static_cast<float>(70.1)),
+              "front-end off: the document's 70.1, the registry's mul 2 over it");
+        front_off = false;
+        go(envelope({{"gearmod", "gearRules@gear.json", p701}}));
+        check(faults.empty() && fronts.size() == 1 && fronts[0].state == "registry" && std::memcmp(&served, &off_served, sizeof served) == 0,
+              "front-end on: the registry's copy, the same bytes as with it off" + (fronts.empty() ? std::string() : ": " + fronts[0].why));
+        auto num = [](const kc::registry::Value& v) {
+            char b[40];
+            std::snprintf(b, sizeof b, "%.17g", v.as_double());
+            return std::string(b);
+        };
+        check(outcomes.size() == 1 && outcomes[0].ok && outcomes[0].field.field == "buildzoneSizesPerAltarLevel[2].y" &&
+                  outcomes[0].written.kind == off[0].written.kind && outcomes[0].written.as_double() == off[0].written.as_double(),
+              "finish hears the value the old way wrote, as with the front-end off (" + num(off[0].written) + "), not the front-end's own evaluation (" +
+                  (outcomes.empty() ? std::string("none") : num(outcomes[0].written)) + ")");
+        same_field = false;
+    }
+    // another mod's ordinary patch is never a front-end
+    go(envelope({{"other", "sizes", patch}}));
+    check(faults.empty() && fronts.empty() && seen.empty() && served.sizes[2][1] == 70, "an ordinary resource patch: no front-end, as before");
+    bh::set(nullptr);
+}
+
 // A blocks file's "baseRules" section: read by the collector as a staged rule is; a name both have stays the file's.
 void rule_files() {
     namespace fs = std::filesystem;
@@ -468,6 +646,7 @@ int main() {
         refusals();
         state();
         with_registry();
+        front_ends();
         rule_files();
     } catch (const std::exception& e) {
         std::printf("baserules-test: FAIL %s (after %d checks)\n", e.what(), checks);

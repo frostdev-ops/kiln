@@ -36,6 +36,7 @@ json writer_json(const ChainRow& r, size_t list_cap) {
         w["n"] = r.n;
         if (r.exclusive) w["exclusive"] = true;
     }
+    if (r.front) w["frontEnd"] = true;  // an old path's value the registry's back-end wrote (compose.h OldWrite::front)
     if (!r.raw.empty()) w["raw"] = r.raw;
     if (r.element.on)
         w["element"] = r.element.list + "[" + (r.element.all ? std::string("*") : std::to_string(r.element.index)) + "]" +
@@ -105,6 +106,7 @@ json report_json(const Schema& schema, const Result& r, const ReportMeta& meta, 
     doc["rollback"] = meta.rollback.is_object() ? meta.rollback : json(nullptr);
     if (meta.saves.is_array() && !meta.saves.empty()) doc["saves"] = meta.saves;
     if (meta.migrated.is_array() && !meta.migrated.empty()) doc["migrated"] = meta.migrated;
+    if (meta.front_ends.is_array() && !meta.front_ends.empty()) doc["frontEnds"] = meta.front_ends;
 
     std::set<EntryRef> added(r.added.begin(), r.added.end());
     size_t writers_cut = 0;

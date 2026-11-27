@@ -355,6 +355,45 @@
         }
       }
     },
+    "frontEnds": {
+      "description": "Since 0.2.0-dev.32: this start's front-end documents, a data pack's gearRules (docs/kiln/services/content.md \"Gear rules on the registry\"). The registry's boot back-end writes such a document's values itself, through Kiln's proven mapping, where that gives the same bytes as its resource patch (compared at this start); its rows stay old-path writers (kind oldPatch, marked frontEnd) in their place below every registry edit. Absent: none.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "mod",
+          "key",
+          "state",
+          "fields"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "mod": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string",
+            "description": "The boot document: gearRules@<file>."
+          },
+          "state": {
+            "enum": [
+              "registry",
+              "resourcePatch"
+            ],
+            "description": "registry: the registry's boot back-end wrote its values (the same bytes as its resource patch); resourcePatch: its resource patch wrote them, as before (reason says why)."
+          },
+          "fields": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "The registry fields its values are (0 when it stayed a resource patch before the stage mapped it)."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Why it stays a resource patch, in Kiln words."
+          }
+        }
+      }
+    },
     "migrated": {
       "description": "What the schemas' id migrations (schema/registry/migrations) renamed in this start's edits before they were matched. Absent: nothing.",
       "type": "array",
@@ -736,6 +775,10 @@
         },
         "exclusive": {
           "const": true
+        },
+        "frontEnd": {
+          "const": true,
+          "description": "Since 0.2.0-dev.32: this old-path row's value was written by the registry's boot back-end (a front-end, registry.json frontEnds), not by its resource patch."
         },
         "raw": {
           "type": "string",

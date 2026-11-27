@@ -841,6 +841,27 @@ clash rule above applies. On game build 1287369 (client data): 837 templates use
 template, 115 by several, up to 68), the rule gives no clash, and the server's 420 tables leave about 63 unused by any
 template, which take the `drops_` form. The table's GUID also selects it, as data packs' `drops` section does today.
 
+## Older paths as front-ends (0.2.0-dev.32)
+
+An older path is a **front-end** of a registry where Kiln writes what it says through the registry's own mapping and
+back-end, and only where that gives the game the same bytes. The mod keeps its file and its behaviour; what changes is that
+its values pass through the proven mapping (after a game update, a Kiln update of the mapping carries them) and that
+registry.json shows them.
+
+| Older path | Registry | Front-end | Where not |
+|---|---|---|---|
+| a data pack's `gearRules` (boot values) | `balance`: `rarityDurability.*`, `socketChance.*`, `durability.*`, `unlockCost.*` (19 fields of the same names) | yes: the registry's boot back-end writes the file's values, at every start compared byte for byte with its resource patch | a value of a field not proven on the running build, an operation whose `min` is above its `max`, or copies that differ: the resource patch writes it, as before (registry.json `frontEnds` says why) |
+| a data pack's `gear` section | `items`: every gear key is the items field of the same meaning (`power`, `speed`, `damage.*`, `armor.*`, `block`, `staminaCost`, `rarity`, `levels.*`, `rolled`, `perks`, `socket`, `maxStack`) | no: it stays a data pack | one registry edit per key does not always mean the same: [content.md](../../services/content.md#gear-values-and-the-items-registry-020-dev32) lists the cases; a registry section can say the same as a rule (the lab gives the same item bytes) |
+| `Content.Gear(...)` in C# | `items` | no: it is code (`Content.*`), which sits above registry edits by design | |
+
+A front-end keeps the older path's place in the composition: below every registry edit, an earlier writer for `exclusive` and
+`yield`, conflicts with the other older paths as before; registry.json names it on each field it writes (`kind: oldPatch`,
+`frontEnd: true`) and lists it under `frontEnds` (`state: registry` or `resourcePatch` with a `reason`). It is no registry
+edit: the join's registry part (`kiln.registry.boot`) and the `counts.edits` do not count it, so peers of older Kiln
+versions compare as before. `<game>/kiln/data/content/registry/front-ends.off` switches the front-ends off for the starts
+while it is there: a support and lab switch, no player setting. It is read once at each start; making or deleting it while
+the game runs takes effect at the next start, and is safe either way (the same bytes, the same join parts).
+
 ## Tiers
 
 | Tier | What | Promise |
@@ -863,6 +884,7 @@ Native-tier code (KILN125), info level only ([analyzers.md](../analyzers.md#kiln
 | `schema/registry/migrations/` | id and field renames a breaking schema version ships (applied to every edit, "Versions" above) |
 | `<game>/kiln/data/content/registry/plans/<sha256>.json`, `plans/index.json` | each start's plan (the ones still needed and the newest 10 others are kept: "Which plans are kept"); the last good plan and the plan the last world ran on ("Plans and rollback"); `plans/index.unreadable.json`: an index that could not be read, kept |
 | `<game>/kiln/data/content/registry/rollback.json` | a rollback request (`kilnctl registry rollback`), kept until `--clear` |
+| `<game>/kiln/data/content/registry/front-ends.off` | support and labs only: while it is there, the older paths stay off the registry from the next start ("Older paths as front-ends") |
 | `schema/registry-section.schema.json` | the data section's schema (generated) |
 | `regmap/` | how each field maps onto the game, per game build (Kiln's part: mods never read it) |
 | `tools/registrygen/registrygen.py` | the generator; `--check` fails on stale output, `lock` and `retire` keep the ids |

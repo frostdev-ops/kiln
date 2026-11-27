@@ -66,6 +66,8 @@ struct ReportMeta {
     // (limits.h hook_lines; dev.32): kept apart from the stage's Result, which a live application rebuilds, and written after
     // its lines in every report (counted with them).
     std::vector<Line> hook_lines;
+    // registry.json "frontEnds": this start's front-end documents (stage.h FrontEnd: {mod, key, state, fields, reason}); null: none.
+    json front_ends;
     // A game entry's base origin per field (S5 / S10); unset: "archive" (the game's data as the archive writer published it).
     // An entry a mod added always reports "added".
     std::function<std::string(const FieldRef&)> origin;

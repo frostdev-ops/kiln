@@ -1,0 +1,220 @@
+// The same edits as content/gear.json, as registry edits (Kiln fields and ids): tools/gear-frontend/session.sh puts this
+// file in content/ in place of gear.json for its third boot.
+{
+  "format": 1,
+  "registry": {
+    "alter": [
+      {
+        "registry": "items",
+        "select": {
+          "id": "game:weapon_t1_1h_sword_craft"
+        },
+        "field": "power",
+        "op": 30
+      },
+      {
+        "registry": "items",
+        "select": {
+          "id": "game:weapon_t1_1h_sword_craft"
+        },
+        "field": "damage.cut",
+        "op": 0.75
+      },
+      {
+        "registry": "items",
+        "select": {
+          "id": "game:weapon_t1_1h_sword_craft"
+        },
+        "field": "damage.fire",
+        "op": 0.25
+      },
+      {
+        "registry": "items",
+        "select": {
+          "id": "game:armor_t2_*",
+          "where": {
+            "rarity": "rare"
+          }
+        },
+        "field": "armor.physical",
+        "op": {
+          "mul": 1.2
+        }
+      },
+      {
+        "registry": "items",
+        "select": {
+          "id": "game:weapon_t1_2h_hammer_01"
+        },
+        "field": "speed",
+        "op": 1.25
+      },
+      {
+        "registry": "items",
+        "select": {
+          "id": "game:weapon_t1_2h_hammer_01"
+        },
+        "field": "power",
+        "op": 40
+      },
+      {
+        "registry": "items",
+        "select": {
+          "id": "game:weapon_t1_1h_axe_01"
+        },
+        "field": "power",
+        "op": {
+          "mul": 1.2
+        }
+      },
+      {
+        "registry": "items",
+        "select": {
+          "id": "game:shield_t1_dps"
+        },
+        "field": "block",
+        "op": 0.8
+      },
+      {
+        "registry": "items",
+        "select": {
+          "id": "game:ring_t3_ring_of_light"
+        },
+        "field": "socket",
+        "op": true
+      },
+      {
+        "registry": "items",
+        "select": {
+          "id": "game:ring_t3_ring_of_light"
+        },
+        "field": "rolled",
+        "op": false
+      },
+      {
+        "registry": "items",
+        "select": {
+          "id": "game:weapon_t1_2h_staff_01"
+        },
+        "field": "rarity",
+        "op": "epic"
+      },
+      {
+        "registry": "items",
+        "select": {
+          "id": "game:armor_t1_warrior_dps_helmet"
+        },
+        "field": "armor.magical",
+        "op": {
+          "add": 5
+        }
+      },
+      {
+        "registry": "items",
+        "select": {
+          "id": "game:weapon_t1_2h_bow_01"
+        },
+        "field": "levels.min",
+        "op": 1
+      },
+      {
+        "registry": "items",
+        "select": {
+          "id": "game:weapon_t1_2h_bow_01"
+        },
+        "field": "levels.max",
+        "op": 55
+      },
+      {
+        "registry": "items",
+        "select": {
+          "id": "game:weapon_t1_2h_bow_01"
+        },
+        "field": "power",
+        "op": 35
+      },
+      {
+        "registry": "items",
+        "select": {
+          "id": "game:weapon_t1_1h_sword_01"
+        },
+        "field": "damage.wood",
+        "op": 20
+      },
+      {
+        "registry": "balance",
+        "select": {
+          "id": "game:balance"
+        },
+        "field": "rarityDurability.common",
+        "op": 0.9
+      },
+      {
+        "registry": "balance",
+        "select": {
+          "id": "game:balance"
+        },
+        "field": "rarityDurability.uncommon",
+        "op": 0.95
+      },
+      {
+        "registry": "balance",
+        "select": {
+          "id": "game:balance"
+        },
+        "field": "rarityDurability.rare",
+        "op": 1
+      },
+      {
+        "registry": "balance",
+        "select": {
+          "id": "game:balance"
+        },
+        "field": "rarityDurability.epic",
+        "op": 1.1
+      },
+      {
+        "registry": "balance",
+        "select": {
+          "id": "game:balance"
+        },
+        "field": "rarityDurability.legendary",
+        "op": 1.25
+      },
+      {
+        "registry": "balance",
+        "select": {
+          "id": "game:balance"
+        },
+        "field": "socketChance.epic",
+        "op": 0.75
+      },
+      {
+        "registry": "balance",
+        "select": {
+          "id": "game:balance"
+        },
+        "field": "durability.growth",
+        "op": {
+          "mul": 1.5
+        }
+      },
+      {
+        "registry": "balance",
+        "select": {
+          "id": "game:balance"
+        },
+        "field": "unlockCost.seed",
+        "op": 10
+      },
+      {
+        "registry": "balance",
+        "select": {
+          "id": "game:balance"
+        },
+        "field": "unlockCost.rings",
+        "op": 0.5
+      }
+    ]
+  }
+}

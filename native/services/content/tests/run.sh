@@ -49,6 +49,7 @@ bash "$here/bootpack_test.sh"
 bash "$here/menulayout_test.sh"
 echo "== gear-test (host)"
 bash "$here/gear_test.sh"
+bash "$here/gear_frontend_test.sh"  # gearRules as a registry front-end: both ways, the same bytes
 bash "$here/registry_claims_test.sh"
 bash "$here/registry_compose_test.sh"
 bash "$here/registry_schema_test.sh"

@@ -1576,6 +1576,7 @@ static Result compose_impl(const Schema& schema, const BaseModel& base, const st
         r.op = w.op;
         r.list = w.list;
         r.list_values = w.list_values;
+        r.front = w.front;
         if (el.on) {  // an element row; one that does not apply there (no such element, a value out of range) is left out
             if (f->type != FieldType::List || f->element == FieldType::Struct) continue;
             FieldSpec es = *f;
