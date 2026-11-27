@@ -17,7 +17,8 @@ A pair passes the gate when no fixture failed or stayed inconclusive and the wid
 is the passing pair that walks the most fixtures; on a tie the larger vertical, then the larger horizontal requirement
 (the one that refuses more of what the fixtures did not measure). A body wider than the widest measured gap or taller
 than the highest measured headroom gets no profile: every pair it passes walks the control only, which says nothing
-about the gaps between the two (calibrate it with wider or higher fixtures).
+about the gaps between the two (calibrate it with wider or higher fixtures). Nor does a body whose walker and collider
+Kiln.Pets did not read in the lab (its profile could never be checked).
 Every session's evidence counts: one fail anywhere fails the pair. The profile is keyed by the game build the session
 ran on: a game update invalidates it (Kiln.Pets checks the build and the body it was measured on).
 """
@@ -50,29 +51,52 @@ class Body:
     scale: float
     length: float
     kiln: dict = field(default_factory=dict)
+    template_scale: float = 1.0
+    walker: bool = True
+    read: bool = True     # Kiln.Pets read the walker and collider in the lab (the numbers its check compares)
+
+    @property
+    def size(self):
+        """The body's scale as a player sees it: the pet's scale times the template's own."""
+        return self.scale * self.template_scale
+
+    @property
+    def width(self):
+        return self.collider_width * self.size
 
     @property
     def radius(self):
-        return self.collider_width * self.scale / 2
+        return self.width / 2
 
     @property
     def height(self):
-        return self.collider_height * self.scale
+        return self.collider_height * self.size
 
     @staticmethod
     def of(rec):
         k = rec.get("kilnBody") or {}
+        names = ("walkerRadius", "walkerHeight", "colliderWidth", "colliderHeight")
+        def finite(v):
+            return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
         def num(name):
             v = k.get(name, rec.get(name))
-            return float(v) if isinstance(v, (int, float)) and math.isfinite(v) else 0.0
+            return float(v) if finite(v) else 0.0
         scale = float(rec.get("scale") or 1)
         lo, hi = rec.get("boundsMin") or [], rec.get("boundsMax") or []
         extents = [abs(b - a) for a, b in zip(lo, hi) if isinstance(a, (int, float)) and isinstance(b, (int, float))]
         horizontal = [extents[i] for i in (0, 2) if i < len(extents)]
         length = max(horizontal) * scale if horizontal else 0.0
         length = max(length, num("colliderWidth") * scale, 0.5)
-        kiln = {n: num(n) for n in ("walkerRadius", "walkerHeight", "colliderWidth", "colliderHeight")}
-        return Body(kiln["walkerRadius"], kiln["walkerHeight"], kiln["colliderWidth"], kiln["colliderHeight"], scale, length, kiln)
+        ts = k.get("templateScale", rec.get("templateScale"))
+        ts = float(ts) if finite(ts) and ts > 0 else 1.0      # no ScaleComponent: 1
+        walker = k.get("walker")
+        if not isinstance(walker, bool):
+            walker = rec.get("usePathFinding") not in (None, 0) and not rec.get("flying") and not rec.get("flyingEnemy")
+        kiln = {n: num(n) for n in names}
+        kiln["templateScale"] = ts
+        read = isinstance(rec.get("kilnBody"), dict) and all(finite(k.get(n)) for n in names)
+        return Body(kiln["walkerRadius"], kiln["walkerHeight"], kiln["colliderWidth"], kiln["colliderHeight"], scale, length, kiln,
+                    ts, walker, read)
 
 
 # ---- the fixture's free space ----
@@ -323,7 +347,9 @@ def decide(sessions):
         unjudged = beyond(d["body"], d["fixtures"].values())
         if key[2] is None:
             chosen, why = None, "no game build: the session did not know the running game build"
-        elif chosen is None:
+        elif not d["body"].read:
+            chosen, why = None, "Kiln.Pets did not read this body's walker and collider in the lab, so a profile could never be checked against it"
+        elif not good:
             why = "no pair passes"
         elif unjudged:
             chosen, why = None, unjudged
@@ -338,7 +364,7 @@ def beyond(body, fixtures):
     fs = [f for f in fixtures if f.get("fixtureKind") != "control"]
     gaps = [float(f["gap"]) for f in fs if isinstance(f.get("gap"), (int, float))]
     heads = [float(f["headroom"]) for f in fs if isinstance(f.get("headroom"), (int, float))]
-    width, height = body.collider_width * body.scale, body.height
+    width, height = body.width, body.height
     if not gaps or not heads:
         return "the fixtures cannot judge this body: no measured gap or headroom besides the control"
     if width > max(gaps) + 1e-6:

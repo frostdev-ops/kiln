@@ -56,10 +56,13 @@ def walk(f, h, v, outcome="Arrived", trace=None, x=None, creature="game:enemy_wi
             "outcome": outcome, "catchUps": catch_ups, "jumps": jumps, "trace": trace, "end": trace[-1][1:] if trace else None}
 
 
-def body(creature="game:enemy_wildbeast_wolf", scale=1, kiln=WOLF):
-    return {"kind": "body", "creature": creature, "scale": scale, "control": "Ready", "kilnBody": kiln,
-            "colliderWidth": kiln["colliderWidth"], "colliderHeight": kiln["colliderHeight"], "walkerRadius": kiln["walkerRadius"],
-            "walkerHeight": kiln["walkerHeight"], "boundsMin": [-0.4, 0, -0.8], "boundsMax": [0.4, 1.2, 0.8], "liveScale": scale}
+def body(creature="game:enemy_wildbeast_wolf", scale=1, kiln=WOLF, walker=True, template_scale=None):
+    return {"kind": "body", "creature": creature, "scale": scale, "control": "Ready",
+            "kilnBody": None if kiln is None else {**kiln, "walker": walker, **({} if template_scale is None else {"templateScale": template_scale})},
+            "colliderWidth": (kiln or WOLF)["colliderWidth"], "colliderHeight": (kiln or WOLF)["colliderHeight"],
+            "walkerRadius": (kiln or WOLF)["walkerRadius"], "walkerHeight": (kiln or WOLF)["walkerHeight"],
+            "usePathFinding": 1 if walker else 0, "flying": False, "flyingEnemy": False, "templateScale": template_scale,
+            "boundsMin": [-0.4, 0, -0.8], "boundsMax": [0.4, 1.2, 0.8], "liveScale": scale}
 
 
 def session(game=GAME):
@@ -218,7 +221,7 @@ class Output(unittest.TestCase):
         (p,) = doc["profiles"]
         self.assertEqual((p["creature"], p["scale"], p["game"], p["horizontalSpace"], p["verticalSpace"]),
                          ("game:enemy_wildbeast_wolf", 1.0, GAME, 1, 2))
-        self.assertEqual(p["body"], WOLF)
+        self.assertEqual(p["body"], {**WOLF, "templateScale": 1})
         self.assertEqual(p["calibration"]["passed"], ["control-w5-open", "corridor-w1-h3"])
         self.assertEqual(p["calibration"]["refused"], ["corridor-w0.5-h3", "corridor-w1-h1"])
 
@@ -245,6 +248,22 @@ class Output(unittest.TestCase):
         doc = prof.clearance(prof.decide(prof.load_records(records(*Gate().full()))), lab="t", merge=old)
         got = {(p["creature"], p["game"]): (p["horizontalSpace"], p["verticalSpace"]) for p in doc["profiles"]}
         self.assertEqual(got, {("game:enemy_vukah_melee", GAME): (0.5, 2), ("game:enemy_wildbeast_wolf", GAME): (1, 2)})
+
+
+# ---- the review (dev32 review-pets-clearance) ----
+
+class Review(unittest.TestCase):
+    def test_a_body_whose_numbers_Kiln_Pets_did_not_read_gets_no_profile(self):
+        """No kilnBody: Kiln.Pets could not read the walker and collider, so its check could never apply the profile, and
+        the judge would take a 0 m collider (no clipping is ever seen)."""
+        unread = body(kiln=None)
+        unread["colliderWidth"] = unread["colliderHeight"] = None
+        for b in (unread, body(kiln=None)):
+            recs = session() + [b] + Gate().full()
+            (key, d), = prof.decide(prof.load_records(recs)).items()
+            self.assertIsNone(d["chosen"])
+            self.assertIn("did not read", d["why"])
+            self.assertEqual(prof.clearance({key: d}, lab="t")["profiles"], [])
 
 
 if __name__ == "__main__":
