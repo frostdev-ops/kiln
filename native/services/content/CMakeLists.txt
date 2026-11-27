@@ -4,7 +4,7 @@ file(GLOB KILN_CONTENT_GAMEDATA CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/g
 # The registry stage (registry/): the stage runner, the model and the boot back-end (S5, S10, S11), the live back-end
 # (registry_live.cpp, S9) and the files they share (S2-S8).
 set(KILN_CONTENT_REGISTRY registry_live.cpp registry_entries.cpp registry/visibility.cpp registry/entry_compat.cpp registry/ir.cpp registry/compose.cpp registry/saves.cpp registry/claims.cpp registry/regmap.cpp registry/formulas.cpp
-    registry/report.cpp registry/model.cpp registry/model_bytes.cpp registry/stage.cpp registry/archive_journal.cpp registry/stage_service.cpp registry/live_table.cpp registry/boot_bridge.cpp registry/proof.cpp)
+    registry/report.cpp registry/model.cpp registry/model_bytes.cpp registry/stage.cpp registry/archive_journal.cpp registry/stage_service.cpp registry/live_table.cpp registry/boot_bridge.cpp registry/proof.cpp registry/limits.cpp)
 kiln_service(content content.cpp game.cpp nearmem.cpp refl.cpp registries.cpp store.cpp packs.cpp newcontent.cpp refs.cpp barber.cpp gear.cpp menulayout.cpp ${KILN_CONTENT_REGISTRY} ${KILN_CONTENT_GAMEDATA})
 if(KILN_CONTENT_GAMEDATA)
     target_compile_definitions(kiln-content PRIVATE KILN_CONTENT_GAMEDATA=1)

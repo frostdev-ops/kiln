@@ -1,0 +1,29 @@
+{
+ "format": 1,
+ "side": "client",
+ "comment": "kiln.content's limits registry (dev.32 registry-r3b): limits the game's code holds as fixed numbers, answered by Kiln's own hooks behind registry fields (regmap/common/limits.json). limits/AltarLimit is the game's altar-limit function: min(BalancingTable.altarsPerFlameLevel[flameLevel], 16), BalancingRegistry* in rcx, the Flame level in edx, the limit in eax (0xe96c80 on this build; the same bytes on both sides); limits/altars.cap is its 16 (an immediate, in both of the function's paths) and limits/altars.table the table's offset of altarsPerFlameLevel. limits/GiftRange is the gifting distance getter (0xe96c50): movss xmm0,[rip+d]; ret, the squared distance (2500 = 50 m), pinned at the host's gift check (0x3fd719: mulss, addss, call, comiss, ja), as XHL's Unlimited Gifting Range finds it. Evidence: docs/re/build.md section 13.",
+ "symbols": {
+  "limits/AltarLimit": {
+   "find": [
+    {
+     "pattern": "48 8B 41 20 48 85 C0 75 06 B8 01 00 00 00 C3 48 05 {limits/altars.table:d32} 48 63 08 85 C9 75 13 33 C9 8B C2 0F B6 04 08 B9 {limits/altars.cap:d32} 3A C1 0F 47 C1 C3"
+    }
+   ]
+  },
+  "@limits/GiftCheck.getter": {
+   "find": [
+    {
+     "pattern": "F3 0F 59 F6 F3 0F 59 C7 F3 0F 58 F2 F3 0F 5C C8 F3 0F 59 C9 F3 0F 58 F1 E8 {limits/GiftRange:rel32} 0F 2F F0 0F 28 B4 24 ?? ?? ?? ?? 0F 87"
+    }
+   ]
+  }
+ },
+ "constants": {
+  "limits/altars.table": {
+   "min_votes": 1
+  },
+  "limits/altars.cap": {
+   "min_votes": 1
+  }
+ }
+}

@@ -4,6 +4,7 @@
 #include "../gamedata_walk.cpp"
 #include "../registry/model_bytes.cpp"
 
+#include <cmath>
 #include <cstdarg>
 #include <cstdio>
 #include <stdexcept>
@@ -61,7 +62,12 @@ KilnContentValue decode(const Field& f, const uint8_t* b) {
     KilnContentValue v{};
     v.type = f.vt;
     if (f.vt == KILN_CV_GUID) std::memcpy(v.guid, b, 16);
-    else if (f.vt == KILN_CV_FLOAT) {
+    else if (f.vt == KILN_CV_TIME) {  // as refl.cpp: the nanoseconds in i, the seconds in f
+        int64_t ns = 0;
+        std::memcpy(&ns, b, 8);
+        v.i = ns;
+        v.f = static_cast<double>(ns) / 1e9;
+    } else if (f.vt == KILN_CV_FLOAT) {
         float x;
         std::memcpy(&x, b, 4);
         v.f = x;
@@ -78,6 +84,11 @@ bool path_exists(const std::string&) { return false; }
 std::string data_dir() { return {}; }
 double as_double(const KilnContentValue& v) { return v.type == KILN_CV_INT ? static_cast<double>(v.i) : v.f; }
 bool encode(const Field& f, const KilnContentValue& v, uint8_t* bytes, std::string*) {
+    if (f.vt == KILN_CV_TIME) {  // as refl.cpp: a time value's nanoseconds, else seconds as given
+        const int64_t ns = v.type == KILN_CV_TIME && v.f == 0 ? v.i : static_cast<int64_t>(std::llround(as_double(v) * 1e9));
+        std::memcpy(bytes, &ns, 8);
+        return true;
+    }
     if (f.vt == KILN_CV_FLOAT) {
         const float x = static_cast<float>(v.f);
         std::memcpy(bytes, &x, 4);
@@ -214,6 +225,44 @@ void sequence_types() {
     seq.fields = {{"resourceId", rec(guid), 0}, {"subSequences", rec(subs), 16}};
     named()[seq.name] = &seq;
     for (TType* t : {&pay, &spawn, &dsspawn}) hashed()[t->hash] = t;
+}
+// keen::SceneResource as R3b's tests need it: {flag u32 +0, noBuildZones BlobArray<Zone> +8, tail u32 +16}, 24 bytes;
+// Zone {worldBoxMin WorldPosition +0, worldBoxMax WorldPosition +0x18, marker u8 +0x30 (no Kiln field)}, 0x38 bytes;
+// WorldPosition {x, y, z sint64}, 32.32 fixed-point metres. test::Nested holds a list whose elements hold a list (not movable).
+void scene_type() {
+    using namespace kc::gd;
+    static TType u8, u32, s64, pos, zone, zones, scene, inner, outer, outers, nested;
+    auto rec = [](const TType& t) { return reinterpret_cast<uintptr_t>(&t); };
+    u8.name = u8.brief = "uint8", u8.kind = K_U8, u8.size = 1;
+    u32.name = u32.brief = "uint32", u32.kind = K_U32, u32.size = 4;
+    s64.name = s64.brief = "sint64", s64.kind = K_S64, s64.size = 8;
+    pos.name = "keen::WorldPosition", pos.brief = "WorldPosition", pos.kind = K_STRUCT, pos.size = 24;
+    pos.fields = {{"x", rec(s64), 0}, {"y", rec(s64), 8}, {"z", rec(s64), 16}};
+    zone.name = "keen::SceneNoBuildZone", zone.brief = "SceneNoBuildZone", zone.kind = K_STRUCT, zone.size = 0x38;
+    zone.fields = {{"worldBoxMin", rec(pos), 0}, {"worldBoxMax", rec(pos), 0x18}, {"marker", rec(u8), 0x30}};
+    zones.name = zones.brief = "keen::BlobArray<keen::SceneNoBuildZone>", zones.kind = K_BLOBARRAY, zones.size = 8, zones.inner_rec = rec(zone);
+    scene.name = "keen::SceneResource", scene.brief = "SceneResource", scene.kind = K_STRUCT, scene.size = 24;
+    scene.fields = {{"flag", rec(u32), 0}, {"noBuildZones", rec(zones), 8}, {"tail", rec(u32), 16}};
+    named()[scene.name] = &scene;
+    inner.name = inner.brief = "keen::BlobArray<uint32>", inner.kind = K_BLOBARRAY, inner.size = 8, inner.inner_rec = rec(u32);
+    outer.name = "test::Outer", outer.brief = "Outer", outer.kind = K_STRUCT, outer.size = 8;
+    outer.fields = {{"values", rec(inner), 0}};
+    outers.name = outers.brief = "keen::BlobArray<test::Outer>", outers.kind = K_BLOBARRAY, outers.size = 8, outers.inner_rec = rec(outer);
+    nested.name = "test::Nested", nested.brief = "Nested", nested.kind = K_STRUCT, nested.size = 8;
+    nested.fields = {{"lists", rec(outers), 0}};
+    named()[nested.name] = &nested;
+}
+// test::Timed {t keen::Time +0}, keen::Time {value sint64 nanoseconds}: a boot-routed time field (difficulty's durations)
+void timed_type() {
+    using namespace kc::gd;
+    static TType s64, time, timed;
+    auto rec = [](const TType& t) { return reinterpret_cast<uintptr_t>(&t); };
+    s64.name = s64.brief = "sint64", s64.kind = K_S64, s64.size = 8;
+    time.name = "keen::Time", time.brief = "Time", time.kind = K_STRUCT, time.size = 8;
+    time.fields = {{"value", rec(s64), 0}};
+    timed.name = "test::Timed", timed.brief = "Timed", timed.kind = K_STRUCT, timed.size = 8;
+    timed.fields = {{"t", rec(time), 0}};
+    named()[timed.name] = &timed;
 }
 }  // namespace rbtest
 }  // namespace kc

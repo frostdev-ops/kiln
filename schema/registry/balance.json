@@ -3,7 +3,7 @@
   "registrySchema": 1,
   "registry": "balance",
   "typeName": "Balance",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "stability": "experimental",
   "experimentalId": "KILNX031",
   "doc": "The game's balance table: experience and levels, the flame's altars and water sources, base fog resistance, durability, sockets and perk unlock costs. The game reads it once at start.",
@@ -107,11 +107,11 @@
       "of": {
         "type": "int",
         "min": 0,
-        "max": 16
+        "max": 255
       },
       "applies": "restart",
       "ops": "indexed",
-      "doc": "Flame altars allowed at each flame level, one value per level from 0 to flameLevelMax (the game's code stops at 16). Edited one level at a time (altarsPerFlameLevel[i]).",
+      "doc": "Flame altars allowed at each flame level, one value per level from 0 to flameLevelMax. The game's code allows at most 16 whatever the table says; limits.maxAltars raises that (since dev.32). Edited one level at a time (altarsPerFlameLevel[i]).",
       "lengthField": "flameLevelMax",
       "lengthOffset": 1,
       "joinedClient": "restart"

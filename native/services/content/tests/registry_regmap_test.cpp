@@ -344,6 +344,16 @@ int main(int argc, char** argv) {
                 if (!ok) std::printf("  %s: %s.%s: %s\n", side, reg, field, why.c_str());
                 CHECK(ok);
             }
+            // dev.32 (registry-r3b): the world rules and limits rows are proven on this build, the durations' bounds (boot time rows,
+            // P70) and the two Kiln hook values (the producer's samples of the game's own functions) included
+            for (const auto& [reg, field] : {std::pair{"world", "noBuildZones"}, {"world", "noBuildZones[].min.x"}, {"world", "playableAreas"},
+                                             {"world", "playableAreas[].max.z"}, {"difficulty", "enemyDamageFactor.max"}, {"difficulty", "dayTimeDuration.min"},
+                                             {"difficulty", "fromHungerToStarving.max"}, {"difficulty", "flameLevelFogRemoval.max"},
+                                             {"limits", "maxAltars"}, {"limits", "giftingRange"}}) {
+                const bool ok = one.mapping(reg, field, &why) == Mapping::Mapped;
+                if (!ok) std::printf("  %s: %s.%s: %s\n", side, reg, field, why.c_str());
+                CHECK(ok);
+            }
             CHECK(one.mapping("items", "fuel.burnTime", &why) == Mapping::Unproven && why.find("no game code reads") != std::string::npos);
             // dev.32 (lane registry-r2a, lab-proven on f0d824be, mirrored on the client): every creatures and arsenals row, a perk's
             // value (both kinds) and armour; the perk damage bonus stays off with its reason (its read time is not traced)

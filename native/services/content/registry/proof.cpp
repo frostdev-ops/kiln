@@ -7,6 +7,7 @@
 
 #include "../../../core/src/services/boot_gamedata.h"
 #include "boot_hooks.h"
+#include "limits.h"
 
 namespace kc::registry::proof {
 
@@ -16,6 +17,13 @@ std::string sha_of(const std::string& s) { return kiln::boot_gd::hex_of(kiln::bo
 std::string sha_of(const std::vector<uint8_t>& b) { return sha_of(std::string(b.begin(), b.end())); }
 
 bool mapped(const map::Row& r) { return r.state != map::RowState::Unmapped && !r.paths.empty(); }
+
+// A raw member value as the record's contract has it (regmap/README.md "Raw values"): a time member's nanoseconds (the
+// reflection reads a keen::Time as seconds), everything else as read.
+json raw_of(const map::Row& row, json m) {
+    if (row.conv == "time" && m.is_number()) return static_cast<int64_t>(std::llround(m.get<double>() * 1e9));
+    return m;
+}
 
 // "inputs[].count" -> ("inputs", "count"); a field of the entry -> ("", "")
 std::pair<std::string, std::string> element_of(const std::string& field) {
@@ -65,7 +73,7 @@ void read_only(model::Model& m, model::Source& src, const Env& e, const map::Reg
                         all = all && !sha.empty();
                         raw.push_back("resource:" + sha);
                     }
-                    else if (src.member(en.place, list.empty() ? p : wit->second.paths[0] + "[0]." + p, &mv, &w) && !mv.is_null()) raw.push_back(mv);
+                    else if (src.member(en.place, list.empty() ? p : wit->second.paths[0] + "[0]." + p, &mv, &w) && !mv.is_null()) raw.push_back(raw_of(row, mv));
                     else all = false;
                 }
                 if (!all) continue;
@@ -178,7 +186,7 @@ json boot_sample(const map::RegistryMap& reg, const RegistrySpec& rs, const std:
             const std::string path = list.empty() ? p : wrow.paths.at(0) + "[0]." + p;
             json m;
             std::string w;
-            a.push_back(model::bytes_member(b.data(), b.size(), type, path, &m, &w) ? m : json(nullptr));
+            a.push_back(model::bytes_member(b.data(), b.size(), type, path, &m, &w) ? raw_of(row, std::move(m)) : json(nullptr));
         }
         return a;
     };
@@ -237,6 +245,40 @@ json boot_sample(const map::RegistryMap& reg, const RegistrySpec& rs, const std:
     return s;
 }
 
+// A hooks registry's row (limits.h, entries kind hooks, back-end hook): its value is in no resource, so the sample is the game's
+// own code: `read` the game's value (from its code), `probe` the value the producer gives Kiln's hook for a moment (no registry
+// layer), `readBack` and `rawAfter` what the game's function answers then (called: the gift getter as it is, the altar limit over
+// a scratch table whose levels hold 255, so the cap decides), `rawBefore` and the revert the same before and after the probe; the
+// "bytes" are the answer's digest. A hook value this build does not have gives no sample (unproven, never an error).
+json hook_sample(const map::RegistryMap& reg, const RegistrySpec& rs, const std::string& field, const std::string& id, std::string* why) {
+    const auto rit = reg.rows.find(field);
+    const FieldSpec* spec = rs.field(field);
+    if (rit == reg.rows.end() || !mapped(rit->second) || !spec) return *why = "the field has no mapped row", nullptr;
+    const std::string name = rit->second.paths[0];
+    json base;
+    if (!limits::base_value(name, &base, why)) return nullptr;
+    const Value before = spec->type == FieldType::Int ? Value::integer(base.get<int64_t>()) : Value::number(base.get<double>());
+    auto answer = [&]() -> std::optional<double> { return limits::game_answer(name, 255, why); };
+    auto as_value = [&](double v) { return spec->type == FieldType::Int ? Value::integer(static_cast<int64_t>(std::llround(v))).to_json() : json(v); };
+    const auto rb = answer();
+    if (!rb) return nullptr;
+    json s = {{"field", reg.registry + "." + field}, {"entry", id}, {"element", nullptr}, {"read", before.to_json()}, {"rawBefore", json::array({as_value(*rb)})},
+              {"bytesBefore", sha_of("answer " + std::to_string(*rb))}};
+    if (spec->read_only) return s;
+    const std::optional<Value> probe = probe_for(*spec, before);
+    if (!probe) return *why = "no probe value for this kind of field", nullptr;
+    s["probe"] = probe->to_json();
+    if (!limits::probe_set(name, probe->as_double(), why)) return nullptr;  // the hook could not go in: no evidence
+    const auto ra = answer();
+    limits::probe_clear(name);
+    const auto rr = answer();
+    s["readBack"] = ra ? as_value(*ra) : json(nullptr);
+    s["rawAfter"] = json::array({ra ? as_value(*ra) : json(nullptr)});
+    s["reverted"] = rr.has_value() && *rr == *rb;
+    s["bytesAfter"] = sha_of("answer " + (rr ? std::to_string(*rr) : std::string("none")));
+    return s;
+}
+
 std::vector<std::string> run(const Env& e) {
     std::vector<std::string> written;
     if (!requested(e)) return written;
@@ -267,6 +309,18 @@ std::vector<std::string> run(const Env& e) {
         const RegistrySpec* rs = e.schema->registry(name);
         const bool boot = std::any_of(reg.rows.begin(), reg.rows.end(), [](const auto& r) { return mapped(r.second) && r.second.backend == map::Backend::Boot; });
         if (!rs) continue;
+        if (reg.entries.kind == map::EntryKind::Hooks) {
+            const std::vector<model::Entry>* es = m.entries(name, &why);
+            const std::string id = es && !es->empty() ? (*es)[0].id : "game:" + reg.entries.unnamed;
+            for (const auto& [f, row] : reg.rows) {
+                if (!mapped(row)) continue;
+                std::string w;
+                json sample = hook_sample(reg, *rs, f, id, &w);
+                if (sample.is_null()) log(1, name + "." + f + ": unproven (" + w + ")");
+                else samples.push_back(std::move(sample));
+            }
+            continue;
+        }
         if (!boot) {
             read_only(m, *src, e, reg, *rs, &samples);
             continue;

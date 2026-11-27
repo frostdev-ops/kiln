@@ -675,6 +675,17 @@ fn entries_diff(old: &TypeDb, new: &TypeDb, f: &RegFile, oroot: &Base, nroot: &B
 pub fn diff(map: &RegMap, old: &TypeDb, new: &TypeDb) -> ReflDiff {
     let mut out = ReflDiff::default();
     for (name, f) in map {
+        if f.entries.kind == "hooks" {
+            // a hooks registry (limits) has no resource and no member path: its values are Kiln's hooks of the game's code, which
+            // sigdb resolves and its build record verifies, and regmap_check.py --exe checks per row on each exe (the candidate)
+            for (field, row) in &f.rows {
+                if row.has_mapping() {
+                    out.rows.insert(format!("{name}.{field}"), RowDiff::of(vec![], vec![], vec![]));
+                }
+            }
+            out.rows.insert(format!("{name}.(entries)"), RowDiff::of(vec![], vec![], vec![]));
+            continue;
+        }
         let (oroot, nroot) = (entry_root(old, f), entry_root(new, f));
         let mut roots = vec![f.entries.resource_type.clone()];
         if let (Ok(o), Ok(n)) = (&oroot, &nroot) {
@@ -1043,6 +1054,20 @@ pub(crate) mod tests {
         replace(&mut m, en("demo::Grade", &[("Low", 0), ("High", 1), ("Mid", 2)]));
         let d2 = diff(&sample(), &db(old_types(), "a"), &db(m, "b"));
         assert_eq!(status(&d2, "gadgets.tier"), Status::Carried);
+    }
+
+    #[test]
+    fn a_hooks_registry_has_no_reflection_to_diff() {
+        // limits (dev.32): no resource, no member path; its rows are Kiln's hooks, which sigdb and regmap_check.py --exe check
+        let mut map = sample();
+        let caps = r#"{"regmap": 1, "registry": "caps", "entries": {"kind": "hooks", "unnamed": "caps"},
+            "rows": {"most": {"paths": ["altarCap"], "conv": "int", "read": "now", "backend": "hook"}}}"#;
+        map.insert("caps".into(), crate::regproof::regmap::parse(caps, "caps").unwrap());
+        let d = diff(&map, &db(old_types(), "a"), &db(old_types(), "b"));
+        assert_eq!(status(&d, "caps.most"), Status::Same);
+        assert_eq!(status(&d, "caps.(entries)"), Status::Same);
+        assert!(d.rows["caps.most"].changes.is_empty() && !d.layouts.contains_key(""), "{:?}", d.rows["caps.most"]);
+        assert_eq!(status(&d, "gadgets.size"), Status::Same);
     }
 
     #[test]

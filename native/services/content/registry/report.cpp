@@ -133,7 +133,12 @@ json report_json(const Schema& schema, const Result& r, const ReportMeta& meta, 
     doc["fields"] = std::move(fields);
 
     json conflicts = json::array();
-    for (const Line& l : r.lines) {
+    std::vector<const Line*> lines;
+    lines.reserve(r.lines.size() + meta.hook_lines.size());
+    for (const Line& l : r.lines) lines.push_back(&l);
+    for (const Line& l : meta.hook_lines) lines.push_back(&l);
+    for (const Line* lp : lines) {
+        const Line& l = *lp;
         if (conflicts.size() >= caps.conflicts) break;
         const auto fo = r.fields.find(l.field);
         json row = {{"field", l.field.registry + "[" + l.field.id + "]." + field_name(l.field, fo == r.fields.end() ? nullptr : &fo->second)},
@@ -183,12 +188,12 @@ json report_json(const Schema& schema, const Result& r, const ReportMeta& meta, 
     doc["added"] = entries(r.added, true);
     doc["removed"] = entries(r.removed, false);
 
-    doc["counts"] = {{"fields", r.fields.size()}, {"conflicts", r.lines.size()}, {"refused", r.refused.size()}, {"added", r.added.size()}, {"removed", r.removed.size()}};
+    doc["counts"] = {{"fields", r.fields.size()}, {"conflicts", lines.size()}, {"refused", r.refused.size()}, {"added", r.added.size()}, {"removed", r.removed.size()}};
     // refused rows that wait for a restart (the stable token RESTART_REQUIRED_TOKEN first): what a reload, a live edit or a
     // runtime pass left for the next start. Counted over every row, also those the refused cap leaves out.
     doc["counts"]["restartRequired"] = std::count_if(r.refused.begin(), r.refused.end(), [](const Refusal& x) { return restart_required(x); });
     doc["truncated"] = {{"fields", r.fields.size() - doc["fields"].size()},
-                        {"conflicts", r.lines.size() - doc["conflicts"].size()},
+                        {"conflicts", lines.size() - doc["conflicts"].size()},
                         {"refused", r.refused.size() - doc["refused"].size()},
                         {"added", r.added.size() - doc["added"].size()},
                         {"removed", r.removed.size() - doc["removed"].size()},

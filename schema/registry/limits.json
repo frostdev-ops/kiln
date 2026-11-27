@@ -1,0 +1,42 @@
+{
+  "$schema": "../registry-schema.schema.json",
+  "registrySchema": 1,
+  "registry": "limits",
+  "typeName": "Limits",
+  "version": "0.1.0",
+  "stability": "experimental",
+  "experimentalId": "KILNX031",
+  "doc": "Limits the game's code holds as fixed numbers, not data: Kiln answers the game's own check with the registry's value through a hook of its own, installed only when the value is not the game's. The game reads each at every check; Kiln takes the value at start.",
+  "ids": {
+    "game": "game:limits",
+    "mod": "(none: one entry)",
+    "rule": "One entry, game:limits."
+  },
+  "traits": {},
+  "fields": {
+    "maxAltars": {
+      "type": "int",
+      "min": 1,
+      "max": 255,
+      "applies": "restart",
+      "ops": "number",
+      "doc": "The most Flame Altars the game allows at any Flame level: its altar check answers the smaller of balance.altarsPerFlameLevel at the world's Flame level and this. The game's own is 16, so raise both to allow more. Past 16 the game's bases still count 16: altars past the 16th give build zones without the base features (comfort, base chests, survivor beds, animals, the journal), the network message of a world's zones counts them in one byte, and a player's game draws at most 32 zone borders at once.",
+      "joinedClient": "restart"
+    },
+    "giftingRange": {
+      "type": "float",
+      "unit": "m",
+      "min": 0,
+      "max": 1000000,
+      "applies": "restart",
+      "ops": "number",
+      "doc": "How far apart two players may be for one to give the other an item, in metres. The game's own is 50 m. The host checks the gift; a player's game uses it to offer the gift.",
+      "joinedClient": "restart"
+    }
+  },
+  "entry": {
+    "add": false,
+    "remove": false
+  },
+  "raw": "refused"
+}

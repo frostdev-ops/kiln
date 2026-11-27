@@ -19,6 +19,120 @@ std::string folded(std::string s) {
         if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
     return s;
 }
+
+size_t align16(size_t n) { return (n + 15) & ~size_t(15); }
+
+// A type whose bytes can move as they are: no member of it holds an offset to data of its own (a list, a text, an optional,
+// a variant); references and GUIDs are plain bytes.
+bool movable(const gd::TType* t, int depth = 0) {
+    const gd::TType* r = t ? t->resolved() : nullptr;
+    if (!r || depth > 32) return false;
+    switch (r->kind) {
+        case gd::K_BLOBARRAY: case gd::K_BLOBSTRING: case gd::K_BLOBOPT: case gd::K_BLOBVAR: return false;
+        case gd::K_STRUCT:
+            for (const gd::TField& f : r->fields)
+                if (!movable(f.type(), depth + 1)) return false;
+            return true;
+        case gd::K_ARRAY: return movable(r->inner(), depth + 1);
+        default: return true;
+    }
+}
+
+// A list whose length changes (its row says "resize"): the new list is placed behind the copy's bytes, 16-aligned, as a
+// resource patch's clear, append and replace place theirs (gamedata_bootstruct.cpp), and the list's header points at it
+// (an empty list: no data). An element of the new value that equals one of the list below (the first such not taken yet)
+// keeps that element's bytes, so the members Kiln has no field for stay the game's; any other element starts as zeros and
+// gets its mapped leaves. Elements that hold data of their own cannot be moved like that: refused, never written blind.
+// Everything is computed before the copy changes: the list is written whole or not at all. *written: the elements placed.
+bool resize_list(const std::string& type_name, gd::Root root_kind, const map::RegistryMap& reg, const map::Row& row, const FieldSpec& f,
+                 const Value& below, const Value& v, std::vector<uint8_t>* copy, size_t* written, std::string* why) {
+    *written = 0;
+    const gd::TType* type = gd::type_named(type_name);
+    if (!type || !type->resolved()) return *why = "this game build has no type " + type_name, false;
+    if (v.kind != Value::List || below.kind != Value::List) return *why = "not a list", false;
+    const uintptr_t lo = reinterpret_cast<uintptr_t>(copy->data()), hi = lo + copy->size();
+    std::vector<gd::Resolved> found;
+    std::string err;
+    if (!gd::resolve(root_kind, gd::Node{type->resolved(), lo}, row.paths.at(0), &found, &err) || found.size() != 1 || !found[0].node.t)
+        return *why = "\"" + row.paths[0] + "\": " + (err.empty() ? "no such member" : err), false;
+    const gd::TType* list = found[0].node.t->resolved();
+    if (!list || list->kind != gd::K_BLOBARRAY) return *why = "\"" + row.paths[0] + "\" is not a scalar member of the resource", false;
+    if (found[0].node.addr < lo || found[0].node.addr + 8 > hi) return *why = "\"" + row.paths[0] + "\" lies outside the resource's own bytes", false;
+    const gd::TType* el = list->inner() ? list->inner()->resolved() : nullptr;
+    if (!el || !el->size) return *why = f.name + ": the size of its elements is not known on this game build", false;
+    if (!movable(el)) return *why = f.name + "'s elements hold data of their own: the boot back-end writes them in place only, its length cannot change", false;
+    const size_t where = found[0].node.addr - lo, es = el->size;
+    int32_t rel = 0;
+    uint32_t count = 0;
+    std::memcpy(&rel, copy->data() + where, 4);
+    std::memcpy(&count, copy->data() + where + 4, 4);
+    const int64_t old_at = static_cast<int64_t>(where) + rel;
+    if (count && (!rel || old_at < 0 || static_cast<uint64_t>(old_at) + uint64_t{count} * es > copy->size()))
+        return *why = f.name + ": the list in the resource is not readable", false;
+    if (count != below.list.size()) return *why = f.name + ": the resource holds " + std::to_string(count) + " element(s), the value read holds " +
+                                                  std::to_string(below.list.size()), false;
+    if (v.list.size() > 1000000) return *why = f.name + ": the list would be too long", false;
+    std::vector<uint8_t> out(v.list.size() * es, 0);
+    std::vector<char> taken(count, 0);
+    const Field none{};
+    for (size_t i = 0; i < v.list.size(); ++i) {
+        uint8_t* at = out.data() + i * es;
+        size_t j = 0;
+        while (j < count && (taken[j] || !(below.list[j] == v.list[i]))) ++j;
+        if (j < count) {
+            taken[j] = 1;
+            std::memcpy(at, copy->data() + old_at + j * es, es);
+            continue;
+        }
+        // a new element: its mapped leaves on zeros
+        auto put = [&](const gd::Node& n, const FieldSpec& spec, const map::Row& r, const Value& x) {
+            Field leaf = none;
+            if (!n.t || !gd::leaf_of(n.t, &leaf) || leaf.ref || leaf.vt == KILN_CV_GUID || n.addr < reinterpret_cast<uintptr_t>(at) ||
+                n.addr + leaf.bytes > reinterpret_cast<uintptr_t>(at) + es)
+                return *why = f.name + ": an element's member is not a scalar member of the resource", false;
+            json j;
+            if (!model::encode_leaf(spec, r, x, &j, why)) return false;
+            uint8_t b[16] = {};
+            bool reset = false;
+            if (!gd::parse_leaf(leaf, gjson::parse(j.dump()), reinterpret_cast<const uint8_t*>(n.addr), b, &reset, &err))
+                return *why = f.name + "[" + std::to_string(i) + "]: " + err, false;
+            std::memcpy(reinterpret_cast<void*>(n.addr), b, leaf.bytes);
+            return true;
+        };
+        if (f.element != FieldType::Struct) {
+            map::Row er = row;
+            er.conv = f.element == FieldType::Float ? "float" : f.element == FieldType::Bool ? "bool" : "int";
+            FieldSpec espec = f;
+            espec.type = f.element;
+            if (!put(gd::Node{el, reinterpret_cast<uintptr_t>(at)}, espec, er, v.list[i])) return false;
+            continue;
+        }
+        const Value& now = v.list[i];
+        for (size_t k = 0; k < now.keys.size(); ++k) {
+            if (now.list[k].kind == Value::None) continue;  // not given: the game's zero
+            const auto lr = reg.rows.find(f.name + "[]." + now.keys[k]);
+            const FieldSpec* leaf = f.element_field(now.keys[k]);
+            if (lr == reg.rows.end() || !leaf || lr->second.paths.empty()) return *why = f.name + "[]." + now.keys[k] + " has no row", false;
+            std::vector<gd::Resolved> rs;
+            if (!gd::resolve(gd::Root::Plain, gd::Node{el, reinterpret_cast<uintptr_t>(at)}, lr->second.paths[0], &rs, &err) || rs.size() != 1)
+                return *why = "\"" + lr->second.paths[0] + "\": " + (err.empty() ? "no such member" : err), false;
+            if (!put(rs[0].node, *leaf, lr->second, now.list[k])) return false;
+        }
+    }
+    // the copy changes only now (it may move: offsets, never pointers, from here on)
+    const size_t list_at = align16(copy->size());
+    if (!out.empty()) {
+        copy->resize(align16(list_at + out.size()), 0);
+        std::memcpy(copy->data() + list_at, out.data(), out.size());
+    }
+    const int32_t new_rel = out.empty() ? 0 : static_cast<int32_t>(static_cast<int64_t>(list_at) - static_cast<int64_t>(where));
+    const uint32_t new_count = static_cast<uint32_t>(v.list.size());
+    std::memcpy(copy->data() + where, &new_rel, 4);
+    std::memcpy(copy->data() + where + 4, &new_count, 4);
+    *written = v.list.size() + 1;  // the elements and the list's header
+    return true;
+}
+
 }  // namespace
 
 // The old documents' writes on places the registries map, as the stage's old-path rows (they lie below every registry
@@ -161,7 +275,10 @@ std::vector<OldWrite> old_writes(const std::vector<OldDoc>& docs, model::Model& 
                     if (!locate(o.path, &i, &rest)) continue;
                     for (const auto& [fname, row] : rmap.rows) {
                         const FieldSpec* f = rs->field(fname);
-                        if (!f || row.conv != "list" || row.paths.empty() || folded(row.paths[0]) != rest || f->element == FieldType::Struct) continue;
+                        // a list of structs takes only an old document's clear (a resource patch replaces and appends lists of plain
+                        // values only); EMBER's "build anywhere" clears the world scene's lists that way
+                        if (!f || row.conv != "list" || row.paths.empty() || folded(row.paths[0]) != rest || (f->element == FieldType::Struct && o.op != 'x'))
+                            continue;
                         std::vector<Value> vals;
                         for (const auto& v : o.values) {
                             Value x;
@@ -202,6 +319,21 @@ size_t write(const KilnAssetKey& key, const std::string& type_name, std::vector<
             continue;
         }
         const Value v = evaluate(f.rows, *below, f.spec);
+        if (f.row->conv == "list" && f.row->resize && v.kind == Value::List && below->kind == Value::List && v.list.size() != below->list.size()) {
+            size_t n = 0;
+            if (!resize_list(type_name, root_kind, *f.reg, *f.row, f.spec, *below, v, copy, &n, &why)) {
+                o.why = why;
+                outcomes->push_back(std::move(o));
+                continue;
+            }
+            written += n;
+            o.ok = true;
+            o.written = v;
+            notes->push_back("registry: " + type_name + " " + guid_text(key.guid) + ": " + f.field.text() + " = " + v.text_of() + " (" +
+                             std::to_string(v.list.size()) + " element(s) in a list of another length, after the resource patches)");
+            outcomes->push_back(std::move(o));
+            continue;
+        }
         std::vector<std::pair<std::string, json>> writes;
         if (!model::encode(*f.reg, *f.row, f.spec, v, *below, &writes, &why)) {
             o.why = why;

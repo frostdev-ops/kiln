@@ -512,6 +512,7 @@ void pre(const KilnTickInfo* tick, uint32_t kind, uintptr_t world) {
     gd_tick(tick->step);
 #endif
     registry_live_publish();  // drop tables acquired since the last application, outside the acquire hook
+    registry::stage::hooks_tick();  // another mod's own hook of a function a limits value answers through (dev.32)
     deliver_ready();
 }
 

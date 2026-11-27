@@ -205,7 +205,7 @@ pub fn constants(suites: &[&Suite]) -> BTreeMap<String, f64> {
 
 fn raw_kind(conv: &str) -> Raw {
     match conv {
-        "int" | "float" | "impactConfig" | "bool" | "time" | "eventTime" | "enum" | "flags" | "optionalEnum" => Raw::Compared,
+        "int" | "float" | "impactConfig" | "bool" | "time" | "eventTime" | "enum" | "flags" | "optionalEnum" | "position" => Raw::Compared,
         "formula" => Raw::Formula,
         _ => Raw::SchemaOnly,
     }
@@ -259,6 +259,8 @@ fn raw_mismatch(row: &Row, raw: &[Value], kiln: &Value) -> Option<String> {
         "bool" => truthy(first).is_some() && truthy(first) == kiln.as_bool(),
         // eventTime: the first event of a kind (dev.32 abilities.timing.*), a keen::Time like time
         "time" | "eventTime" => num(first).zip(num(kiln)).is_some_and(|(ns, s)| (ns / 1e9 - s).abs() <= 1e-9 * s.abs().max(1.0)),
+        // a world position's axis: the game's 32.32 fixed point, the Kiln value in metres (dev.32, world.noBuildZones)
+        "position" => num(first).zip(num(kiln)).is_some_and(|(fx, m)| (fx / 4294967296.0 - m).abs() <= 1e-6 * m.abs().max(1.0)),
         "enum" => first.as_str().is_some() && first.as_str() == kiln.as_str().and_then(|k| row.values.get(k)).map(String::as_str),
         "flags" => {
             let want: Option<std::collections::BTreeSet<String>> =
@@ -376,7 +378,7 @@ pub fn check(map: &RegMap, side: &str, exe_sha256: &str, regmap_digest: &str, su
     let mut r = Report::default();
     let good = usable(side, exe_sha256, regmap_digest, suites, &mut r.problems);
     let rows: Vec<(String, &Row)> = super::regmap::qualified(map).into_iter().filter(|(_, _, _, row)| row.has_mapping()).map(|(q, _, _, row)| (q, row)).collect();
-    let needs_boot = rows.iter().any(|(_, row)| row.backend == "boot");
+    let needs_boot = rows.iter().any(|(_, row)| row.backend == "boot" || row.backend == "hook");
     for g in ["live", "boot"] {
         if (g == "live" || needs_boot) && !good.iter().any(|s| s.generation == g) {
             r.missing.push(g.to_string());
@@ -385,7 +387,8 @@ pub fn check(map: &RegMap, side: &str, exe_sha256: &str, regmap_digest: &str, su
     r.complete = r.missing.is_empty();
     for (q, row) in rows {
         let want = match row.backend.as_str() {
-            "boot" => Some("boot"),
+            // a hooks registry's value (limits): the producer samples Kiln's hook at resources-ready, with the boot fields
+            "boot" | "hook" => Some("boot"),
             "live" => Some("live"),
             _ => None,
         };
@@ -906,6 +909,48 @@ pub(crate) mod tests {
         let f = run(&map, "live", json!({"sint32": 3, "float": 0, "unknown": 0, "notInWorld": 2, "uint32": 0}),
                     Some(json!(["game:h3", "game:h4"])), Some(&values));
         assert!(f.ok, "{f:?}");
+    }
+
+    #[test]
+    fn a_position_compares_its_fixed_point_raw_value_in_metres() {
+        let rows = r#"{"regmap": 1, "registry": "zones", "entries": {"kind": "single", "resourceType": "demo::Scene", "resourceGuid": "509feadb-4c60-425f-9c7c-deeefd9b6920"},
+            "rows": {"boxes": {"paths": ["boxes"], "conv": "list", "read": "worldLoad", "backend": "boot", "resize": true},
+                     "boxes[].min.x": {"paths": ["lo.x"], "conv": "position", "read": "worldLoad", "backend": "boot"}}}"#;
+        let mut map = RegMap::new();
+        map.insert("zones".into(), crate::regproof::regmap::parse(rows, "zones").unwrap());
+        let b = "ef".repeat(32);
+        let mk = |raw_after: i64| parse(&json!({"format": 1, "kind": KIND, "side": "server", "exeSha256": SHA, "generation": "boot", "regmapDigest": DIGEST,
+            "samples": [{"field": "zones.boxes[].min.x", "entry": "game:world", "element": 0, "read": -364.0, "probe": -455.0, "readBack": -455.0,
+                         "rawBefore": [-364i64 * 4294967296], "rawAfter": [raw_after], "reverted": true, "bytesBefore": b, "bytesAfter": b}]}).to_string()).unwrap();
+        let r = check(&map, "server", SHA, DIGEST, &[mk(-455i64 * 4294967296)]);
+        assert!(r.fields["zones.boxes[].min.x"].ok, "{:?}", r.fields["zones.boxes[].min.x"]);
+        let r2 = check(&map, "server", SHA, DIGEST, &[mk(-455)]);  // the metres written as a plain number: a disproof
+        assert!(!r2.fields["zones.boxes[].min.x"].ok, "{:?}", r2.fields["zones.boxes[].min.x"]);
+    }
+
+    #[test]
+    fn a_hook_row_is_proven_by_a_boot_generation_sample() {
+        // a hooks registry's value (limits, dev.32): the producer samples Kiln's hook at resources-ready, in the boot generation
+        let rows = r#"{"regmap": 1, "registry": "caps", "entries": {"kind": "hooks", "unnamed": "caps"},
+            "rows": {"most": {"paths": ["altarCap"], "conv": "int", "read": "now", "backend": "hook"}}}"#;
+        let mut map = RegMap::new();
+        map.insert("caps".into(), crate::regproof::regmap::parse(rows, "caps").unwrap());
+        assert!(map["caps"].rows["most"].writable());
+        let b = "cd".repeat(32);
+        let mk = |generation: &str, samples: Value| parse(&json!({"format": 1, "kind": KIND, "side": "server", "exeSha256": SHA, "generation": generation,
+                                                                  "regmapDigest": DIGEST, "samples": samples}).to_string()).unwrap();
+        let sample = json!([{"field": "caps.most", "entry": "game:caps", "read": 16, "probe": 17, "readBack": 17, "rawBefore": [16], "rawAfter": [17],
+                             "reverted": true, "bytesBefore": b, "bytesAfter": b}]);
+        let r = check(&map, "server", SHA, DIGEST, &[mk("boot", sample.clone())]);
+        assert!(r.fields["caps.most"].ok, "{:?}", r.fields["caps.most"]);
+        // the same sample in a live generation proves nothing: the value is taken at start
+        let r2 = check(&map, "server", SHA, DIGEST, &[mk("live", sample)]);
+        assert!(!r2.fields["caps.most"].ok, "{:?}", r2.fields["caps.most"]);
+        // the game's function answering the old value after the probe is a disproof
+        let bad = json!([{"field": "caps.most", "entry": "game:caps", "read": 16, "probe": 17, "readBack": 16, "rawBefore": [16], "rawAfter": [16],
+                          "reverted": true, "bytesBefore": b, "bytesAfter": b}]);
+        let r3 = check(&map, "server", SHA, DIGEST, &[mk("boot", bad)]);
+        assert!(!r3.fields["caps.most"].ok, "{:?}", r3.fields["caps.most"]);
     }
 
     #[test]

@@ -49,6 +49,17 @@ int main() {
     CHECK(is(sv::judge("items", "levels.max", I(55), I(30)), "levelRange", sv::Decision::Refuse), "levels.max lowered: refused");
     CHECK(is(sv::judge("items", "levels.min", I(1), I(5)), "levelRange", sv::Decision::Refuse), "levels.min raised: refused");
     CHECK(!sv::judge("items", "levels.max", I(30), I(55)) && !sv::judge("items", "levels.min", I(5), I(1)), "a wider range: applied");
+    // settingsRange (R3b): a difficulty setting's narrower bounds clamp a world's Custom setting at start: warn; wider: nothing
+    const auto narrow = sv::judge("difficulty", "enemyDamageFactor.max", F(2.5), F(1.5));
+    CHECK(is(narrow, "settingsRange", sv::Decision::Warn) && narrow->text.find("enemyDamageFactor.max 2.5 -> 1.5") != std::string::npos &&
+              narrow->text.find("not applied") == std::string::npos, "a lower maximum of a setting: warn, applied");
+    CHECK(is(sv::judge("difficulty", "dayTimeDuration.min", F(120), F(600)), "settingsRange", sv::Decision::Warn), "a higher minimum: warn");
+    CHECK(!sv::judge("difficulty", "enemyDamageFactor.max", F(2.5), F(100)) && !sv::judge("difficulty", "enemyDamageFactor.min", F(0.25), F(0.1)),
+          "XHL's raised bounds (wider): nothing a save holds changes");
+    CHECK(is(sv::judge("limits", "maxAltars", I(16), I(8)), "baseLimits", sv::Decision::Warn) && !sv::judge("limits", "maxAltars", I(16), I(30)) &&
+              !sv::judge("limits", "giftingRange", F(50), F(10)), "a lower altar limit warns as the balance counts do; the gifting range is read at use");
+    CHECK(!sv::judge("world", "noBuildZones", L({}), L({})) && !sv::judge("world", "noBuildZones", L({F(1)}), L({})),
+          "the world's no-build zones are read at use: no save class");
     // perkSlots: an existing slot changed or emptied: warn; a perk into an empty slot: nothing
     const Value perks = L({T("game:perk_a"), T("game:perk_b")});
     CHECK(is(sv::judge("items", "perks", perks, L({T("game:perk_a"), T("game:perk_c")})), "perkSlots", sv::Decision::Warn), "slot 1 replaced: warn");

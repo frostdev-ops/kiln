@@ -544,16 +544,19 @@ class Repository(unittest.TestCase):
         m = rg.load(REPO)
         self.assertEqual(m.errors, [])
         # R1's five and dev.32's; later waves add registries of their own (each pinned by its own test below)
-        self.assertLessEqual({"balance", "drops", "items", "loot", "recipes", "skills", "stations", "buffs", "abilities"}, set(m.registries))
+        self.assertLessEqual({"balance", "drops", "items", "loot", "recipes", "skills", "stations", "buffs", "abilities", "world", "difficulty",
+                              "limits"}, set(m.registries))
         for r in m.registries.values():
             for f in r.rows:
                 self.assertIn(f.applies, ("now", "worldLoad", "restart"), f.qualified)
                 self.assertIn(f.spec.get("joinedClient"), rg.JOINED_CLIENT, f.qualified)
-        # experimental 0.x; items 0.1.1 since 31.x (block and comfort apply now: an earlier applies, additive)
+        # experimental 0.x; items 0.1.1 since 31.x (block and comfort apply now: an earlier applies, additive); balance 0.1.1 since
+        # dev.32 (altarsPerFlameLevel up to 255 with limits.maxAltars: a wider range, additive)
         self.assertEqual({n: r.version for n, r in m.registries.items()
-                          if n in ("balance", "drops", "items", "loot", "recipes", "skills", "stations", "buffs", "abilities")},
-                         {"balance": "0.1.0", "drops": "0.1.0", "items": "0.1.1", "loot": "0.1.0", "recipes": "0.1.0", "skills": "0.1.0",
-                          "stations": "0.1.0", "buffs": "0.1.0", "abilities": "0.1.0"})
+                          if n in ("balance", "drops", "items", "loot", "recipes", "skills", "stations", "buffs", "abilities", "world", "difficulty",
+                                   "limits")},
+                         {"balance": "0.1.1", "drops": "0.1.0", "items": "0.1.1", "loot": "0.1.0", "recipes": "0.1.0", "skills": "0.1.0",
+                          "stations": "0.1.0", "buffs": "0.1.0", "abilities": "0.1.0", "world": "0.1.0", "difficulty": "0.1.0", "limits": "0.1.0"})
 
     def test_dev32_creatures_arsenals_and_perks(self):
         """dev.32 R2a: creatures (with their arsenals) and perks, experimental 0.1.0; pets and taming read a creature's kind,

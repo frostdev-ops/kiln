@@ -1,0 +1,11 @@
+{
+  "format": 1,
+  "registry": {
+    "alter": [
+      { "registry": "world", "select": { "id": "game:world" }, "field": "noBuildZones", "list": { "clear": true } },
+      { "registry": "difficulty", "select": { "id": "game:difficulty" }, "field": "enemyDamageFactor.max", "op": 10 },
+      { "registry": "limits", "select": { "id": "game:limits" }, "field": "maxAltars", "op": 20 },
+      { "registry": "limits", "select": { "id": "game:limits" }, "field": "giftingRange", "op": 500 }
+    ]
+  }
+}

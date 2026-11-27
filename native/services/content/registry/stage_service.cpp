@@ -41,6 +41,8 @@
 #include "stage.h"
 #include "stage_owner.h"
 #include "live_table.h"
+#include "limits.h"
+#include "kiln_hook.hpp"
 
 namespace kc {
 bool eml_live_generation(std::string* hex, std::string* why);  // gamedata_bootview_eml.cpp
@@ -566,12 +568,92 @@ KilnResult KILN_CALL h_read_pass(KilnOwner owner, KilnStr reg, KilnStr id, KilnS
 }
 const KilnRegistryHostApi kHostTable = {{sizeof(KilnRegistryHostApi), KILN_REGISTRY_HOST_VERSION}, &h_set_order, &h_set_mode, &h_read_pass};
 
+// ---- the limits registry's hooks (limits.h): installed only when a registry value is not the game's ----
+kiln::RawHook g_altar_hook, g_gift_hook;
+uint32_t hk_altar_limit(void* registry, uint32_t level) {
+    const uint32_t original = g_altar_hook.call<uint32_t>(registry, level);
+    return limits::altar_hook_answer(registry, level, original);
+}
+float hk_gift_range() {
+    float squared = 0;
+    if (limits::gift_hook_answer(&squared)) return squared;
+    return g_gift_hook.call<float>();
+}
+bool install_limit_hook(const std::string& name, std::string* why) {
+    const bool altar = name == "altarCap";
+    const char* sym = altar ? "limits/AltarLimit" : name == "giftRange" ? "limits/GiftRange" : nullptr;
+    uintptr_t target = 0;
+    if (!sym || g_api->symbol(KilnStr{sym, std::strlen(sym)}, &target) != KILN_OK || !target) return *why = "the game's function was not found on this game build", false;
+    kiln::RawHook& hook = altar ? g_altar_hook : g_gift_hook;
+    void* fn = altar ? reinterpret_cast<void*>(&hk_altar_limit) : reinterpret_cast<void*>(&hk_gift_range);
+    if (!hook.install(g_api, g_owner, target, fn, sym)) return *why = hook.error() ? hook.error() : "kiln.hooks refused the hook", false;
+    LOGI("registry: limits: Kiln's hook of %s is in", sym);
+    return true;
+}
+
+// Another mod's or plugin's own hook of a function Kiln's hook of a limits value answers through (limits.h other_hooks;
+// coordinator decision, dev.32 review: warn and report, never refuse). Looked at when Kiln's hooks took their values and then
+// from kiln.content's tick at most every 2 s, reading kiln.hooks' map only when its links changed (stats): More Flame Altars
+// hooks the altar check in its OnLoad, after the stage.
+std::mutex g_others_mu;
+uint64_t g_others_sig = 0, g_others_next_ms = 0;
+bool g_others_seen = false;  // a look ran at least once (the first one always reads the map)
+std::set<std::string> g_others_logged;
+
+uint64_t now_ms() {
+    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
+}
+
+void look_for_other_hooks(bool force) {
+    std::lock_guard lk(g_others_mu);
+    const uint64_t now = now_ms();
+    if (!force && now < g_others_next_ms) return;
+    g_others_next_ms = now + 2000;
+    const auto taken = limits::answering();
+    if (taken.empty()) {
+        if (g_others_seen) runner().set_hook_lines({});
+        return;
+    }
+    const KilnHooksApi* h = kiln::hooks_v2(g_api);
+    if (!h || !h->stats || !h->map_json || !h->image_base) return;
+    KilnHooksStats st{};
+    st.size = sizeof st;
+    if (h->stats(&st) != KILN_OK) return;
+    const uint64_t sig = (uint64_t{st.handlers} << 32) ^ (uint64_t{st.links_used} << 16) ^ st.foreign_over ^ (uint64_t{st.foreign_before} << 8);
+    if (g_others_seen && sig == g_others_sig && !force) return;
+    size_t len = 0;
+    if (h->map_json(nullptr, 0, &len) != KILN_OK && len == 0) return;
+    std::string text(len + 1, '\0');
+    if (h->map_json(text.data(), text.size(), &len) != KILN_OK) return;  // it grew meanwhile: the next look reads it again
+    text.resize(len);
+    const json map = json::parse(text, nullptr, false);
+    if (!map.is_object()) return;
+    g_others_sig = sig;  // only a map read whole counts as seen
+    g_others_seen = true;
+    const uintptr_t base = h->image_base();
+    std::vector<Line> lines;
+    for (const auto& [name, vg] : taken) {
+        const char* sym = name == "altarCap" ? "limits/AltarLimit" : name == "giftRange" ? "limits/GiftRange" : nullptr;
+        uintptr_t target = 0;
+        if (!sym || g_api->symbol(KilnStr{sym, std::strlen(sym)}, &target) != KILN_OK || !target || target < base) continue;
+        const auto others = limits::other_hooks(map, target - base, "kiln-content");
+        const std::string mod = runner().winner_of({"limits", "game:limits", limits::field_of_value(name)});
+        for (Line& l : limits::hook_lines(name, others, vg.first, vg.second, mod)) {
+            if (g_others_logged.insert(l.text).second) LOGW("registry: %s", l.text.c_str());
+            lines.push_back(std::move(l));
+        }
+    }
+    runner().set_hook_lines(std::move(lines));
+}
+
 }  // namespace
 
 Runner& runner() {
     static Runner& r = *new Runner(make_env());  // never destroyed: the tables live as long as the process
     return r;
 }
+
+void hooks_tick() { look_for_other_hooks(false); }
 
 void flush_reports() {
     if (!report_writer().flush(std::chrono::milliseconds(2000)))
@@ -600,7 +682,30 @@ void bind_service() {
             if (!docs.empty()) old = [docs](model::Model& model) { return boothook::old_writes(docs, model); };
             return runner().run(old, freeze);
         },
-        &boothook::write, [](const std::vector<BootOutcome>& o) { runner().finish(o); }};
+        &boothook::write, [](const std::vector<BootOutcome>& o) { runner().finish(o); },
+        [](const BootResource& rb, std::vector<BootOutcome>* outcomes, std::vector<std::string>* notes) {
+            const size_t n = limits::apply(rb, outcomes, notes);
+            look_for_other_hooks(true);  // a hook placed before the stage (a plugin's, an early mod's)
+            return n;
+        }};
+    // the limits registry: the game's own values from its code (sigdb), Kiln's hooks only where a value is not the game's
+    limits::Env lenv;
+    lenv.symbol = [](const char* n, uintptr_t* out) { return g_api->symbol(KilnStr{n, std::strlen(n)}, out) == KILN_OK && *out != 0; };
+    lenv.constant = [](const char* n, int64_t* out) { return g_api->constant(KilnStr{n, std::strlen(n)}, out) == KILN_OK; };
+    lenv.read = [](uintptr_t a, void* out, size_t n) { return kc::rd(a, out, n); };
+    lenv.read_code = [](uintptr_t a, void* out, size_t n) {  // the exe file's code (kiln.hooks read_original, dev.29.19)
+        const KilnHooksApi* h = kiln::hooks_v2(g_api);
+        return h && h->header.size >= offsetof(KilnHooksApi, read_original) + sizeof(h->read_original) && h->read_original &&
+               h->read_original(a, out, n) == KILN_OK;
+    };
+    lenv.install = &install_limit_hook;
+    lenv.log = [](int level, const std::string& line) {
+        if (level >= 2) LOGE("%s", line.c_str());
+        else if (level == 1) LOGW("%s", line.c_str());
+        else LOGI("%s", line.c_str());
+    };
+    limits::bind(std::move(lenv));
+    model::set_hook_values(&limits::base_value);
     boothook::set(&hooks);
     // the live back-end (registry_live.cpp, S9): now and worldLoad fields as store layers at each world load
     runner().set_live([](const LiveHandoff& h) {

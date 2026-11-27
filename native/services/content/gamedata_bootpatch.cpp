@@ -1732,6 +1732,14 @@ void KILN_CALL apply(void*) {
     for (size_t i = 0; i < reg.size(); ++i) {
         if (reg_done[i]) continue;
         const registry::stage::BootResource& rb = reg[i];
+        if (rb.type == registry::model::kHooksType) {
+            // the hooks registries (limits): no resource to copy; Kiln's own hooks of the game's code take the values
+            std::vector<std::string> notes;
+            if (H && H->hooks) H->hooks(rb, &outcomes, &notes);
+            else reg_fail(rb, "Kiln's hooks of the game's code are not here");
+            for (const std::string& n : notes) LOGI("%s", n.c_str());
+            continue;
+        }
         ResPatch rp;
         rp.res = rb.key;
         rp.type = rb.type;

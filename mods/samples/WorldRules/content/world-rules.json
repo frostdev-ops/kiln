@@ -1,0 +1,20 @@
+{
+  "format": 1,
+  // Kiln's registries (docs/kiln/modding/registries/world.md, difficulty.md): restart fields, read at the next start
+  "registry": {
+    "alter": [
+      // build anywhere the other rules allow: the world's no-build zones (points of interest, dungeons) cleared
+      { "registry": "world", "select": { "id": "game:world" }, "field": "noBuildZones", "list": { "clear": true } },
+      // no big-dungeon bounds: the game no longer puts a player who leaves a big dungeon's area back
+      { "registry": "world", "select": { "id": "game:world" }, "field": "playableAreas", "list": { "clear": true } },
+      // the enemy settings may go up to 100 (10000 %); a bound another mod set higher stays (raiseOnly)
+      { "registry": "difficulty", "select": { "id": "game:difficulty" }, "field": "enemyDamageFactor.max", "op": { "min": 100, "raiseOnly": true } },
+      { "registry": "difficulty", "select": { "id": "game:difficulty" }, "field": "bossDamageFactor.max", "op": { "min": 100, "raiseOnly": true } },
+      { "registry": "difficulty", "select": { "id": "game:difficulty" }, "field": "enemyHealthFactor.max", "op": { "min": 100, "raiseOnly": true } },
+      { "registry": "difficulty", "select": { "id": "game:difficulty" }, "field": "bossHealthFactor.max", "op": { "min": 100, "raiseOnly": true } },
+      { "registry": "difficulty", "select": { "id": "game:difficulty" }, "field": "enemyStaminaFactor.max", "op": { "min": 100, "raiseOnly": true } },
+      { "registry": "difficulty", "select": { "id": "game:difficulty" }, "field": "enemyPerceptionRangeFactor.max", "op": { "min": 100, "raiseOnly": true } },
+      { "registry": "difficulty", "select": { "id": "game:difficulty" }, "field": "threatBonus.max", "op": { "min": 100, "raiseOnly": true } }
+    ]
+  }
+}

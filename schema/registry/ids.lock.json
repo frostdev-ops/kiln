@@ -659,11 +659,14 @@
     },
     "balance": {
       "id": 5,
-      "version": "0.1.0",
+      "version": "0.1.1",
       "since": "0.1.0",
       "history": [
         {
           "version": "0.1.0"
+        },
+        {
+          "version": "0.1.1"
         }
       ],
       "fields": {
@@ -768,7 +771,7 @@
           "readOnly": false,
           "element": "int",
           "min": 0,
-          "max": 16,
+          "max": 255,
           "lengthField": "flameLevelMax",
           "lengthOffset": 1
         },
@@ -2019,6 +2022,745 @@
           "applies": "now",
           "ops": "none",
           "readOnly": true
+        }
+      },
+      "retired": {}
+    },
+    "difficulty": {
+      "id": 13,
+      "version": "0.1.0",
+      "since": "0.1.0",
+      "history": [
+        {
+          "version": "0.1.0"
+        }
+      ],
+      "fields": {
+        "playerHealthFactor.min": {
+          "id": 1,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10000
+        },
+        "playerHealthFactor.max": {
+          "id": 2,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10000
+        },
+        "playerManaFactor.min": {
+          "id": 3,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10000
+        },
+        "playerManaFactor.max": {
+          "id": 4,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10000
+        },
+        "playerStaminaFactor.min": {
+          "id": 5,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10000
+        },
+        "playerStaminaFactor.max": {
+          "id": 6,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10000
+        },
+        "playerBodyHeatFactor.min": {
+          "id": 7,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10000
+        },
+        "playerBodyHeatFactor.max": {
+          "id": 8,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10000
+        },
+        "playerDivingTimeFactor.min": {
+          "id": 9,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10000
+        },
+        "playerDivingTimeFactor.max": {
+          "id": 10,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10000
+        },
+        "foodBuffDurationFactor.min": {
+          "id": 11,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10000
+        },
+        "foodBuffDurationFactor.max": {
+          "id": 12,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10000
+        },
+        "fromHungerToStarving.min": {
+          "id": 13,
+          "since": "0.1.0",
+          "kind": "time",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 604800
+        },
+        "fromHungerToStarving.max": {
+          "id": 14,
+          "since": "0.1.0",
+          "kind": "time",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 604800
+        },
+        "shroudTimeFactor.min": {
+          "id": 15,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10000
+        },
+        "shroudTimeFactor.max": {
+          "id": 16,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10000
+        },
+        "miningDamageFactor.min": {
+          "id": 17,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10000
+        },
+        "miningDamageFactor.max": {
+          "id": 18,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10000
+        },
+        "plantGrowthSpeedFactor.min": {
+          "id": 19,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10000
+        },
+        "plantGrowthSpeedFactor.max": {
+          "id": 20,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10000
+        },
+        "resourceDropStackAmountFactor.min": {
+          "id": 21,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10000
+        },
+        "resourceDropStackAmountFactor.max": {
+          "id": 22,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10000
+        },
+        "factoryProductionSpeedFactor.min": {
+          "id": 23,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10000
+        },
+        "factoryProductionSpeedFactor.max": {
+          "id": 24,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10000
+        },
+        "perkUpgradeRecyclingFactor.min": {
+          "id": 25,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10000
+        },
+        "perkUpgradeRecyclingFactor.max": {
+          "id": 26,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10000
+        },
+        "perkCostFactor.min": {
+          "id": 27,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10000
+        },
+        "perkCostFactor.max": {
+          "id": 28,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10000
+        },
+        "experienceCombatFactor.min": {
+          "id": 29,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10000
+        },
+        "experienceCombatFactor.max": {
+          "id": 30,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10000
+        },
+        "experienceMiningFactor.min": {
+          "id": 31,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10000
+        },
+        "experienceMiningFactor.max": {
+          "id": 32,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10000
+        },
+        "experienceExplorationQuestsFactor.min": {
+          "id": 33,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10000
+        },
+        "experienceExplorationQuestsFactor.max": {
+          "id": 34,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10000
+        },
+        "enemyDamageFactor.min": {
+          "id": 35,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10000
+        },
+        "enemyDamageFactor.max": {
+          "id": 36,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10000
+        },
+        "enemyHealthFactor.min": {
+          "id": 37,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10000
+        },
+        "enemyHealthFactor.max": {
+          "id": 38,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10000
+        },
+        "enemyStaminaFactor.min": {
+          "id": 39,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10000
+        },
+        "enemyStaminaFactor.max": {
+          "id": 40,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10000
+        },
+        "enemyPerceptionRangeFactor.min": {
+          "id": 41,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10000
+        },
+        "enemyPerceptionRangeFactor.max": {
+          "id": 42,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10000
+        },
+        "bossDamageFactor.min": {
+          "id": 43,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10000
+        },
+        "bossDamageFactor.max": {
+          "id": 44,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10000
+        },
+        "bossHealthFactor.min": {
+          "id": 45,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10000
+        },
+        "bossHealthFactor.max": {
+          "id": 46,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10000
+        },
+        "threatBonus.min": {
+          "id": 47,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10000
+        },
+        "threatBonus.max": {
+          "id": 48,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10000
+        },
+        "dayTimeDuration.min": {
+          "id": 49,
+          "since": "0.1.0",
+          "kind": "time",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 604800
+        },
+        "dayTimeDuration.max": {
+          "id": 50,
+          "since": "0.1.0",
+          "kind": "time",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 604800
+        },
+        "nightTimeDuration.min": {
+          "id": 51,
+          "since": "0.1.0",
+          "kind": "time",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 604800
+        },
+        "nightTimeDuration.max": {
+          "id": 52,
+          "since": "0.1.0",
+          "kind": "time",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 604800
+        },
+        "flameLevelFogRemoval.min": {
+          "id": 53,
+          "since": "0.1.0",
+          "kind": "int",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 255
+        },
+        "flameLevelFogRemoval.max": {
+          "id": 54,
+          "since": "0.1.0",
+          "kind": "int",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 255
+        }
+      },
+      "retired": {}
+    },
+    "world": {
+      "id": 14,
+      "version": "0.1.0",
+      "since": "0.1.0",
+      "history": [
+        {
+          "version": "0.1.0"
+        }
+      ],
+      "fields": {
+        "noBuildZones": {
+          "id": 1,
+          "since": "0.1.0",
+          "kind": "list",
+          "applies": "restart",
+          "ops": "list",
+          "readOnly": false,
+          "element": "struct",
+          "maxItems": 4096
+        },
+        "noBuildZones[].min.x": {
+          "id": 2,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": -100000,
+          "max": 100000
+        },
+        "noBuildZones[].min.y": {
+          "id": 3,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": -100000,
+          "max": 100000
+        },
+        "noBuildZones[].min.z": {
+          "id": 4,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": -100000,
+          "max": 100000
+        },
+        "noBuildZones[].max.x": {
+          "id": 5,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": -100000,
+          "max": 100000
+        },
+        "noBuildZones[].max.y": {
+          "id": 6,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": -100000,
+          "max": 100000
+        },
+        "noBuildZones[].max.z": {
+          "id": 7,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": -100000,
+          "max": 100000
+        },
+        "playableAreas": {
+          "id": 8,
+          "since": "0.1.0",
+          "kind": "list",
+          "applies": "restart",
+          "ops": "list",
+          "readOnly": false,
+          "element": "struct",
+          "maxItems": 4096
+        },
+        "playableAreas[].min.x": {
+          "id": 9,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": -100000,
+          "max": 100000
+        },
+        "playableAreas[].min.y": {
+          "id": 10,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": -100000,
+          "max": 100000
+        },
+        "playableAreas[].min.z": {
+          "id": 11,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": -100000,
+          "max": 100000
+        },
+        "playableAreas[].max.x": {
+          "id": 12,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": -100000,
+          "max": 100000
+        },
+        "playableAreas[].max.y": {
+          "id": 13,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": -100000,
+          "max": 100000
+        },
+        "playableAreas[].max.z": {
+          "id": 14,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": -100000,
+          "max": 100000
+        }
+      },
+      "retired": {}
+    },
+    "limits": {
+      "id": 15,
+      "version": "0.1.0",
+      "since": "0.1.0",
+      "history": [
+        {
+          "version": "0.1.0"
+        }
+      ],
+      "fields": {
+        "maxAltars": {
+          "id": 1,
+          "since": "0.1.0",
+          "kind": "int",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 1,
+          "max": 255
+        },
+        "giftingRange": {
+          "id": 2,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "restart",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 1000000
         }
       },
       "retired": {}

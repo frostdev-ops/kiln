@@ -20,17 +20,21 @@
 #include <atomic>
 #include <cmath>
 #include <cstdarg>
+#include <cstddef>
 #include <cstdio>
 #include <cstring>
+#include <map>
 #include <mutex>
 #include <string>
 #include <vector>
 
+#include "bounds.h"
 #include "catalog.h"
 #include "config.h"
 #include "game.h"
 #include "kiln_api.h"
 #include "kiln_hook.hpp"
+#include "services/kiln_registry.h"
 #include "services/kiln_settings.h"
 
 namespace {
@@ -84,6 +88,7 @@ uint32_t g_block_size = 0;
 uintptr_t g_live_instance = 0, g_block = 0;
 std::vector<uint8_t> g_initial, g_last;
 uint64_t g_step = 0, g_next_try = 0;
+bool g_bounds_pending = true;  // the registry's difficulty bounds not read yet (apply_registry_bounds)
 std::string g_last_init_error;
 
 thread_local std::string t_error;
@@ -205,7 +210,8 @@ bool accept(const Setting& s, const KilnSettingValue& in, uint32_t flags, KilnSe
         return t_error = s.name + ": not a setting Kiln knows on this game build (needs SET_ANY_VALUE)", false;
     if (s.kind == KILN_SETTING_FLOAT) {
         const double x = given_float ? in.number : static_cast<double>(in.integer);
-        const double lo = any ? 0.0 : s.min, hi = any ? 100.0 : s.max;
+        // anyValue: sane for the type, and never narrower than the setting's own range (the registry may raise it past 100)
+        const double lo = any ? std::fmin(0.0, s.min) : s.min, hi = any ? std::fmax(100.0, s.max) : s.max;
         if (x < lo - 1e-6 || x > hi + 1e-6) return t_error = s.name + ": allowed " + num(lo) + " to " + num(hi), false;
         out.number = x;
         out.integer = static_cast<int64_t>(x);
@@ -230,7 +236,7 @@ bool accept(const Setting& s, const KilnSettingValue& in, uint32_t flags, KilnSe
             return t_error = s.name + ": one of " + all, false;
         }
         case KILN_SETTING_DURATION: {
-            const double lo = any ? 1e9 : s.min, hi = any ? 86400e9 : s.max;
+            const double lo = any ? std::fmin(1e9, s.min) : s.min, hi = any ? std::fmax(86400e9, s.max) : s.max;
             if (static_cast<double>(i) < lo || static_cast<double>(i) > hi)
                 return t_error = s.name + ": allowed " + num(lo / 60e9) + " to " + num(hi / 60e9) + " minutes (" +
                                  std::to_string(static_cast<int64_t>(lo)) + " to " +
@@ -256,9 +262,10 @@ bool accept(const Setting& s, const KilnSettingValue& in, uint32_t flags, KilnSe
 bool plausible(const Setting& s, const KilnSettingValue& v) {
     switch (s.kind) {
         case KILN_SETTING_BOOL: return v.integer == 0 || v.integer == 1;
-        case KILN_SETTING_FLOAT: return std::isfinite(v.number) && v.number >= 0 && v.number <= 1000;
+        // a factor the registry's bounds allow (difficulty.<setting>.max up to 10000) is a value a world can hold
+        case KILN_SETTING_FLOAT: return std::isfinite(v.number) && v.number >= 0 && v.number <= std::fmax(1000.0, s.max);
         case KILN_SETTING_ENUM: return option_of(s, v.integer) != nullptr;
-        case KILN_SETTING_DURATION: return v.integer > 0 && v.integer <= 864000000000000;  // 10 days
+        case KILN_SETTING_DURATION: return v.integer > 0 && static_cast<double>(v.integer) <= std::fmax(864000000000000.0, s.max);  // 10 days
         default: return true;
     }
 }
@@ -337,6 +344,50 @@ void build_catalog(const Reflected& R) {
     }
 }
 
+// dev.32: the registry's difficulty bounds (bounds.h). A mod that raises difficulty.<setting>.max makes the game keep a world's
+// Custom value up to it at start; kiln.settings' own write path takes the same bounds, so the two agree. Restart fields: final
+// once the registry's stage ended (START), so this runs once per process; before START it is tried again at a later step.
+// Without kiln.registry (or its report) the table's ranges stand. Tick thread (info and set read the ranges there).
+void apply_registry_bounds() {
+    if (!g_bounds_pending) return;
+    const auto* R = static_cast<const KilnRegistryApi*>(
+        g_api->service(KilnStr{KILN_REGISTRY_SERVICE, sizeof(KILN_REGISTRY_SERVICE) - 1}, KILN_REGISTRY_VERSION));
+    if (!R || R->header.size < offsetof(KilnRegistryApi, report_json) + sizeof(R->report_json) || !R->status || !R->report_json) {
+        g_bounds_pending = false;
+        return;
+    }
+    KilnRegistryStatus st{};
+    st.size = sizeof st;
+    if (R->status(&st) != KILN_OK) return void(g_bounds_pending = false);
+    if (st.phase < KILN_REGISTRY_PHASE_START) return;  // the stage has not ended yet
+    g_bounds_pending = false;
+    std::string text;
+    KilnResult rc = KILN_OK;
+    if (!read_all([R](char* buf, size_t cap, size_t* len) { return R->report_json(buf, cap, len); }, &text, &rc)) {
+        logf(KILN_LOG_INFO, "settings: the registry's report is not readable (%d): the table's ranges stand", static_cast<int>(rc));
+        return;
+    }
+    const std::map<std::string, RegistryBound> bounds = registry_bounds(text);
+    for (Setting& s : g_settings) {
+        if (!(s.flags & KILN_SETTING_F_RANGE)) continue;
+        std::string key = s.name;
+        for (char& c : key)
+            if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+        const auto it = bounds.find(key);
+        if (it == bounds.end()) continue;
+        double lo = 0, hi = 0;
+        effective_range(s.kind, s.min, s.max, &it->second, &lo, &hi);
+        if (lo == s.min && hi == s.max) continue;
+        const double unit = s.kind == KILN_SETTING_DURATION ? 60e9 : 1.0;
+        const char* u = s.kind == KILN_SETTING_DURATION ? " min" : "";
+        const std::string by = it->second.max_by.empty() ? it->second.min_by : it->second.max_by;
+        logf(KILN_LOG_INFO, "settings: %s: allowed %s%s to %s%s from the registry's difficulty bounds (%s; the table's %s%s to %s%s)",
+             s.name.c_str(), num(lo / unit).c_str(), u, num(hi / unit).c_str(), u, by.empty() ? "a mod" : by.c_str(),
+             num(s.min / unit).c_str(), u, num(s.max / unit).c_str(), u);
+        s.min = lo, s.max = hi;
+    }
+}
+
 // ------------------------------------------------------------------------------------------------ live block
 bool read_block(std::vector<uint8_t>& out) {
     out.resize(g_block_size);
@@ -386,6 +437,7 @@ void try_init(uintptr_t instance) {
         g_block_size = R.size;
         build_catalog(R);
         if (g_settings.empty()) return give_up("no readable field in GameSettings");
+        apply_registry_bounds();  // before the plausibility check below: a world may hold a value only the registry allows
         g_count.store(static_cast<uint32_t>(g_settings.size()), std::memory_order_release);
         logf(KILN_LOG_INFO, "settings: reflection: %s is %u bytes, %zu fields, %zu usable", kTypeName, R.size,
              R.fields.size(), g_settings.size());
@@ -466,6 +518,7 @@ void KILN_CALL on_pre(const KilnTickInfo*, void*) {
     ++g_step;
     const uintptr_t instance = g_instance.load(std::memory_order_acquire);
     if (!instance) return;
+    if (g_bounds_pending && g_count.load(std::memory_order_relaxed)) apply_registry_bounds();
     if (!g_ready.load(std::memory_order_relaxed) || instance != g_live_instance) {
         if (g_ready.load() && instance != g_live_instance) unready("the GameServer instance changed");
         if (g_step >= g_next_try) try_init(instance);

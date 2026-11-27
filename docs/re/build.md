@@ -525,3 +525,24 @@ still be verified). Entries that cannot be read, bounds that are
 not finite or have min > max, or a list with more than 256 entries or count > capacity: boxes for every kept chunk.
 The chunk JSON is never filtered. Up to 0.2.0-dev.30.8 every caller got a box for every kept chunk: Kiln's boxes were ECS base zones (stations,
 storage and beds grouped by them, clients sent them) and Flame Altars in the world list.
+
+## 13. Limits in the game's code: the altar check and the gifting distance (dev.32 limits registry; server 26430253 / client 26430625)
+
+S `f0d824be…`, C `5d9ef2f1…`, svn 1287369. capstone over the read-only copies, sigdb `sigdb/symbols/<side>.d/limits.json`
+(`sigdb_check.py` resolves every name on both). [static] unless tagged.
+
+- **The altar check** `limits/AltarLimit` (S `0x93dea0`, C `0xe96c80`, the same 67 bytes on both sides): `mov rax,[rcx+0x20]`
+  (the BalancingRegistry's table; none: answer 1), `add rax,0x1b8` (`limits/altars.table`: `altarsPerFlameLevel`, a byte list),
+  `movsxd rcx,[rax]` (the list's self-relative offset), then in both paths `movzx eax, byte [data + level]; mov ecx,0x10; cmp
+  al,cl; cmova eax,ecx; ret`. So the answer is `min(altarsPerFlameLevel[level], 16)`, the 16 an immediate in both paths
+  (`limits/altars.cap`). There is no bounds check of the level against the list's count. Its callers (More Flame Altars'
+  `AltarLimitHook.cs`, XHL): the build cursor, the hosted world's placement checks, the reclaim check and the UI's counts.
+  Kiln's hook (limits.maxAltars, only when the value is not 16) calls the game's code first and answers `min(that, cap)` at or
+  below 16, else `min(the level's byte read as the game reads it, cap)`, and the game's own answer when that byte cannot be read.
+  The game's base system still counts 16 bases (section 12: the grouping's 16 area slots).
+- **The gifting distance** `limits/GiftRange` (S `0x93de70`, C `0xe96c50`): `movss xmm0,[rip+d]; ret`, the literal `2500.0`
+  (S `0xbe4394`, C `0x13d528c`): the squared distance, 50 m. The host's gift check (S `0x19e9f9`, C `0x3fd719`, the same bytes):
+  `mulss; addss` (the squared distance between the players) `call <getter>; comiss xmm6,xmm0; ...; ja <past the gift>`; the
+  client's UI asks it twice more (`setae` sites `0x2bb572`, `0x2bb7b9`). The literal is read by one more instruction besides the
+  getter, so Kiln hooks the getter (limits.giftingRange, metres, answered squared), never the literal. sigdb pins the getter by
+  a `rel32` capture at the host's check (XHL Unlimited Gifting Range's resolver finds it the same way).

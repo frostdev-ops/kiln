@@ -106,9 +106,11 @@ int main() {
     size_t specs = 0;
     for (const auto& [n, r] : s.registries) {
         specs += r.fields.size();
-        // the shipped schema versions: items 0.1.1 since 31.x (block and comfort apply now), the others 0.1.0; dev.32's skills,
-        // stations, buffs and abilities take no raw game paths (raw: refused)
-        CHECK(r.version == (n == "items" ? "0.1.1" : "0.1.0") && r.raw == (n != "skills" && n != "stations" && n != "buffs" && n != "abilities"));
+        // the shipped schema versions: items 0.1.1 since 31.x (block and comfort apply now), balance 0.1.1 since dev.32
+        // (altarsPerFlameLevel up to 255), the others 0.1.0; dev.32's skills, stations, buffs and abilities take no raw game paths
+        // (raw: refused), and limits are Kiln's hooks (no raw game path)
+        CHECK(r.version == (n == "items" || n == "balance" ? "0.1.1" : "0.1.0") &&
+              r.raw == (n != "skills" && n != "stations" && n != "buffs" && n != "abilities" && n != "limits"));
     }
     CHECK(specs == std::size(gen::kFields));  // every generated row, leaves of list elements kept
     const RegistrySpec& rec = *s.registry("recipes");

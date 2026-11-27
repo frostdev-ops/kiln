@@ -126,6 +126,14 @@ def main(argv=None):
             name = b.blob_string(subs_at + rel + sub_name) if rel and n else ""
             abilities.append({"guid": k.guid, "name": name, "id": 0})
         out["registries"]["abilities"] = abilities
+        # one-resource registries of R3b (world rules): the one resource their regmap names (the client has five scenes)
+        for reg, rtype, guid in (("world", "keen::SceneResource", "509feadb-4c60-425f-9c7c-deeefd9b6920"),
+                                 ("difficulty", "keen::GameSettingsPresetsResource", "46e14df6-fb8f-4f66-9463-e23b9e19e48e")):
+            out["registries"][reg] = [{"guid": k.guid, "name": "", "id": 0} for k in src.keys(rtype) if k.guid.lower() == guid]
+        # a hooks registry (limits) has no resource: its one entry's GUID is the model's added_guid (UUIDv5, as an added entry's)
+        import uuid
+        out["registries"]["limits"] = [{"guid": str(uuid.uuid5(uuid.UUID("6f6d2a44-53c1-5c52-9d51-0a3c6e1f2b77"), "registry:limits:game:limits")),
+                                        "name": "", "id": 0}]
     finally:
         src.close()
     Path(a.out).write_text(json.dumps(out), encoding="utf-8")

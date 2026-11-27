@@ -40,7 +40,7 @@ BITMASKS = (K_BM8, K_BM16, K_BM32, K_BM64)
 ARRAYS = (K_STATIC_ARRAY, K_BLOB_ARRAY)
 READ_RANK = {"now": 0, "worldLoad": 1, "restart": 2}
 CONVS = ("int", "float", "bool", "time", "enum", "flags", "ref", "refList", "formula", "impactConfig", "list", "stackCount",
-         "inventoryWalk", "unlock", "optionalEnum", "component", "eventTime")
+         "inventoryWalk", "unlock", "optionalEnum", "component", "eventTime", "position")
 TEMPLATE = "keen::ecs::TemplateResource"  # a template's paths start at one of its components, by type name (Level.dataStorage[0])
 # One member of a path: a name, then optionally selectors: [<index>] (an array's element) or [<Type>#<k>] (the k-th element of
 # that type in a list of variants; Type qualified, or its last name part when one variant of the list's base has it). The
@@ -63,6 +63,10 @@ def split_path(dotted):
             cur += ch
     parts.append(cur)
     return parts
+# A hooks registry's values (regmap entries kind "hooks"; native registry/limits.h kValues): name -> (the Kiln value's type, the
+# sigdb symbols and constants of Kiln's hook of it, which must resolve on the exe for the row to be ok there)
+HOOK_VALUES = {"altarCap": ("int", ("limits/AltarLimit",), ("limits/altars.cap", "limits/altars.table")),
+               "giftRange": ("float", ("limits/GiftRange",), ())}
 
 
 class TypeDb:
@@ -94,7 +98,33 @@ class TypeDb:
     def from_exe(cls, exe):
         sys.path.insert(0, str(HERE.parent / "kfc"))
         from kfc import refl  # noqa: E402
-        return cls.from_refl(refl.extract(str(exe)))
+        db = cls.from_refl(refl.extract(str(exe)))
+        db.exe_path = str(exe)
+        return db
+
+    exe_path = ""
+    side = ""
+
+    def hook_names(self, root):
+        """The sigdb names of the hooks registries this exe resolves (its side's limits fragment), or None without an exe."""
+        if not self.exe_path:
+            return None
+        if getattr(self, "_hooks", None) is not None:
+            return self._hooks
+        side = self.side or ("server" if "server" in Path(self.exe_path).name.lower() else "client")
+        # the resolver from this tool's own tree; the fragment from the checked root, else from this tool's tree (kilnctl and the
+        # lab run the check in a scratch root that holds only regmap/ and schema/)
+        sys.path.insert(0, str(HERE.parent / "sigport"))
+        from peimg import Image  # noqa: E402
+        from sigdb_check import Resolver  # noqa: E402
+        rel = Path("sigdb") / "symbols" / f"{side}.d" / "limits.json"
+        frag = Path(root) / rel if (Path(root) / rel).is_file() else HERE.parents[1] / rel
+        ok = set()
+        if frag.is_file():
+            syms, consts, _ = Resolver(Image(self.exe_path), json.loads(frag.read_text(encoding="utf-8"))).run()
+            ok = {n for n, r in list(syms.items()) + list(consts.items()) if r.get("ok")}
+        self._hooks = ok
+        return ok
 
     def get(self, name):
         return self.by_name.get(name)
@@ -312,6 +342,9 @@ def check_conv(db, q, conv, types, row, spec):
         # time with it (regmap/README.md)
         if want(0, lambda r: r["name"] == "keen::Time", "a keen::Time") and not FIRST_EVENT_TIME.search(row["paths"][0]):
             errs.append(f"{q}: an eventTime row names the first event of a kind: <list>[<Type>#0].time")
+    elif conv == "position":
+        # a world position's axis: a signed 64-bit 32.32 fixed-point number of metres (keen::WorldPosition's x, y, z)
+        want(0, lambda r: r["kind"] == K_S64, "a signed 64-bit integer (32.32 fixed-point metres)")
     elif conv in ("enum", "optionalEnum"):
         at = 1 if conv == "optionalEnum" else 0
         if conv == "optionalEnum":
@@ -432,6 +465,9 @@ def check(root, db):
                 res.errors.append(f"{name}.{f}: the reason names the game's {bad.group(0) if hasattr(bad, 'group') else bad!r} "
                                   "(Kiln words only; game members go in evidence)")
         e = m.get("entries", {})
+        if e.get("kind") == "hooks":
+            check_hooks(root, db, name, e, rows, specs, res)
+            continue
         rtype = e.get("resourceType", "")
         root_t = db.get(rtype)
         if root_t is None:
@@ -497,6 +533,9 @@ def check(root, db):
                 for sel in SELECTOR.findall(p):
                     if not sel.isdigit() and "::" not in sel.partition("#")[0]:
                         errs.append(f"{q}: [{sel}] names a variant type by its last name; Kiln's mapping names it qualified")
+            # dev.32: the native loader (regmap.cpp load_common) turns such a row off; fail it here first
+            if "resize" in row and (not isinstance(row["resize"], bool) or (row["resize"] and (conv != "list" or backend != "boot"))):
+                errs.append(f"{q}: resize is true or false, and only for a list row of the boot back-end")
             base = entry_root
             if spec_row.list_path:
                 base = list_element_root(db, entry_root, rows, spec_row.list_path) if entry_root else None
@@ -516,6 +555,46 @@ def check(root, db):
             res.errors += errs
             res.rows[q] = "ok" if not errs and base is not None else "unmapped"
     return res
+
+
+def check_hooks(root, db, name, e, rows, specs, res):
+    """A hooks registry (no resource): each row names one of Kiln's hook values; with an exe, its sigdb names must resolve."""
+    if e.get("resourceType"):
+        res.errors.append(f"{name}: entries of kind hooks have no resourceType (their values are Kiln's hooks)")
+    resolved = db.hook_names(root)
+    for path, spec_row in specs.items():
+        q = f"{name}.{path}"
+        row = rows.get(path)
+        if row is None or row.get("state") == "unmapped":
+            res.unmapped.append(q)
+            res.rows[q] = "unmapped"
+            continue
+        errs = []
+        paths = row.get("paths", [])
+        hv = HOOK_VALUES.get(paths[0]) if len(paths) == 1 else None
+        if hv is None:
+            errs.append(f"{q}: a hooks row names one of Kiln's hook values ({', '.join(HOOK_VALUES)})")
+        elif row.get("conv") != hv[0] or spec_row.kind != hv[0]:
+            errs.append(f"{q}: the hook value {paths[0]} is a{'n' if hv[0] == 'int' else ''} {hv[0]}: conv and schema type {hv[0]}")
+        read, backend = row.get("read"), row.get("backend")
+        if read not in READ_RANK:
+            errs.append(f"{q}: read is now, worldLoad or restart (the hooked function is the game's reader)")
+        elif READ_RANK[read] > READ_RANK[spec_row.applies]:
+            errs.append(f"{q}: the schema promises it applies {spec_row.applies} but the game reads it at {read} only")
+        if spec_row.read_only:
+            if backend != "none":
+                errs.append(f"{q}: a read-only field has no back-end (backend none)")
+        elif backend != "hook":
+            errs.append(f"{q}: a hooks registry's field goes through the hook back-end (backend hook)")
+        elif spec_row.applies != "restart":
+            errs.append(f"{q}: a hook takes its value at start, the schema says {spec_row.applies}")
+        missing = [n for n in (hv[1] + hv[2] if hv else ()) if resolved is not None and n not in resolved]
+        if missing:
+            errs.append(f"{q}: Kiln's hook of it does not resolve on this exe ({', '.join(missing)})")
+        res.errors += errs
+        if not errs:
+            res.resolved += 1
+        res.rows[q] = "ok" if not errs and resolved is not None else ("unmapped" if errs else "ok")
 
 
 def previous_record(root, side, game_build):
@@ -608,7 +687,9 @@ def main(argv=None):
     root = Path(a.root)
     sources = []
     if a.exe:
-        sources.append((a.exe, TypeDb.from_exe(a.exe)))
+        db = TypeDb.from_exe(a.exe)
+        db.side = a.side or ""
+        sources.append((a.exe, db))
     else:
         for side in ("server", "client"):
             for p in sorted((root / "sigdb" / "types" / side).glob("*.json")):

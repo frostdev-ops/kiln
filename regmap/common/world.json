@@ -1,0 +1,142 @@
+{
+  "regmap": 1,
+  "registry": "world",
+  "entries": {
+    "kind": "single",
+    "resourceType": "keen::SceneResource",
+    "resourceGuid": "509feadb-4c60-425f-9c7c-deeefd9b6920",
+    "unnamed": "world"
+  },
+  "rows": {
+    "noBuildZones": {
+      "paths": [
+        "noBuildZones"
+      ],
+      "conv": "list",
+      "read": "worldLoad",
+      "backend": "boot",
+      "clientNeeds": true,
+      "resize": true,
+      "evidence": "the world scene's lists, the same EMBER clears in the archive before the game reads it (docs/kiln/modding/resource-patches.md); the game looks the world scene up when it loads the world (server 26430253: the scene lookup at 0x8c2ce7 reads entityChunkCount there, after resources-ready), so it reads the copy the boot back-end serves"
+    },
+    "noBuildZones[].min.x": {
+      "paths": [
+        "worldBoxMin.x"
+      ],
+      "conv": "position",
+      "read": "worldLoad",
+      "backend": "boot",
+      "clientNeeds": true
+    },
+    "noBuildZones[].min.y": {
+      "paths": [
+        "worldBoxMin.y"
+      ],
+      "conv": "position",
+      "read": "worldLoad",
+      "backend": "boot",
+      "clientNeeds": true
+    },
+    "noBuildZones[].min.z": {
+      "paths": [
+        "worldBoxMin.z"
+      ],
+      "conv": "position",
+      "read": "worldLoad",
+      "backend": "boot",
+      "clientNeeds": true
+    },
+    "noBuildZones[].max.x": {
+      "paths": [
+        "worldBoxMax.x"
+      ],
+      "conv": "position",
+      "read": "worldLoad",
+      "backend": "boot",
+      "clientNeeds": true
+    },
+    "noBuildZones[].max.y": {
+      "paths": [
+        "worldBoxMax.y"
+      ],
+      "conv": "position",
+      "read": "worldLoad",
+      "backend": "boot",
+      "clientNeeds": true
+    },
+    "noBuildZones[].max.z": {
+      "paths": [
+        "worldBoxMax.z"
+      ],
+      "conv": "position",
+      "read": "worldLoad",
+      "backend": "boot",
+      "clientNeeds": true
+    },
+    "playableAreas": {
+      "paths": [
+        "resetPlayersOutOfBounds.playableAreas"
+      ],
+      "conv": "list",
+      "read": "worldLoad",
+      "backend": "boot",
+      "clientNeeds": true,
+      "resize": true,
+      "evidence": "the world scene's lists, the same EMBER clears in the archive before the game reads it (docs/kiln/modding/resource-patches.md); the game looks the world scene up when it loads the world (server 26430253: the scene lookup at 0x8c2ce7 reads entityChunkCount there, after resources-ready), so it reads the copy the boot back-end serves"
+    },
+    "playableAreas[].min.x": {
+      "paths": [
+        "areaMin.x"
+      ],
+      "conv": "position",
+      "read": "worldLoad",
+      "backend": "boot",
+      "clientNeeds": true
+    },
+    "playableAreas[].min.y": {
+      "paths": [
+        "areaMin.y"
+      ],
+      "conv": "position",
+      "read": "worldLoad",
+      "backend": "boot",
+      "clientNeeds": true
+    },
+    "playableAreas[].min.z": {
+      "paths": [
+        "areaMin.z"
+      ],
+      "conv": "position",
+      "read": "worldLoad",
+      "backend": "boot",
+      "clientNeeds": true
+    },
+    "playableAreas[].max.x": {
+      "paths": [
+        "areaMax.x"
+      ],
+      "conv": "position",
+      "read": "worldLoad",
+      "backend": "boot",
+      "clientNeeds": true
+    },
+    "playableAreas[].max.y": {
+      "paths": [
+        "areaMax.y"
+      ],
+      "conv": "position",
+      "read": "worldLoad",
+      "backend": "boot",
+      "clientNeeds": true
+    },
+    "playableAreas[].max.z": {
+      "paths": [
+        "areaMax.z"
+      ],
+      "conv": "position",
+      "read": "worldLoad",
+      "backend": "boot",
+      "clientNeeds": true
+    }
+  }
+}

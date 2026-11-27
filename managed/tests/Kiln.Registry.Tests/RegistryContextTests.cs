@@ -67,6 +67,36 @@ public sealed class RegistryContextTests
         Assert.Equal(0, edit["op"]!.GetValue<int>());
     }
 
+    // dev.32 (registry-r3b): the world rules and limits singletons are typed entries; a list of boxes clears, a bound and a limit
+    // are numbers, each a restart field
+    [Fact]
+    public void WorldDifficultyAndLimitsAreTypedSingletons()
+    {
+        var context = new RegistryContext(Mod(), RegistryEntryPoint.GameStart, RegistryPhase.Alter, null, "test-code",
+            (_, _, field) => field switch { "noBuildZones" => "[]", "enemyDamageFactor.max" => "2.5", "maxAltars" => "16", _ => "50" },
+            (_, _) => new[] { "game:world" });
+        using var scope = context.Enter();
+        var registry = DataRegistry.For(context);
+        registry.Alter(view =>
+        {
+            view.World.NoBuildZones.Clear();
+            view.Difficulty.EnemyDamageFactor.Max = 100;
+            view.Limits.MaxAltars = 24;
+            view.Limits.GiftingRange = 500;
+        });
+        var ir = JsonNode.Parse(context.CaptureIr()!)!;
+        var edits = ir["edits"]!.AsArray();
+        Assert.Contains(edits, e => e!["registry"]!.GetValue<string>() == "world" && e["field"]!.GetValue<string>() == "noBuildZones" &&
+                                    e["select"]!.GetValue<string>() == "game:world" && e["list"] is not null);
+        Assert.Contains(edits, e => e!["registry"]!.GetValue<string>() == "difficulty" && e["field"]!.GetValue<string>() == "enemyDamageFactor.max" &&
+                                    e["op"]!.GetValue<double>() == 100);
+        Assert.Contains(edits, e => e!["registry"]!.GetValue<string>() == "limits" && e["field"]!.GetValue<string>() == "maxAltars" &&
+                                    e["op"]!.GetValue<int>() == 24);
+        Assert.Equal(RegistryApplies.Restart, RegistrySchema.Find("limits.giftingRange")!.Applies);
+        Assert.Equal("restart", RegistrySchema.Find("world.noBuildZones")!.JoinedClient);
+        context.Close();
+    }
+
     [Fact]
     public void UnloadedOwnerFailsBeforeAnyBackendAccess()
     {

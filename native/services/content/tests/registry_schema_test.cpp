@@ -29,10 +29,11 @@ static std::vector<Refusal> parse(const Schema& s, const char* doc, Batch* b) {
 
 int main() {
     const Schema s = generated_schema();
-    // ---- the five R1 registries and dev.32's creatures, arsenals, perks, skills, stations, buffs and abilities, every row (later
-    // waves add theirs)
+    // ---- the five R1 registries and dev.32's creatures, arsenals, perks, skills, stations, buffs, abilities, world, difficulty and
+    // limits, every row (later waves add theirs)
     CHECK(s.registries.size() == std::size(gen::kRegistries));
-    for (const char* r : {"items", "recipes", "loot", "drops", "balance", "creatures", "arsenals", "perks", "skills", "stations", "buffs", "abilities"})
+    for (const char* r : {"items", "recipes", "loot", "drops", "balance", "creatures", "arsenals", "perks", "skills", "stations", "buffs", "abilities",
+                          "world", "difficulty", "limits"})
         CHECK(s.registry(r) != nullptr);
     // pets and taming read a creature's kind (read-only) and its template id; an arsenal's attacks are a list of structs
     const FieldSpec* kind = s.registry("creatures")->field("kind");
@@ -64,7 +65,7 @@ int main() {
     const FieldSpec* cap = s.registry("balance")->field("levelCap");
     CHECK(cap && cap->applies == Applies::Restart);
     const FieldSpec* alt = s.registry("balance")->field("altarsPerFlameLevel");
-    CHECK(alt && alt->type == FieldType::List && alt->element == FieldType::Int && alt->max && *alt->max == 16.0 && alt->ops == FieldOps::Indexed);
+    CHECK(alt && alt->type == FieldType::List && alt->element == FieldType::Int && alt->max && *alt->max == 255.0 && alt->ops == FieldOps::Indexed);  // 255 since dev.32 (limits.maxAltars)
     const FieldSpec* rarities = s.registry("loot")->field("rarities");
     CHECK(rarities && rarities->type == FieldType::Flags && rarities->max_items == 5);
     const FieldSpec* cnt = s.registry("recipes")->field("inputs[].count");

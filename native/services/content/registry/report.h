@@ -62,6 +62,10 @@ struct ReportMeta {
     json saves;
     // registry.json "migrated": what the schemas' id migrations renamed in this start's edits ({mod, source, stage, note}).
     json migrated;
+    // Conflict lines with another mod's or plugin's own hook of the game function a hooks registry's value answers through
+    // (limits.h hook_lines; dev.32): kept apart from the stage's Result, which a live application rebuilds, and written after
+    // its lines in every report (counted with them).
+    std::vector<Line> hook_lines;
     // A game entry's base origin per field (S5 / S10); unset: "archive" (the game's data as the archive writer published it).
     // An entry a mod added always reports "added".
     std::function<std::string(const FieldRef&)> origin;

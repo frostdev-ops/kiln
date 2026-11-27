@@ -141,6 +141,20 @@ TreeView world() {
     v.add("keen::BalancingTable", kBalance,
           {{"experienceNeedPerLevel", json::array({1000, 2000, 3000, 4000, 5000})}, {"playerLevelCap", 50}, {"genericWeaponSeed", 10.0}, {"powerCreepWeapon", 0.15},
            {"armorSetup", {{"offset", 23.0}, {"gradient", 15.0}}}, {"flameLevelMax", 2}, {"altarsPerFlameLevel", json::array({1, 2, 3})}});
+    // R3b: the world scene (positions in 32.32 fixed-point metres) and the difficulty settings' bounds; a menu scene beside it
+    auto fx = [](double metres) { return static_cast<int64_t>(metres * 4294967296.0); };
+    auto box = [&](const char* lo, const char* hi, double x0, double y0, double z0, double x1, double y1, double z1) {
+        return json{{lo, {{"x", fx(x0)}, {"y", fx(y0)}, {"z", fx(z0)}}}, {hi, {{"x", fx(x1)}, {"y", fx(y1)}, {"z", fx(z1)}}}};
+    };
+    v.add("keen::SceneResource", g(500), {{"noBuildZones", json::array()}, {"resetPlayersOutOfBounds", {{"playableAreas", json::array()}}}});
+    json area = box("areaMin", "areaMax", 359.5, 298, 9420.75, 1159.5, 448, 9770.25);
+    area["flags"] = json::array({"BigDungeon"});
+    v.add("keen::SceneResource", "509feadb-4c60-425f-9c7c-deeefd9b6920",
+          {{"noBuildZones", json::array({box("worldBoxMin", "worldBoxMax", -364, -500, 6748, 2636, 1500, 10252)})},
+           {"resetPlayersOutOfBounds", {{"marginHorizontal", 10.0}, {"playableAreas", json::array({area})}}}});
+    v.add("keen::GameSettingsPresetsResource", "46e14df6-fb8f-4f66-9463-e23b9e19e48e",
+          {{"minValues", {{"enemyDamageFactor", 0.25}, {"dayTimeDuration", 120.0}, {"flameLevelFogRemoval", 1}}},
+           {"maxValues", {{"enemyDamageFactor", 2.5}, {"dayTimeDuration", 3600.0}, {"flameLevelFogRemoval", 11}}}});
     return v;
 }
 
@@ -453,6 +467,59 @@ void byte_array_bounds(const std::string&) {
     kc::rbtest::byte_blob_type(0);
     check(model::bytes_member(bytes.data(), bytes.size(), "test::ByteBlob", "", &out, &why) && out["values"].size() == 21, "a nested byte array also reads as numbers");
 }
+// R3b: the world's lists (single entry by GUID, the menu scene beside it left out), positions in metres, the difficulty bounds
+void world_rules(const std::string& dir) {
+    Fixture f(dir);
+    check(ids_of(*f.m, "world") == "game:world", "the world scene, picked by its GUID among the scenes: " + ids_of(*f.m, "world"));
+    check(ids_of(*f.m, "difficulty") == "game:difficulty", "the one settings resource: " + ids_of(*f.m, "difficulty"));
+    const Value z = f.val("world", "game:world", "noBuildZones");
+    check(z.list.size() == 1 && z.list[0].leaf("min.x")->d == -364 && z.list[0].leaf("min.y")->d == -500 && z.list[0].leaf("min.z")->d == 6748 &&
+              z.list[0].leaf("max.x")->d == 2636 && z.list[0].leaf("max.y")->d == 1500 && z.list[0].leaf("max.z")->d == 10252,
+          "a no-build zone's corners in metres from 32.32 fixed point: " + z.text_of());
+    const Value a = f.val("world", "game:world", "playableAreas");
+    check(a.list.size() == 1 && a.list[0].leaf("min.x")->d == 359.5 && a.list[0].leaf("max.z")->d == 9770.25,
+          "a playable area's corners, fractions kept: " + a.text_of());
+    check(f.val("difficulty", "game:difficulty", "enemyDamageFactor.max") == Value::number(2.5) &&
+              f.val("difficulty", "game:difficulty", "enemyDamageFactor.min") == Value::number(0.25),
+          "a factor's bounds");
+    check(f.val("difficulty", "game:difficulty", "dayTimeDuration.max") == Value::number(3600) &&
+              f.val("difficulty", "game:difficulty", "flameLevelFogRemoval.max") == Value::integer(11),
+          "a duration's bound in seconds, a whole number's as an int");
+    // the boot back-end's leaf values of a position: the game's fixed point, exact; out of the storage's range refused
+    const auto& reg = f.rm.registries.at("world");
+    const map::Row& px = reg.rows.at("noBuildZones[].min.x");
+    const FieldSpec* spec = f.schema.registry("world")->field("noBuildZones[].min.x");
+    json out;
+    std::string why;
+    check(spec && model::encode_leaf(*spec, px, Value::number(10252.5), &out, &why) && out.is_number_integer() &&
+              out.get<int64_t>() == static_cast<int64_t>(10252.5 * 4294967296.0),
+          "10252.5 m is the game's 32.32 fixed point: " + out.dump());
+    check(spec && model::encode_leaf(*spec, px, Value::number(-0.25), &out, &why) && out.get<int64_t>() == -1073741824, "a negative fraction too: " + out.dump());
+    check(spec && !model::encode_leaf(*spec, px, Value::number(1e300), &out, &why) && why.find("does not fit the game's storage") != std::string::npos,
+          "a value past the storage is refused, never wrapped: " + why);
+}
+// R3b: a hooks registry (limits): one entry, no resource, its values from Kiln's hooks of the game's code
+void hooks_registry(const std::string& dir) {
+    model::set_hook_values([](const std::string& n, json* out, std::string* why) {
+        if (n == "altarCap") return *out = 16, true;
+        if (n == "giftRange") return *out = 50.0, true;
+        return *why = "no such hook value", false;
+    });
+    {
+        Fixture f(dir);
+        check(ids_of(*f.m, "limits") == "game:limits", "the one limits entry: " + ids_of(*f.m, "limits"));
+        check(f.val("limits", "game:limits", "maxAltars") == Value::integer(16) && f.val("limits", "game:limits", "giftingRange") == Value::number(50),
+              "the game's values through the hooks' provider");
+        const auto* e = f.m->find("limits", "game:limits");
+        check(e && e->place.type == model::kHooksType && e->guid == model::added_guid("limits", "game:limits"), "no resource; the id table's GUID is fixed");
+    }
+    model::set_hook_values(nullptr);
+    Fixture g(dir);
+    std::string why;
+    const auto* es = g.m->entries("limits", &why);
+    check(es && es->size() == 1 && !g.m->value("limits", 0, "maxAltars", &why) && why.find("not here") != std::string::npos,
+          "without Kiln's hooks: no value, with why: " + why);
+}
 void single_scalar_structs(const std::string&) {
     const uint32_t raw[3] = {4242, 7, 9};
     kc::rbtest::wrapped_id_type();
@@ -616,7 +683,8 @@ int main(int argc, char** argv) {
         {"byte_array_bounds", byte_array_bounds}, {"single_scalar_structs", single_scalar_structs}, {"entries_and_ids", entries_and_ids}, {"values", values}, {"needs_and_compose", needs_and_compose},
         {"encode_writes", encode_writes},     {"id_table", id_table}, {"live_bytes", live_bytes}, {"live_event_times", live_event_times},
         {"notes_per_field", notes_per_field}, {"notes_count_the_entries_read", notes_count_the_entries_read},
-        {"creatures_arsenals_perks", creatures_arsenals_perks}, {"skills_and_stations_selectors", skills_and_stations_selectors}};
+        {"creatures_arsenals_perks", creatures_arsenals_perks}, {"skills_and_stations_selectors", skills_and_stations_selectors},
+        {"world_rules", world_rules}, {"hooks_registry", hooks_registry}};
     for (const auto& [name, fn] : groups) {
         try {
             fn(dir);

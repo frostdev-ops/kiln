@@ -15,7 +15,9 @@
 //     durability"); level cap, skill points, the experience curve, flame-level limits and build-zone sizes are read against
 //     saved characters and bases, and a saved altar's level indexes the build-zone list;
 //   - a skill node's cost (dev.32): the game's join check counts a character's unlocked nodes against their skill points and
-//     resets the whole tree, free, when they cost more (docs/re/abilities.md section 4).
+//     resets the whole tree, free, when they cost more (docs/re/abilities.md section 4);
+//   - the difficulty settings' bounds (dev.32): the game clamps a world's own (Custom) settings into them when it reads them at
+//     start (docs/re/settings.md section 8).
 // judge() says, per field, what an edit from `before` (the value without the registry: the game's, or an older path's) to
 // `after` does to existing saves, and what Kiln does (the stage also judges a start against the plan the last world ran on, as
 // `before`: a Refuse or a Warn verdict there is a warning where this start's value has none of its own, stage.cpp):
@@ -42,7 +44,7 @@ const char* decision_name(Decision d);  // "refuse", "guard", "warn", "report"
 
 struct Verdict {
     std::string cls;   // "stackCut", "levelRange", "perkSlots", "durability", "progressionCap", "experienceCurve", "baseLimits", "listShape",
-                       // "creatureLevel", "skillTree"
+                       // "creatureLevel", "skillTree", "settingsRange"
     Decision decision = Decision::Warn;
     std::string text;  // what it does to saves, in Kiln words, for registry.json and kiln.log (no game names)
     std::string unguarded;  // Guard: the refusal when the protection is not available ("...; this edit was not applied")

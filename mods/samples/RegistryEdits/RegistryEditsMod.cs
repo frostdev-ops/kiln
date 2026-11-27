@@ -27,6 +27,9 @@ public sealed class RegistryEditsMod : Mod
                 item => item.MaxStack = 100));
             // This hides only random-loot candidates, not already-owned logs or their recipes/direct drops.
             registry.Alter(view => view.Loot.Remove("game:material_t1_wood_logs"));
+            // World rules (dev.32) are restart fields: GameStart only. Build anywhere, and let worlds set enemy damage up to 10x.
+            registry.Alter(view => view.World.NoBuildZones.Clear());
+            registry.Alter(view => view.Difficulty.EnemyDamageFactor.Max = Math.Max(view.Difficulty.EnemyDamageFactor.Max, 10));
         }
         registry.Alter(view => view.Items["game:material_t1_wood_logs"].MaxStack = settings.WoodStack);
         // dev.32 (experimental): creatures, arsenals and perks. A creature edit is global to its kind (every Vukah warrior);

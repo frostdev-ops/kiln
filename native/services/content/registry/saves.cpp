@@ -113,6 +113,23 @@ std::optional<Verdict> judge(const std::string& registry, const std::string& fie
                     "have to be unlocked again)"};
         return std::nullopt;
     }
+    if (registry == "limits") {
+        // the most Flame Altars: a world in a save can hold more than a lower limit (as for balance.altarsPerFlameLevel)
+        if (field == "maxAltars" && lower(after, before))
+            return Verdict{"baseLimits", Decision::Warn,
+                "lowers limits.maxAltars " + text(before) + " -> " + text(after) + ": bases in saves keep the altars they hold above the new limit; " +
+                    "what the game does with them is not traced"};
+        return std::nullopt;
+    }
+    if (registry == "difficulty") {
+        // a setting's bounds: the game clamps a world's own (Custom) setting into them when it reads the settings at start
+        auto ends = [&](const char* tail) { return field.size() > 4 && field.compare(field.size() - 4, 4, tail) == 0; };
+        if ((ends(".max") && lower(after, before)) || (ends(".min") && higher(after, before)))
+            return Verdict{"settingsRange", Decision::Warn,
+                "narrows a world setting's range (" + field + " " + text(before) + " -> " + text(after) + "): a world's own (Custom) setting outside it " +
+                    "is clamped into it when the game reads the settings at start; whether the game then saves the clamped value is not traced"};
+        return std::nullopt;
+    }
     if (registry != "balance") return std::nullopt;
     if (field.rfind("durability.", 0) == 0 || field.rfind("rarityDurability.", 0) == 0)
         return Verdict{"durability", Decision::Report,

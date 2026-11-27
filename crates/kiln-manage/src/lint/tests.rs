@@ -383,6 +383,11 @@ fn registry_only_clients_guidance_tracks_the_edited_fields() {
     check("good-loot", "none", "loot", "stack.max", None);
     check("good-item", "kiln", "items", "maxStack", None);
     check("good-balance", "mod", "balance", "levelCap", None);
+    // dev.32's world rules and limits: restart fields both sides bake (the join compares them)
+    check("difficulty", "kiln", "difficulty", "enemyDamageFactor.max", Some("mod"));
+    check("world-corner", "none", "world", "noBuildZones[0].min.x", Some("mod"));
+    check("limits", "kiln", "limits", "maxAltars", Some("mod"));
+    check("good-limits", "mod", "limits", "giftingRange", None);
     check("unknown", "kiln", "unknown", "x", None);
     // dev.32: creatures and arsenals are server-only; a perk's value and armour follow the content sync to Kiln clients; the
     // perk damage bonus (unproven) and a read-only field make no claim

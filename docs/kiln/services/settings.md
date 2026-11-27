@@ -26,11 +26,25 @@ and on request writes them back to `enshrouded_server.json` so they survive one.
 
 No setting needs a restart on the server. Values are checked against the ranges in the server's
 `enshrouded_server_readme.txt`; out of range is refused (never clamped) with a message that names the range.
-`anyValue: true` skips that check (still sane for the type: factors 0–100, durations 1 s–24 h, valid options).
+`anyValue: true` skips that check (still sane for the type: factors 0–100, durations 1 s–24 h, valid options; never
+narrower than the setting's own range).
 
 Readiness: the settings are found at the end of the server's first world step, which is when Kiln loads mods. So
 `Settings.Ready` is false during a mod's first `OnLoad`; one step later it is true. The game's own programs start a few
 seconds later still (when the scene switches to Run); a change made before that is simply used from then on.
+
+### The registry's bounds (since dev.32)
+
+A mod can change a setting's bounds through Kiln's `difficulty` registry
+(`difficulty.<setting>.min` / `.max`, [registries/difficulty.md](../modding/registries/difficulty.md)); the game keeps a
+world's own (Custom) settings inside those bounds when it reads them at start. Where a mod set a bound that way (or an
+older Kiln path under the registry did), kiln.settings takes it in place of the readme's for that setting, so the two
+agree: with `difficulty.enemyDamageFactor.max` raised to 10, `Set("enemyDamageFactor", 8)` is accepted (it was refused
+above the readme's 5), and a bound a mod lowered refuses what the game would no longer keep. `Min`/`Max` and the refusal
+text show the bound in use, and kiln.log names it once (`settings: enemyDamageFactor: allowed 0.25 to 10 from the
+registry's difficulty bounds (<mod>; the table's 0.25 to 5)`). Bounds no mod set keep the readme's ranges, as before
+(the game's own bounds are narrower in places: `enemyDamageFactor` 2.5, docs/re/settings.md section 8). kiln.settings reads
+them once, from the registry's report at the end of its start stage (`report_json`), so they are what this start's game got.
 
 ## C#
 

@@ -884,6 +884,212 @@
         }
       }
     },
+    "difficulty": {
+      "$defs": {
+        "field": {
+          "enum": [
+            "playerHealthFactor.min",
+            "playerHealthFactor.max",
+            "playerManaFactor.min",
+            "playerManaFactor.max",
+            "playerStaminaFactor.min",
+            "playerStaminaFactor.max",
+            "playerBodyHeatFactor.min",
+            "playerBodyHeatFactor.max",
+            "playerDivingTimeFactor.min",
+            "playerDivingTimeFactor.max",
+            "foodBuffDurationFactor.min",
+            "foodBuffDurationFactor.max",
+            "fromHungerToStarving.min",
+            "fromHungerToStarving.max",
+            "shroudTimeFactor.min",
+            "shroudTimeFactor.max",
+            "miningDamageFactor.min",
+            "miningDamageFactor.max",
+            "plantGrowthSpeedFactor.min",
+            "plantGrowthSpeedFactor.max",
+            "resourceDropStackAmountFactor.min",
+            "resourceDropStackAmountFactor.max",
+            "factoryProductionSpeedFactor.min",
+            "factoryProductionSpeedFactor.max",
+            "perkUpgradeRecyclingFactor.min",
+            "perkUpgradeRecyclingFactor.max",
+            "perkCostFactor.min",
+            "perkCostFactor.max",
+            "experienceCombatFactor.min",
+            "experienceCombatFactor.max",
+            "experienceMiningFactor.min",
+            "experienceMiningFactor.max",
+            "experienceExplorationQuestsFactor.min",
+            "experienceExplorationQuestsFactor.max",
+            "enemyDamageFactor.min",
+            "enemyDamageFactor.max",
+            "enemyHealthFactor.min",
+            "enemyHealthFactor.max",
+            "enemyStaminaFactor.min",
+            "enemyStaminaFactor.max",
+            "enemyPerceptionRangeFactor.min",
+            "enemyPerceptionRangeFactor.max",
+            "bossDamageFactor.min",
+            "bossDamageFactor.max",
+            "bossHealthFactor.min",
+            "bossHealthFactor.max",
+            "threatBonus.min",
+            "threatBonus.max",
+            "dayTimeDuration.min",
+            "dayTimeDuration.max",
+            "nightTimeDuration.min",
+            "nightTimeDuration.max",
+            "flameLevelFogRemoval.min",
+            "flameLevelFogRemoval.max"
+          ]
+        },
+        "edit": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "registry"
+          ],
+          "description": "An edit of the difficulty registry (docs/kiln/modding/registries/difficulty.md).",
+          "properties": {
+            "registry": {
+              "const": "difficulty"
+            },
+            "select": {
+              "$ref": "#/$defs/select"
+            },
+            "field": {
+              "$ref": "#/$defs/difficulty/$defs/field"
+            },
+            "op": {
+              "$ref": "#/$defs/op"
+            },
+            "list": {
+              "$ref": "#/$defs/list"
+            },
+            "exclusive": {
+              "type": "boolean"
+            },
+            "yield": {
+              "type": "boolean"
+            },
+            "raw": {
+              "type": "object",
+              "description": "Advanced tier: raw game paths; refused per entry where the game's names changed."
+            }
+          }
+        }
+      }
+    },
+    "world": {
+      "$defs": {
+        "field": {
+          "enum": [
+            "noBuildZones",
+            "noBuildZones[].min.x",
+            "noBuildZones[].min.y",
+            "noBuildZones[].min.z",
+            "noBuildZones[].max.x",
+            "noBuildZones[].max.y",
+            "noBuildZones[].max.z",
+            "playableAreas",
+            "playableAreas[].min.x",
+            "playableAreas[].min.y",
+            "playableAreas[].min.z",
+            "playableAreas[].max.x",
+            "playableAreas[].max.y",
+            "playableAreas[].max.z"
+          ]
+        },
+        "fieldIndexed": {
+          "type": "string",
+          "pattern": "^(noBuildZones\\[([0-9]+|\\*)\\]\\.min\\.x|noBuildZones\\[([0-9]+|\\*)\\]\\.min\\.y|noBuildZones\\[([0-9]+|\\*)\\]\\.min\\.z|noBuildZones\\[([0-9]+|\\*)\\]\\.max\\.x|noBuildZones\\[([0-9]+|\\*)\\]\\.max\\.y|noBuildZones\\[([0-9]+|\\*)\\]\\.max\\.z|playableAreas\\[([0-9]+|\\*)\\]\\.min\\.x|playableAreas\\[([0-9]+|\\*)\\]\\.min\\.y|playableAreas\\[([0-9]+|\\*)\\]\\.min\\.z|playableAreas\\[([0-9]+|\\*)\\]\\.max\\.x|playableAreas\\[([0-9]+|\\*)\\]\\.max\\.y|playableAreas\\[([0-9]+|\\*)\\]\\.max\\.z|noBuildZones\\[([0-9]+|\\*)\\]|playableAreas\\[([0-9]+|\\*)\\])$"
+        },
+        "edit": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "registry"
+          ],
+          "description": "An edit of the world registry (docs/kiln/modding/registries/world.md).",
+          "properties": {
+            "registry": {
+              "const": "world"
+            },
+            "select": {
+              "$ref": "#/$defs/select"
+            },
+            "field": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/world/$defs/field"
+                },
+                {
+                  "$ref": "#/$defs/world/$defs/fieldIndexed"
+                }
+              ]
+            },
+            "op": {
+              "$ref": "#/$defs/op"
+            },
+            "list": {
+              "$ref": "#/$defs/list"
+            },
+            "exclusive": {
+              "type": "boolean"
+            },
+            "yield": {
+              "type": "boolean"
+            },
+            "raw": {
+              "type": "object",
+              "description": "Advanced tier: raw game paths; refused per entry where the game's names changed."
+            }
+          }
+        }
+      }
+    },
+    "limits": {
+      "$defs": {
+        "field": {
+          "enum": [
+            "maxAltars",
+            "giftingRange"
+          ]
+        },
+        "edit": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "registry"
+          ],
+          "description": "An edit of the limits registry (docs/kiln/modding/registries/limits.md).",
+          "properties": {
+            "registry": {
+              "const": "limits"
+            },
+            "select": {
+              "$ref": "#/$defs/select"
+            },
+            "field": {
+              "$ref": "#/$defs/limits/$defs/field"
+            },
+            "op": {
+              "$ref": "#/$defs/op"
+            },
+            "list": {
+              "$ref": "#/$defs/list"
+            },
+            "exclusive": {
+              "type": "boolean"
+            },
+            "yield": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    },
     "edit": {
       "oneOf": [
         {
@@ -921,6 +1127,15 @@
         },
         {
           "$ref": "#/$defs/buffs/$defs/edit"
+        },
+        {
+          "$ref": "#/$defs/difficulty/$defs/edit"
+        },
+        {
+          "$ref": "#/$defs/world/$defs/edit"
+        },
+        {
+          "$ref": "#/$defs/limits/$defs/edit"
         }
       ]
     }

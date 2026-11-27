@@ -38,6 +38,9 @@ struct Hooks {
                          std::vector<stage::BootOutcome>* outcomes, std::vector<std::string>* notes)>
         write;
     std::function<void(const std::vector<stage::BootOutcome>&)> finish;
+    // the restart fields of the hooks registries (one BootResource of type model::kHooksType, no resource): Kiln's hooks take the
+    // values (limits.h); returns how many were set
+    std::function<size_t(const stage::BootResource& rb, std::vector<stage::BootOutcome>* outcomes, std::vector<std::string>* notes)> hooks;
 };
 
 inline std::atomic<const Hooks*>& slot() {
