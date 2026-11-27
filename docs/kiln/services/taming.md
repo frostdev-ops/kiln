@@ -134,6 +134,10 @@ A step's cost is exact and receipted ([item-costs.md](item-costs.md)): `Progress
   and the rest is never taken again (19e 5.2). A gear wear another hook changed (`ModifiedByOtherMod`) is the use, once.
 - **An uncertain receipt** (a fault inside the game's change) is never refunded or retried. It ends the attempt
   `UncertainCommit` with that receipt, and the policy still applies to the receipts that are certain.
+- **A refund reaches only an owner in game, in the world the step was paid in.** An attempt that fails because its owner
+  left (`OwnerLeft`), or ends with its world (`WorldEnded`), refunds nothing even with `Escrow` or `RefundOnFail`: the
+  refund's receipt in `Progress.Refunds` says why (`StaleSession`, `WrongWorld`), and a mod that owes the player decides
+  what to do (a later `Items.Give` when they are back, say). Kiln keeps no refund for a later session.
 - **Not promised:** crash atomicity across the inventory and the pet record. A committed receipt means the inventory
   changed in the running world, nothing more.
 
