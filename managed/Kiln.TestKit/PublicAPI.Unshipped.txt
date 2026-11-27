@@ -15,3 +15,13 @@ Kiln.TestKit.HarnessPets.Leave(Kiln.CharacterKey character) -> void
 Kiln.TestKit.HarnessPets.Of(Kiln.CharacterKey character) -> System.Collections.Generic.IReadOnlyList<Kiln.PetSnapshot!>!
 Kiln.TestKit.KilnHarness.Pets.get -> Kiln.TestKit.HarnessPets!
 static Kiln.TestKit.HarnessPets.Character(int n) -> Kiln.CharacterKey
+Kiln.TestKit.HarnessTaming
+Kiln.TestKit.HarnessTaming.Count(Kiln.PlayerRef player, Kiln.ItemId item) -> int
+Kiln.TestKit.HarnessTaming.Give(Kiln.PlayerRef player, Kiln.ItemId item, int count) -> Kiln.ItemSelection!
+Kiln.TestKit.HarnessTaming.Hurt(Kiln.EntityRef creature, double healthFraction) -> void
+Kiln.TestKit.HarnessTaming.Join(Kiln.CharacterKey character, Kiln.WorldPosition at = default(Kiln.WorldPosition)) -> Kiln.PlayerRef
+Kiln.TestKit.HarnessTaming.Leave(Kiln.PlayerRef player) -> void
+Kiln.TestKit.HarnessTaming.NativeStep(Kiln.EntityRef creature) -> void
+Kiln.TestKit.HarnessTaming.Place(string! creature, Kiln.WorldPosition at, double healthFraction = 1, bool nativeTameable = false) -> Kiln.EntityRef
+Kiln.TestKit.HarnessTaming.Remove(Kiln.EntityRef creature) -> void
+Kiln.TestKit.KilnHarness.Taming.get -> Kiln.TestKit.HarnessTaming!

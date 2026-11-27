@@ -41,4 +41,46 @@ public sealed class PetsFakeTests
         kiln.Run(() => Kiln.Pets.SetHostile(a, b, false));
         Assert.Empty(kiln.Pets.HostilePairs);
     }
+
+    [Fact]
+    public void A_feed_taming_takes_the_selected_bait_and_tames_on_the_kits_world()
+    {
+        using var kiln = new KilnHarness();
+        kiln.Step();
+        var who = kiln.Taming.Join(HarnessPets.Character(3), new WorldPosition(0, 0, 0));
+        var wolf = kiln.Taming.Place("game:enemy_wildbeast_wolf", new WorldPosition(2, 0, 0));
+        var bait = new ItemId(0xb59dfc2c);
+        var slot = kiln.Taming.Give(who, bait, 5);
+        var def = new TamingDefinition { Id = "kit-test:wolf", Creatures = ["game:enemy_wildbeast_wolf"], Steps = [new FeedStep(bait, 2)], Refund = TamingRefundPolicy.Escrow };
+        Assert.True(kiln.Run(() => Kiln.Taming.Define(def)).Ok);
+        var begun = Settle(kiln, () => Kiln.Taming.Begin(who, wolf, "kit-test:wolf", TamingRequest.New()));
+        Assert.True(begun.Ok, begun.Reason);
+        var p = begun.Progress!;
+        var choices = kiln.Run(() => Kiln.Taming.Choices(who, p.Id));
+        Assert.Equal(slot.Slot, Assert.Single(choices.Choices).Selection.Slot);
+        var tamed = Settle(kiln, () => Kiln.Taming.Advance(who, p.Id, TamingRequest.New(choices.Token), choices.Choices[0].Selection));
+        Assert.True(tamed.Ok, tamed.Reason);
+        Assert.Equal(TamingState.Committed, tamed.Progress!.State);
+        Assert.Equal(3, kiln.Taming.Count(who, bait));
+    }
+
+    [Fact]
+    public void An_escrow_taming_canceled_gives_the_bait_back_on_the_kits_world()
+    {
+        using var kiln = new KilnHarness();
+        kiln.Step();
+        var who = kiln.Taming.Join(HarnessPets.Character(4));
+        var wolf = kiln.Taming.Place("game:enemy_wildbeast_wolf", new WorldPosition(1, 0, 0));
+        var bait = new ItemId(0xb59dfc2c);
+        kiln.Taming.Give(who, bait, 4);
+        var def = new TamingDefinition { Id = "kit-test:slow-wolf", Creatures = ["game:enemy_wildbeast_wolf"], Steps = [new FeedStep(bait, 1), new FeedStep(bait, 1)], Refund = TamingRefundPolicy.Escrow };
+        Assert.True(kiln.Run(() => Kiln.Taming.Define(def)).Ok);
+        var p = Settle(kiln, () => Kiln.Taming.Begin(who, wolf, "kit-test:slow-wolf", TamingRequest.New())).Progress!;
+        var c = kiln.Run(() => Kiln.Taming.Choices(who, p.Id));
+        Assert.True(Settle(kiln, () => Kiln.Taming.Advance(who, p.Id, TamingRequest.New(c.Token), c.Choices[0].Selection)).Ok);
+        Assert.Equal(3, kiln.Taming.Count(who, bait));
+        var canceled = Settle(kiln, () => Kiln.Taming.Cancel(who, p.Id, TamingRequest.New()));   // a stale view: no token
+        Assert.True(canceled.Ok, canceled.Reason);
+        Assert.Equal(4, kiln.Taming.Count(who, bait));   // escrow: the paid step came back
+    }
 }

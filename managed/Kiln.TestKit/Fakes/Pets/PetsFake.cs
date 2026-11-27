@@ -12,6 +12,6 @@ internal sealed class PetsFake : IKitFake
     public void End(KilnHarness harness) => harness.PetsIfUsed?.End();
 
     public void AddCoverage(List<CoverageRow> rows) => rows.Add(new CoverageRow("Kiln.Pets (KilnHarness.Pets)", CoverageKind.RecordingFake,
-        ["kiln.pets", "pets.records", "pets.summon", "pets.control", "pets.follow", "pets.fight", "pets.downed"],
+        ["pets.records", "pets.summon", "pets.control", "pets.follow", "pets.fight", "pets.downed"],
         "the real roster on the kit's world: owners the test joins, bodies the kit keeps (no game entity, no walking), downs the test makes, the hostile pairs; no save receipts, no owner's view"));
 }

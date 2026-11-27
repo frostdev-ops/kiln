@@ -194,6 +194,11 @@ where the petting player can be read. Guard a read with `Capabilities.Is(NativeT
 
 ## Tests
 
+- A mod's own tests (Kiln.TestKit): `kiln.Taming` is the real attempt engine on the kit's world and item costs.
+  `Join(character)` puts a player in game, `Place(creature, at)` puts a creature there, `Give(player, item, count)` fills
+  a slot (and returns its selection), `Hurt`, `NativeStep` and `Remove` change a creature, `Count` reads what a player
+  holds. Feed steps take and refund exactly; tool wear and the game's own taming are not faked.
+
 - Managed, offline (`managed/tests/Kiln.Taming.Tests`):
   - the engine against chapter 19e section 6's list: selections, replay, before-events and their order, finalization
     and the cost-free retry, timeouts and in-flight settlement, closed attempts, limits;
