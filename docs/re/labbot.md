@@ -142,3 +142,13 @@ the 60 s limit (p1, p2, s6). The first join of a server session under a name tha
 is not 2 or 3, but a new name joined right after the logout, so that global check is not it; what the returning
 character waits for is not found yet. Workaround for tests: a new bot name for each join in one server session, or a
 server restart between a logout and the same character's next login.
+
+Since the review of the lane (dev.32 review-labbot), kiln.labbot refuses such a join at once instead of failing it after
+the 60 s load limit: `labbot::Played` remembers every character and account that logged in on the server (AddPlayer
+made its record), and `join` answers `KILN_ERR_INVALID_ARGUMENT` for one of them, with the reason in kiln.log; the
+managed `LabBots.Join` throws an `ArgumentException` that says so. A lead for the cause **[static]**, not followed
+further: the spawn position function `0x7aded0` looks the record's character id (record `+0x48`) up in a per-character
+table (`[gs+0x20]+0x18`, `0x7b0720`). Without an entry it takes the default spawn; with one it walks the entry's ten
+pairs (stride 0x30) for the 16 bytes at record `+0x50` and, on a match, starts from the position stored there (copied to
+record `+0x60`) and an id beside it (checked through `0x64efe0`). A character that logged out in this session has such
+an entry; the stored-position path is where the returning bot's search stays.

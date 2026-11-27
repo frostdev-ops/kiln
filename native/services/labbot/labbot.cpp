@@ -352,9 +352,11 @@ struct Slot {
     Phase logged = Phase::Free;
     uint64_t last_note = 0;
     uint64_t joined_step = 0, in_game_step = 0;  // server steps (KilnLabBotInfo); the bot itself counts milliseconds
+    bool played = false;                         // its character is in g_played
 };
 std::recursive_mutex g_mu;  // the bots; GameServer thread steps them, any thread reads info/list
 Slot g_slots[KILN_LABBOT_MAX];
+labbot::Played g_played;    // every character that logged in on this server (labbot::Played): refused again at join
 uint32_t g_next_id = 1;
 std::atomic<uintptr_t> g_gs{0};
 std::atomic<uint64_t> g_step{0};
@@ -400,6 +402,10 @@ void step_bots(uintptr_t gs) {
         const Phase after = s.bot.phase;
         if (!s.joined_step) s.joined_step = now;
         if (after == Phase::InGame && !s.in_game_step) s.in_game_step = now;
+        if (s.bot.logged_in && !s.played) {
+            g_played.add(s.bot.character, s.bot.account);
+            s.played = true;
+        }
         pub_set(i, s.bot.entry, s.bot.injected());
         if (after == Phase::Loading && s.logged == Phase::LoggingIn) {
             const labbot::SaveView sv = eng.save(s.bot.entry.slot);
@@ -506,6 +512,20 @@ KilnResult KILN_CALL t_join(KilnOwner owner, const KilnLabBotJoin* rq, uint32_t*
     std::lock_guard<std::recursive_mutex> lk(g_mu);
     for (const Slot& s : g_slots)
         if (live(s) && s.bot.name == name) return KILN_ERR_INVALID_ARGUMENT;
+    uint8_t character[16];
+    bool zero = true;
+    for (uint8_t c : rq->character_id) zero = zero && c == 0;
+    if (zero) labbot::derive_character(name, character);
+    else std::memcpy(character, rq->character_id, 16);
+    const uint64_t account = rq->account ? rq->account : labbot::derive_account(name);
+    if (g_played.has(character, account)) {
+        // the game would leave it in the spawn position search until the load limit (lab p1, p2, s6; docs/re/labbot.md)
+        logf(KILN_LOG_WARN,
+             "labbot: join of '%s' refused: that character (or account) logged in earlier on this server; the game does not "
+             "spawn it again after its logout until the server restarts: join under a new name",
+             name.c_str());
+        return KILN_ERR_INVALID_ARGUMENT;
+    }
     int free_slot = -1;
     for (uint32_t i = 0; i < KILN_LABBOT_MAX && free_slot < 0; ++i)
         if (!live(g_slots[i])) free_slot = static_cast<int>(i);
@@ -545,11 +565,8 @@ KilnResult KILN_CALL t_join(KilnOwner owner, const KilnLabBotJoin* rq, uint32_t*
     s.flags = rq->flags;
     Bot& b = s.bot;
     b.name = name;
-    bool zero = true;
-    for (uint8_t c : rq->character_id) zero = zero && c == 0;
-    if (zero) labbot::derive_character(name, b.character);
-    else std::memcpy(b.character, rq->character_id, 16);
-    b.account = rq->account ? rq->account : labbot::derive_account(name);
+    std::memcpy(b.character, character, 16);
+    b.account = account;
     b.new_character = true;
     b.entry.slot = static_cast<uint32_t>(slot);
     b.entry.machine_index = static_cast<uint32_t>(machine);

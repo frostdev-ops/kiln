@@ -57,10 +57,11 @@ bot that joins again finds its per-character data (pets, quests). At most 4 bots
 `bot.told(since)` / `bot.wait_told(text)`: the server's chat lines to the bot (a command's replies, "[Server] ..."; an
 async command such as `/pet summon` answers there). Two lines added in the same server step show only the second.
 
-Known limit: a bot that logs out cannot join again **under the same name** while the server keeps running (it stays in
-the game's spawn position search until the 60 s limit; `docs/re/labbot.md`). Use a new name for each join in one
-server session, or restart the lab between a logout and the same character's next login (the first join of a session
-works, with the character's per-character data).
+Known limit: a name joins **once per server session**. The game does not spawn a character again after its logout
+while the server keeps running (it stays in the spawn position search; `docs/re/labbot.md`), so a join under a name
+that logged in earlier in that session is refused at once: `LabBotError` "... logged in earlier in this server
+session ...". Use a new name for each join in one server session, or restart the lab between a logout and the same
+character's next login (the first join of a session works, with the character's per-character data).
 
 From a shell: `python3 -I tools/labbot/labbot.py --port <labPort> status|list|players|spawn NAME|info ID|wait ID|say ID
 TEXT|command ID LINE|move ID X Y Z|position ID|character ID|leave ID [--drop]` (JSON out; exit 1 = the server answered

@@ -298,6 +298,7 @@ void Bot::step(Engine& g, uint64_t now, const LoginLayout& L, const Limits& lim)
             if (!a.readable || a.handle != entry.player)
                 return fail(now, "the game refused the login: no record was made (server full, shutting down, or the "
                                  "machine was not listed)");
+            logged_in = true;  // the record names the bot's character
             if (a.state == kRecFailed) return fail(now, "the game refused the login (record state 6: version or slot)");
             record_state = a.state;
             return go(Phase::LoggingIn, now);
@@ -370,6 +371,21 @@ void Bot::step(Engine& g, uint64_t now, const LoginLayout& L, const Limits& lim)
         }
         default: return;
     }
+}
+
+void Played::add(const uint8_t character[16], uint64_t account) {
+    for (const One& o : list_)
+        if (std::memcmp(o.character, character, 16) == 0 && o.account == account) return;
+    One o;
+    std::memcpy(o.character, character, 16);
+    o.account = account;
+    list_.push_back(o);
+}
+
+bool Played::has(const uint8_t character[16], uint64_t account) const {
+    for (const One& o : list_)
+        if (std::memcmp(o.character, character, 16) == 0 || o.account == account) return true;
+    return false;
 }
 
 }  // namespace labbot

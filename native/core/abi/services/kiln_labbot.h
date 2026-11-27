@@ -19,8 +19,9 @@
  * players join.
  *
  * Identity: a bot's CharacterId and account id are derived from its name (KilnLabBotJoin.character_id and .account
- * zero), so a bot that rejoins under the same name is the same character on that world (per-character data such as
- * pets carries over), and two names never share one.
+ * zero), so a bot that joins under the same name in a later server session is the same character on that world
+ * (per-character data such as pets carries over), and two names never share one. Within one server session a character
+ * logs in once: the game does not spawn it again after its logout until the server restarts, so join refuses it.
  *
  * Threads: join and leave on the tick thread (they queue; the bot moves inside the next GameServer receive step).
  * status, info and list from any thread (a snapshot of the last step). */
@@ -110,8 +111,9 @@ typedef struct KilnLabBotApi {
     KilnServiceHeader header; /* { sizeof(KilnLabBotApi), KILN_LABBOT_VERSION } */
     /* Any thread. KILN_OK also when bots are unavailable (out->available 0, out->why). */
     KilnResult(KILN_CALL* status)(KilnLabBotStatus* out);
-    /* Starts a bot's join; *out_id names it. Tick thread. KILN_ERR_INVALID_ARGUMENT: a bad name, flags or group, or a
-     * name a live bot has; KILN_ERR_NOT_FOUND: KILN_LABBOT_MAX bots are live, no free player slot or machine, or no
+    /* Starts a bot's join; *out_id names it. Tick thread. KILN_ERR_INVALID_ARGUMENT: a bad name, flags or group, a
+     * name a live bot has, or a character or account that logged in on this server before (kiln.log says which);
+     * KILN_ERR_NOT_FOUND: KILN_LABBOT_MAX bots are live, no free player slot or machine, or no
      * such user group; KILN_ERR_UNAVAILABLE: not a lab server, the symbols did not resolve, or no server world runs. The join then goes on by itself; info() shows where it is. */
     KilnResult(KILN_CALL* join)(KilnOwner owner, const KilnLabBotJoin* request, uint32_t* out_id);
     /* Ends the bot's game (KILN_LABBOT_LEAVE_*): a logout unless DROP. Tick thread. KILN_ERR_NOT_FOUND: no such live bot. */

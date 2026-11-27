@@ -172,6 +172,7 @@ struct Bot {
     uint8_t record_state = 0, permissions = 0;
     bool upload_sent = false, ready_sent = false, final_sent = false;
     bool leave_requested = false, drop = false;
+    bool logged_in = false;        // the game's AddPlayer made the bot's record: the game knows its character now (Played)
     uint32_t acked = 0;            // newest save version acknowledged
     uint32_t saves_acked = 0;
 
@@ -187,6 +188,25 @@ private:
     void go(Phase p, uint64_t now, std::string why = {});
     void fail(uint64_t now, std::string why) { go(Phase::Failed, now, std::move(why)); }
     void ack_saves(Engine& g);
+};
+
+// The characters (and accounts) that logged in on this server since it started: Bot::logged_in. The game does not spawn
+// one of them again after its logout while the server keeps running (lab p1, p2, s6: the next join of that name stays in
+// the spawn position search, record state 1, until the load limit; a new name joins at once), so kiln.labbot refuses
+// such a join at once, with the reason, instead of failing it 60 s later.
+class Played {
+public:
+    void add(const uint8_t character[16], uint64_t account);
+    // The character, or the account, logged in before.
+    bool has(const uint8_t character[16], uint64_t account) const;
+    size_t size() const { return list_.size(); }
+
+private:
+    struct One {
+        uint8_t character[16];
+        uint64_t account;
+    };
+    std::vector<One> list_;
 };
 
 }  // namespace labbot

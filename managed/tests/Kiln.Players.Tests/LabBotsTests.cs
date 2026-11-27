@@ -167,6 +167,22 @@ public sealed unsafe class LabBotsTests : IDisposable
     }
 
     [Fact]
+    public void AnInvalidArgumentSaysWhichRuleTheJoinBroke()
+    {
+        _rc = 1;  // kiln.labbot answers KILN_ERR_INVALID_ARGUMENT for each of these
+        Assert.Contains("letters, digits", Assert.Throws<ArgumentException>(() => LabBots.Join("x/y")).Message);
+        Assert.Contains("either end", Assert.Throws<ArgumentException>(() => LabBots.Join(" Bot")).Message);
+        Assert.Contains("1 to 32", Assert.Throws<ArgumentException>(() => LabBots.Join(new string('a', 33))).Message);
+        // FakeList: "bot 9" is in game
+        Assert.Contains("a live bot", Assert.Throws<ArgumentException>(() => LabBots.Join("bot 9")).Message);
+        // a valid name no live bot has: its character logged in earlier in this server session (lab p1, p2, s6)
+        var e = Assert.Throws<ArgumentException>(() => LabBots.Join("Bot Alder"));
+        Assert.Contains("logged in earlier in this server session", e.Message);
+        Assert.Contains("new name", e.Message);
+        Assert.Throws<ArgumentOutOfRangeException>(() => LabBots.Join("Bot Alder", (LabBotGroup)7));
+    }
+
+    [Fact]
     public void LeaveSendsTheDropFlag()
     {
         LabBots.Leave(5);

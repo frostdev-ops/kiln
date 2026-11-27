@@ -11,7 +11,8 @@
 //  8 a drop, and a leave before the bot is in game (always a drop);
 //  9 failures, each with its reason: never in the published state, the login refused, the upload refused, no spawn
 //    position, the record taken over; the game removing an in-game bot is Left with the record's state;
-// 10 a leave whose record never frees is dropped after the limit.
+// 10 a leave whose record never frees is dropped after the limit;
+// 11 the characters that logged in on this server (Played): kiln.labbot refuses their next join at once.
 #include <cstdio>
 #include <cstring>
 #include <map>
@@ -537,6 +538,50 @@ void t_leave_timeout() {
     CHECK(b.reason.find("dropped") != std::string::npos, "reason '%s'", b.reason.c_str());
 }
 
+// ---- 11: a character that logged in on this server is remembered (kiln.labbot refuses its next join at once: the game
+// never spawns it again after its logout while the server runs, lab p1, p2, s6) ----
+void t_played() {
+    FakeGame g;
+    Bot b = make_bot();
+    uint64_t step = 0;
+    b.step(g, ++step, g.L);
+    CHECK(b.phase == Phase::LoggingIn && b.logged_in, "the login made its record: logged in (%s)", phase_name(b.phase));
+    FakeGame h;
+    h.visible = false;
+    Bot c = make_bot();
+    c.step(h, 1, h.L);
+    c.leave(true);
+    c.step(h, 2, h.L);
+    CHECK(c.phase == Phase::Left && !c.logged_in, "never in the published state: the game never saw its character");
+    FakeGame r;
+    r.refuse_login = true;
+    Bot d = make_bot();
+    d.step(r, 1, r.L);
+    CHECK(d.phase == Phase::Failed && d.logged_in, "a record the game refused (state 6) still names the character");
+
+    Played played;
+    uint8_t alder[16], birch[16];
+    derive_character("Bot Alder", alder);
+    derive_character("Bot Birch", birch);
+    CHECK(!played.has(alder, derive_account("Bot Alder")) && played.size() == 0, "empty");
+    played.add(alder, derive_account("Bot Alder"));
+    CHECK(played.has(alder, derive_account("Bot Alder")), "the same name again");
+    CHECK(!played.has(birch, derive_account("Bot Birch")), "another name");
+    CHECK(played.has(alder, 12345) && played.has(birch, derive_account("Bot Alder")), "the character or the account alone");
+    played.add(alder, derive_account("Bot Alder"));
+    CHECK(played.size() == 1, "kept once (%zu)", played.size());
+    for (int i = 0; i < 40; ++i) {
+        const std::string n = "Bot " + std::to_string(i);
+        uint8_t ch[16];
+        derive_character(n, ch);
+        played.add(ch, derive_account(n));
+    }
+    uint8_t last[16];
+    derive_character("Bot 39", last);
+    CHECK(played.size() == 41 && played.has(last, 1) && played.has(alder, 1), "no limit: every name of the session (%zu)",
+          played.size());
+}
+
 }  // namespace
 
 int main() {
@@ -551,6 +596,7 @@ int main() {
     t_failures();
     t_leave_timeout();
     t_limits_are_time();
+    t_played();
     std::printf("labbot host: %d checks, %d failed\n", g_checks, g_failures);
     return g_failures ? 1 : 0;
 }
