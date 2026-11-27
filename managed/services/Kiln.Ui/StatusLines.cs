@@ -40,7 +40,7 @@ public sealed class StatusLine : IDisposable
     public void Dispose() => StatusLines.Remove(this);
 }
 
-/// <summary>One mod's status lines, as <see cref="StatusLines.All"/> reads them.</summary>
+/// <summary>One mod's status lines, as <see cref="StatusLines.All()"/> reads them.</summary>
 /// <param name="ModId">The mod's id.</param>
 /// <param name="Name">The mod's name.</param>
 /// <param name="Version">The mod's version.</param>
@@ -54,7 +54,7 @@ public sealed record ModStatus(string ModId, string Name, string Version, IReadO
 /// </summary>
 /// <remarks>
 /// <para>A source runs as the mod that added it, never inside a game hook: on the thread that asks for <see cref="Lines"/>,
-/// <see cref="All"/> or <see cref="Summary"/>, and on a worker thread for the Kiln menu and Kiln.Admin (about twice a second
+/// <see cref="All()"/> or <see cref="Summary"/>, and on a worker thread for the Kiln menu and Kiln.Admin (about twice a second
 /// while someone looks, one refresh at a time; the menu and the dashboard always show the last lines read and never wait for a
 /// source, so a new or changed line shows a moment later). Keep it quick, touch no game state and no locks the tick thread
 /// holds; read fields the tick thread wrote. A source that hangs freezes every mod's lines in the menu and the dashboard at
@@ -282,7 +282,7 @@ public static class StatusLines
     internal static readonly TimeSpan ChangeRefresh = TimeSpan.FromMilliseconds(100);
 
     /// <summary>For the Kiln menu (render thread, every frame) and Kiln.Admin (tick thread, once per mod in the mod list): the
-    /// same as <see cref="All"/>, but never run on the calling thread and never waited for. It answers at once with the last
+    /// same as <see cref="All()"/>, but never run on the calling thread and never waited for. It answers at once with the last
     /// snapshot (empty until the first one is read; after a pause, the last one read, however old, until the refresh it starts
     /// lands a moment later) and, when that one is older than <paramref name="maxAge"/> (or lines
     /// changed and it is older than <see cref="ChangeRefresh"/>), starts a refresh on a worker. At most one refresh runs at a

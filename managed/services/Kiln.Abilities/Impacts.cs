@@ -311,7 +311,7 @@ public static class ImpactConfigIds
     }
 }
 
-/// <summary>Config values for <see cref="Abilities.RunImpact"/> and <see cref="Abilities.RunProgram"/>: key = a
+/// <summary>Config values for <see cref="Abilities.RunImpact(string, WorldPosition, ImpactOptions)"/> and <see cref="Abilities.RunProgram"/>: key = a
 /// variable alias or name of the program ("NoiseRange", "Damage1", "SpawnTemplate_Pre"), a config id ("0xa19409b2") or
 /// a known config alias (<see cref="ImpactConfigIds"/>); value = float, int, bool, TimeSpan, Guid, DamageSetup or
 /// byte[], converted to the variable's type. Applied to the spawned entity's instance after the game copied its own

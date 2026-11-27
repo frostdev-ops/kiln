@@ -303,7 +303,7 @@ public enum PropFlags
     Saved = 4,
 }
 
-/// <summary>Which entities <see cref="Build.Props"/> returns. Creatures, villagers and players never.</summary>
+/// <summary>Which entities <see cref="Build.Props(WorldPosition, WorldPosition, PropFilter)"/> returns. Creatures, villagers and players never.</summary>
 [Flags]
 public enum PropFilter
 {

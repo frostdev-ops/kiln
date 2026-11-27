@@ -12,6 +12,20 @@ namespace Kiln.Registry;
 /// <c>"perks[1]"</c>), typed by <see cref="RegistrySchema"/>. What the generated entry types (<see cref="ItemEntry"/>, ...)
 /// read and write, for every registry of the schema, including ones without a typed property on
 /// <see cref="RegistryStage"/>. Get it from <see cref="RegistryStage.Entries(string)"/>.</summary>
+/// <remarks>Use it for a registry or field that has no typed property in this Kiln (one a later schema adds), or to write code
+/// that works over several registries by name. It makes the same edits as the typed entries, so a mod mixes both. A value is
+/// checked against the field's schema type when it is set, and its range where the edit is composed, as for every edit. Like every
+/// registry object it expires when the callback returns: never keep it. Registry-thread only (<see cref="RegistryThreadOnlyAttribute"/>).</remarks>
+/// <example><code>
+/// registry.Alter(view =&gt;
+/// {
+///     RegistryEntry logs = view.Entries("items")["game:material_t1_wood_logs"];
+///     logs.Set("maxStack", 500);
+///     for (int i = 0; i &lt; logs.Count("perks"); i++) Log.Info($"perk {i}: {logs.Get&lt;string&gt;($"perks[{i}]")}");
+/// });
+/// </code></example>
+/// <seealso cref="RegistrySchema"/>
+/// <seealso cref="RegistryStage.Entries(string)"/>
 [Experimental("KILNX031"), RegistryThreadOnly]
 public sealed class RegistryEntry : IRegistryEntry
 {
@@ -26,6 +40,7 @@ public sealed class RegistryEntry : IRegistryEntry
 
     /// <summary>The schema row of a field of this registry. <see cref="ArgumentException"/> when the registry has no such field.</summary>
     /// <param name="field">A Kiln field path; an index reads as the list's row (<c>inputs[2].count</c> is <c>inputs[].count</c>).</param>
+    /// <returns>The field's schema row: its type, range, allowed operations, when it applies and whether it is read-only (<see cref="RegistryFieldSpec"/>).</returns>
     public RegistryFieldSpec Spec(string field) => Resolve(field, out _).Spec;
 
     /// <summary>The field's value: a whole number as <see cref="long"/>, a number as <see cref="double"/>, <see cref="bool"/>,
@@ -33,6 +48,7 @@ public sealed class RegistryEntry : IRegistryEntry
     /// as <see cref="TimeSpan"/>; null when the entry has no value of it. A list field reads its element count through
     /// <see cref="Count"/> and its elements by index.</summary>
     /// <param name="field">A Kiln field path (<c>"maxStack"</c>, <c>"inputs[0].count"</c>, <c>"perks[1]"</c>).</param>
+    /// <returns>The value as a boxed value of the type above, or null when the entry has no value of that field.</returns>
     /// <exception cref="ArgumentException">The registry has no such field, or a list's element needs an index.</exception>
     public object? Get(string field)
     {
@@ -46,6 +62,10 @@ public sealed class RegistryEntry : IRegistryEntry
     /// <see cref="float"/>, <see cref="double"/>, <see cref="bool"/>, <see cref="string"/>, <see cref="string"/>[],
     /// <see cref="RegistryId"/>, <see cref="TimeSpan"/>); <see cref="InvalidCastException"/> when it does not convert.</summary>
     /// <param name="field">A Kiln field path.</param>
+    /// <typeparam name="T">The type to convert the value to.</typeparam>
+    /// <returns>The value as a <typeparamref name="T"/>; <c>default</c> when the entry has no value of it.</returns>
+    /// <exception cref="ArgumentException">As <see cref="Get(string)"/>.</exception>
+    /// <exception cref="InvalidCastException">The value does not convert to <typeparamref name="T"/>.</exception>
     public T Get<T>(string field)
     {
         var value = Get(field);
@@ -74,6 +94,8 @@ public sealed class RegistryEntry : IRegistryEntry
 
     /// <summary>How many elements a list field has.</summary>
     /// <param name="listField">The list's Kiln path (<c>"inputs"</c>).</param>
+    /// <returns>The number of elements the entry has now.</returns>
+    /// <exception cref="ArgumentException">The registry has no such field, or it is not a list.</exception>
     public int Count(string listField)
     {
         var (spec, _) = Resolve(listField, out _);

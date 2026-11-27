@@ -912,7 +912,7 @@ internal static class CraftStock
         Apply(m);
     }
 
-    /// <summary>Hands a snapshot to kiln.stations as the open screen counts it (<see cref="View"/>; native logs its
+    /// <summary>Hands a snapshot to kiln.stations as the open screen counts it (<see cref="View(CraftStockRows, bool)"/>; native logs its
     /// arrival); an empty one clears it.</summary>
     internal static bool Apply(CraftStockRows rows)
     {

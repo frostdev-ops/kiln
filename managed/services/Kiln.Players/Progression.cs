@@ -691,7 +691,17 @@ public static unsafe class Progression
         /// <summary>One step of <see cref="Simulate"/>.</summary>
         [System.Diagnostics.CodeAnalysis.Experimental("KILNX001", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/analyzers.md#kilnx001")]
         [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
-        public enum SimOp : uint { Unlock = 1, Lock = 2, Respec = 3, Check = 4 }
+        public enum SimOp : uint
+        {
+            /// <summary>Unlocks the node with the game's own node setter on the scratch list.</summary>
+            Unlock = 1,
+            /// <summary>Locks (unlearns) the node with the game's own node setter on the scratch list.</summary>
+            Lock = 2,
+            /// <summary>Empties the scratch list: every node locked again.</summary>
+            Respec = 3,
+            /// <summary>Changes nothing: only the node's reachability, the tree's connectivity and the points spent are read.</summary>
+            Check = 4,
+        }
 
         /// <summary>What a simulated step gave (the game's own functions on a scratch node list).</summary>
         [System.Diagnostics.CodeAnalysis.Experimental("KILNX001", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/analyzers.md#kilnx001")]

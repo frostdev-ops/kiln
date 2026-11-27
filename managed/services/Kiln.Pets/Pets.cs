@@ -12,10 +12,42 @@ namespace Kiln;
 /// <remarks>
 /// <para>Definitions: <see cref="Define"/> (or a <c>PetBlock</c> through Kiln.Blocks: the same record). A pet record
 /// names its definition; a record whose definition is not defined in this session stays dormant, never erased.</para>
+/// <para>Where it runs: server only (<see cref="ServerOnlyAttribute"/>), on the tick thread. <see cref="Define"/>,
+/// <see cref="Definition"/> and <see cref="Definitions"/> are data and may be called when a mod loads, with no world. The
+/// calls that read or change records need a running server world (<c>pets.records</c>); a joined client sees its own pets
+/// only through <see cref="PetsClient"/>, a read-only view the server sends.</para>
+/// <para>Timing: a request is serialized per pet. The answer is a <see cref="Task{TResult}"/> that completes at a later server
+/// step with the settled snapshot (or the refusal and its reason). Await it from mod code on the tick thread: the continuation
+/// comes back to the tick thread. A request made while another runs on the same pet is <c>Busy</c>. After-events
+/// (<see cref="PetChangeEvent"/>) are posted after the change settled, so a handler may call <c>Pets</c> again.</para>
+/// <para>Requests: every change carries a <see cref="PetRequest"/> whose operation id makes a retry the same request: the first
+/// answer is given back for 10 minutes, and nothing runs twice. Another request under a used id is <c>RequestConflict</c>.</para>
 /// <para>Error rule: a bad argument throws <see cref="ArgumentException"/>; an off capability throws
 /// <see cref="KilnUnavailableException"/> naming its row; a refusal by Kiln or the game is <c>Ok = false</c> with a
-/// reason (and its cost receipts, when it came after a cost was taken).</para>
+/// reason (and its cost receipts, when it came after a cost was taken). Check <see cref="PetResult.Ok"/>, not only the
+/// absence of an exception.</para>
+/// <para>Policy: Kiln keeps the mechanism and the mod chooses (<see cref="PetDefinition"/>): who a pet may hurt, what a downed
+/// pet is, what a revive costs, how it follows, how many there may be. A mod that says nothing gets safe defaults: players
+/// protected from pets and pets from players, a bodyless recovery anchor when a pet goes down, a free 3 s revive.</para>
 /// </remarks>
+/// <example>
+/// Define a pet, give one to a player's character and bring it out (inside a command handler):
+/// <code>
+/// Pets.Define(new PetDefinition { Id = "my-mod:hound", Creature = "game:enemy_wildbeast_wolf_earlygame", DisplayName = "Hound" });
+///
+/// PetResult given = await Pets.Grant(owner, "my-mod:hound", PetRequest.New());       // owner: the player's CharacterKey
+/// if (given.Ok)
+/// {
+///     PetResult out1 = await Pets.Summon(player, given.Pet!.Id, PetRequest.New());   // player: the same player, as a PlayerRef
+///     Log.Info(out1.Ok ? $"{out1.Pet!.Label} is out" : $"refused: {out1.Reason}");
+/// }
+/// </code>
+/// </example>
+/// <seealso cref="PetDefinition"/>
+/// <seealso cref="PetsClient"/>
+/// <seealso cref="PetChangeEvent"/>
+/// <seealso href="https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/services/pets.md">Pets service</seealso>
+/// <seealso href="https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/pets.md">Pets: the modder's guide</seealso>
 public static partial class Pets
 {
     static Pets() => Caps.Rows.Ensure();
@@ -24,8 +56,27 @@ public static partial class Pets
     /// under the same id replaces it, except while one of its pets has a live body or a revive running
     /// (<c>DefinitionInUse</c>). A creature Kiln cannot find yet (a game client before content is ready) is checked
     /// again when a body is first made.</summary>
-    /// <exception cref="ArgumentException">A value is out of its range, or the id is not the calling mod's
-    /// (<c>&lt;mod id&gt;:&lt;name&gt;</c>).</exception>
+    /// <param name="definition">The pet's definition. Its id starts with the calling mod's id and a colon; its creature is a
+    /// <c>creatures</c> registry id.</param>
+    /// <returns>Ok with the registered definition (the same definition again is Ok and posts no event); or Ok false:
+    /// <c>DefinitionInUse</c> (another definition under the id while one of its pets has a live body or a revive running),
+    /// <c>CreatureUnknown</c> (no such creature, or a creature block that is not defined) or <c>CreatureUnsupported</c> (not an
+    /// enemy creature that walks, or a boss).</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="definition"/> is null.</exception>
+    /// <exception cref="ArgumentException">A value is out of its range (the message names the field: <c>level.scale</c>,
+    /// <c>caps.livePerWorld</c>, ...), or the id is not the calling mod's (<c>&lt;mod id&gt;:&lt;name&gt;</c>).</exception>
+    /// <example><code>
+    /// PetDefinitionResult d = Pets.Define(new PetDefinition
+    /// {
+    ///     Id = "my-mod:duelist",
+    ///     Creature = "game:enemy_wildbeast_wolf_earlygame",
+    ///     Targets = new PetTargetPolicy { Pvp = PetPvpMode.ByModRule },                   // fights players the mod put at odds
+    ///     Downed = new PetDownedPolicy { Outcome = PetDownedOutcome.Release },            // gone when it goes down
+    ///     Revive = new PetRevivePolicy { Cost = new PetCostDefinition(twig, 3) },          // twig: an ItemId
+    /// });
+    /// if (!d.Ok) Log.Warn($"pet not defined: {d.Reason}");
+    /// </code></example>
+    /// <seealso cref="PetDefinition"/>
     [RequiresCapability("pets.definitions")]
     public static PetDefinitionResult Define(PetDefinition definition)
     {
@@ -43,18 +94,34 @@ public static partial class Pets
     }
 
     /// <summary>The definition registered under <paramref name="id"/>, or null. Any thread.</summary>
+    /// <param name="id">The definition's Kiln id (<c>my-mod:hound</c>).</param>
+    /// <returns>The registered definition, or null when none has that id (or the mod that defined it unloaded).</returns>
+    /// <example><code>
+    /// if (Pets.Definition("my-mod:hound") is { } hound) Log.Info($"{hound.Id} uses {hound.Creature}, follows at {hound.Movement.FollowDistance} m");
+    /// </code></example>
+    /// <seealso cref="Definitions"/>
     [AnyThread]
     public static PetDefinition? Definition(string id) => PetsRuntime.Definition(id);
 
-    /// <summary>Every registered definition, by id. Any thread.</summary>
+    /// <summary>Every registered definition, of every mod, by id. Any thread.</summary>
+    /// <seealso cref="Definition"/>
     [AnyThread]
     public static IReadOnlyList<PetDefinition> Definitions => PetsRuntime.AllDefinitions();
 
     // ---- records ----
 
     /// <summary>The character's pets (released tombstones left out). The character need not be online. Server tick thread.</summary>
+    /// <param name="owner">The character that owns them, as a <see cref="CharacterKey"/> (account and character id): for a
+    /// player in game, <c>CharacterData.KeyOf(player.Entity)</c>.</param>
+    /// <returns>A snapshot of each pet, as it is now.</returns>
     /// <exception cref="ArgumentException">No character (none, or an account-only key).</exception>
     /// <exception cref="KilnUnavailableException"><c>pets.records</c> is off (a joined client, no server world).</exception>
+    /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>
+    /// <example><code>
+    /// foreach (PetSnapshot p in Pets.Of(owner))
+    ///     Log.Info($"{p.Label} ({p.Definition}): {p.Life}, {p.Presence}, {p.Health}/{p.HealthMax}");
+    /// </code></example>
+    /// <seealso cref="Get"/>
     [ServerOnly, TickThreadOnly, RequiresCapability(Caps.Records)]
     public static IReadOnlyList<PetSnapshot> Of(CharacterKey owner)
     {
@@ -64,15 +131,33 @@ public static partial class Pets
 
     /// <summary>The pet, or null (unknown here, or its owner's records are not read yet: <see cref="Of"/> reads them).
     /// A released pet is returned (Life Released) until a committed save holds its release. Server tick thread.</summary>
+    /// <param name="pet">The pet's id.</param>
+    /// <returns>The pet as it is now, or null (<see cref="PetId.None"/>, or not known here).</returns>
+    /// <exception cref="KilnUnavailableException"><c>pets.records</c> is off.</exception>
+    /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>
+    /// <example><code>
+    /// if (Pets.Get(pet) is { Life: PetLife.Downed } downed) Log.Info($"{downed.Label} is down: revive it next to its anchor");
+    /// </code></example>
+    /// <seealso cref="Of"/>
     [ServerOnly, TickThreadOnly, RequiresCapability(Caps.Records)]
     public static PetSnapshot? Get(PetId pet) => pet.IsNone ? null : Roster("Pets.Get").Get(pet);
 
     /// <summary>Gives a character a new pet of <paramref name="definition"/>: a Ready record with no body (Summon brings it
-    /// out). The mod's way to hand out pets (a reward, a quest, an admin command); taming (19e) makes records too.</summary>
+    /// out). The mod's way to hand out pets (a reward, a quest, an admin command); a tame of a definition that names a pet (<c>TamingDefinition.Pet</c> of Kiln.Taming) makes records too.</summary>
+    /// <param name="owner">The character that gets the pet; it need not be online.</param>
+    /// <param name="definition">The id of a registered <see cref="PetDefinition"/>.</param>
+    /// <param name="request">The request: a new operation id for each grant (<see cref="PetRequest.New"/>).</param>
     /// <returns>Ok with the new pet; or Ok false: <c>DefinitionUnknown</c>, <c>Capacity</c> (the definition's
     /// RetainedPerCharacter, or 128 records), <c>LevelUnavailable</c>, <c>RecordsUnreadable</c>.</returns>
     /// <exception cref="ArgumentException">No character, an empty definition id, or an empty operation id.</exception>
-    [ServerOnly, TickThreadOnly, RequiresCapability(Caps.Records)]
+    /// <exception cref="KilnUnavailableException"><c>pets.records</c> is off.</exception>
+    /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>
+    /// <example><code>
+    /// PetResult r = await Pets.Grant(owner, "my-mod:hound", PetRequest.New());
+    /// if (!r.Ok) Log.Info($"no pet: {r.Reason}");      // Capacity: the character has all it may keep
+    /// </code></example>
+    /// <seealso cref="Summon"/>
+        [ServerOnly, TickThreadOnly, RequiresCapability(Caps.Records)]
     public static Task<PetResult> Grant(CharacterKey owner, string definition, PetRequest request)
     {
         if (owner.IsNone || owner.IsAccountOnly) throw new ArgumentException("a pet owner is a character (account and character id)", nameof(owner));
@@ -88,25 +173,87 @@ public static partial class Pets
 
     /// <summary>Brings the pet out: a Ready pet gets a protected body 2 to 4 m from its owner, at its kept health, following;
     /// a Downed pet's recovery anchor is put next to its owner (no body, no health). Already out: Ok, nothing changes.</summary>
+    /// <param name="owner">The pet's owner, in game, as a <see cref="PlayerRef"/> (<c>PlayerRef.Of(player.Entity)</c>). Another
+    /// player's pet is <c>NotOwner</c>; an owner who is not in game is <c>OwnerOffline</c>.</param>
+    /// <param name="pet">The pet's id (<see cref="PetSnapshot.Id"/>).</param>
+    /// <param name="request">The request: a new operation id for each intended request, and optionally the pet's
+    /// <see cref="PetSnapshot.StateRevision"/> it was made on (<c>StaleRevision</c> if the pet moved on).</param>
     /// <returns>Ok with the pet once its body is live (or its anchor shown); else <c>Busy</c>, <c>Capacity</c>,
     /// <c>NoSafeGround</c>, <c>BodyNotReady</c>, <c>DefinitionUnknown</c>, <c>CreatureUnknown</c>, <c>NotOwner</c>,
     /// <c>OwnerOffline</c>, ... A body that goes down before the answer is <c>BodyDowned</c> with the real downed pet.</returns>
+    /// <exception cref="ArgumentException">No pet, no owner, or an empty operation id.</exception>
+    /// <exception cref="KilnUnavailableException">The capability the call needs is off (named in its message).</exception>
+    /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>
+    /// <example><code>
+    /// PetResult r = await Pets.Summon(player, pet, PetRequest.New());
+    /// if (!r.Ok) Log.Info($"not out: {r.Reason}");     // Capacity: the definition's LivePerCharacter is reached
+    /// </code></example>
+    /// <seealso cref="Dismiss"/>
+    /// <seealso cref="PetSummonedEvent"/>
     [ServerOnly, TickThreadOnly, RequiresCapability(Caps.Summon)]
     public static Task<PetResult> Summon(PlayerRef owner, PetId pet, PetRequest request) => Request(PetRoster.Kind.Summon, "Pets.Summon", Caps.Summon, owner, pet, request);
 
     /// <summary>Puts the pet away: a live body is retired (its health kept), a downed pet's anchor is hidden (never healed);
     /// the owner's wish to have it out is cleared.</summary>
+    /// <param name="owner">The pet's owner, in game, as a <see cref="PlayerRef"/> (<c>PlayerRef.Of(player.Entity)</c>). Another
+    /// player's pet is <c>NotOwner</c>; an owner who is not in game is <c>OwnerOffline</c>.</param>
+    /// <param name="pet">The pet's id (<see cref="PetSnapshot.Id"/>).</param>
+    /// <param name="request">The request: a new operation id for each intended request, and optionally the pet's
+    /// <see cref="PetSnapshot.StateRevision"/> it was made on (<c>StaleRevision</c> if the pet moved on).</param>
+    /// <returns>Ok with the pet (also when it was away already); else <c>Busy</c>, <c>NotOwner</c>, <c>OwnerOffline</c>,
+    /// <c>StaleRevision</c>, <c>RequestConflict</c>.</returns>
+    /// <exception cref="ArgumentException">No pet, no owner, or an empty operation id.</exception>
+    /// <exception cref="KilnUnavailableException">The capability the call needs is off (named in its message).</exception>
+    /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>
+    /// <example><code>
+    /// await Pets.Dismiss(player, pet, PetRequest.New());
+    /// </code></example>
+    /// <seealso cref="Summon"/>
+    /// <seealso cref="PetDismissedEvent"/>
     [ServerOnly, TickThreadOnly, RequiresCapability(Caps.Summon)]
     public static Task<PetResult> Dismiss(PlayerRef owner, PetId pet, PetRequest request) => Request(PetRoster.Kind.Dismiss, "Pets.Dismiss", Caps.Summon, owner, pet, request);
 
     /// <summary>Releases the pet for good: a body is retired first, then the record becomes a tombstone that goes once a
     /// committed save holds it. No wild creature is left behind.</summary>
+    /// <param name="owner">The pet's owner, in game, as a <see cref="PlayerRef"/> (<c>PlayerRef.Of(player.Entity)</c>). Another
+    /// player's pet is <c>NotOwner</c>; an owner who is not in game is <c>OwnerOffline</c>.</param>
+    /// <param name="pet">The pet's id (<see cref="PetSnapshot.Id"/>).</param>
+    /// <param name="request">The request: a new operation id for each intended request, and optionally the pet's
+    /// <see cref="PetSnapshot.StateRevision"/> it was made on (<c>StaleRevision</c> if the pet moved on).</param>
+    /// <returns>Ok with the released pet (Life <see cref="PetLife.Released"/>); else <c>Busy</c>, <c>NotOwner</c>,
+    /// <c>OwnerOffline</c>, <c>AlreadyReleased</c>, <c>StaleRevision</c>, <c>RequestConflict</c>.</returns>
+    /// <exception cref="ArgumentException">No pet, no owner, or an empty operation id.</exception>
+    /// <exception cref="KilnUnavailableException">The capability the call needs is off (named in its message).</exception>
+    /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>
+    /// <remarks>A release cannot be undone. A mod that offers it should ask the player to confirm first.</remarks>
+    /// <example><code>
+    /// PetResult r = await Pets.Release(player, pet, PetRequest.New());
+    /// </code></example>
+    /// <seealso cref="PetReleasedEvent"/>
+    /// <seealso cref="Pets.Grant"/>
     [ServerOnly, TickThreadOnly, RequiresCapability(Caps.Records)]
     public static Task<PetResult> Release(PlayerRef owner, PetId pet, PetRequest request) => Request(PetRoster.Kind.Release, "Pets.Release", Caps.Records, owner, pet, request);
 
     /// <summary>Orders a live pet: follow, stay, or attack <paramref name="target"/> (needs <c>pets.fight</c>, and the pet's
     /// target rule must allow it: else <c>TargetProtected</c> and no threat is added).</summary>
-    /// <exception cref="ArgumentException">Attack without a target.</exception>
+    /// <param name="owner">The pet's owner, in game.</param>
+    /// <param name="pet">The pet's id.</param>
+    /// <param name="order">Follow, stay or attack.</param>
+    /// <param name="target">The creature to attack; <see cref="EntityRef.None"/> for follow and stay (it is ignored).</param>
+    /// <param name="request">The request (a new operation id).</param>
+    /// <returns>Ok with the pet and its new <see cref="PetSnapshot.RequestedOrder"/>; else <c>Busy</c>, <c>NotOwner</c>,
+    /// <c>TargetProtected</c> (the pet's target rule does not allow it), <c>TargetGone</c> (the target is not there),
+    /// <c>NotSummoned</c> (the pet has no body to order), <c>StaleRevision</c>, <c>RequestConflict</c>.</returns>
+    /// <exception cref="ArgumentException">Attack without a target, an order that is not defined, no pet, no owner, or an empty
+    /// operation id.</exception>
+    /// <exception cref="KilnUnavailableException"><c>pets.follow</c> is off, or <c>pets.fight</c> for an attack.</exception>
+    /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>
+    /// <example><code>
+    /// await Pets.Command(player, pet, PetOrder.Stay, EntityRef.None, PetRequest.New());
+    /// await Pets.Command(player, pet, PetOrder.Attack, target, PetRequest.New());     // target: an EntityRef
+    /// </code></example>
+    /// <seealso cref="PetTargetPolicy"/>
+    /// <seealso cref="PetCommandChangedEvent"/>
     [ServerOnly, TickThreadOnly, RequiresCapability(Caps.Follow)]
     public static Task<PetResult> Command(PlayerRef owner, PetId pet, PetOrder order, EntityRef target, PetRequest request)
     {
@@ -136,6 +283,21 @@ public static partial class Pets
     /// <c>ReviveNotAllowed</c>, <c>CostUnavailable</c>, <c>ReviveRefused</c> (a mod), <c>CanceledNoCost</c>,
     /// <c>CanceledCostCommitted</c> or <c>ReviveFailedCostCommitted</c> (with the receipts of what was taken), or
     /// <c>UncertainCommit</c> (with the receipt of a cost that may have been taken; the pet stays downed).</returns>
+    /// <exception cref="ArgumentException">No pet, no owner, or an empty operation id.</exception>
+    /// <exception cref="KilnUnavailableException">The capability the call needs is off (named in its message).</exception>
+    /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>
+    /// <remarks>The task completes when the channel ends, seconds later (the definition's
+    /// <see cref="PetRevivePolicy.ChannelSeconds"/>), not when the revive starts. Watch <see cref="PetReviveStartedEvent"/> to show the
+    /// channel and <see cref="PetRevivingEvent"/> to refuse a revive by the mod's own rules. Check <see cref="PetResult.Costs"/>:
+    /// a cost that was taken stays taken when a later step fails.</remarks>
+    /// <example><code>
+    /// PetResult r = await Pets.Revive(player, pet, PetRequest.New());          // the first slot holding the whole cost pays
+    /// if (!r.Ok) Log.Info($"not revived: {r.Reason}");
+    /// foreach (CostReceipt c in r.Costs) Log.Info($"took {c.Taken} of {c.Item} ({c.State})");
+    /// </code></example>
+    /// <seealso cref="CancelRevive"/>
+    /// <seealso cref="PetRevivePolicy"/>
+    /// <seealso cref="PetRevivedEvent"/>
     [ServerOnly, TickThreadOnly, RequiresCapability(Caps.Downed)]
     public static Task<PetResult> Revive(PlayerRef owner, PetId pet, PetRequest request, ItemSelection? cost = null) =>
         Request(PetRoster.Kind.Revive, "Pets.Revive", Caps.Downed, owner, pet, request, o =>
@@ -147,6 +309,23 @@ public static partial class Pets
     /// <summary>Cancels the revive <paramref name="reviveOperation"/> names (never a later one). Before its cost is taken it
     /// spends nothing; a revive that already completed is not undone (<c>AlreadyCompleted</c>). Repeating the same cancel
     /// request gives its first answer.</summary>
+    /// <param name="owner">The pet's owner, in game.</param>
+    /// <param name="pet">The downed pet.</param>
+    /// <param name="reviveOperation">The operation id of the <see cref="Revive"/> request (<see cref="PetRequest.OperationId"/>, or
+    /// <see cref="PetRevivingEvent.OperationId"/>). Not empty.</param>
+    /// <param name="request">The cancel's own request, with a new operation id.</param>
+    /// <returns>Ok when the revive was canceled; else <c>AlreadyCompleted</c> (the revive had completed), <c>AlreadyEnded</c> (it
+    /// had ended another way), <c>NotOwner</c>, <c>Busy</c>, <c>RequestConflict</c>.</returns>
+    /// <exception cref="ArgumentException">No revive operation, no pet, no owner, or an empty operation id.</exception>
+    /// <exception cref="KilnUnavailableException"><c>pets.downed</c> is off.</exception>
+    /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>
+    /// <example><code>
+    /// var request = PetRequest.New();
+    /// Task&lt;PetResult&gt; revive = Pets.Revive(player, pet, request);                       // the channel starts
+    /// await Pets.CancelRevive(player, pet, request.OperationId, PetRequest.New());        // the owner changed their mind: nothing is taken
+    /// </code></example>
+    /// <seealso cref="Revive"/>
+    /// <seealso cref="PetReviveCanceledEvent"/>
     [ServerOnly, TickThreadOnly, RequiresCapability(Caps.Downed)]
     public static Task<PetResult> CancelRevive(PlayerRef owner, PetId pet, Guid reviveOperation, PetRequest request)
     {
@@ -163,7 +342,20 @@ public static partial class Pets
     /// other character and the other's pets of that mode, and be harmed by them. Who duels, and when, is the mod's rule
     /// (a challenge accepted, an arena entered); Kiln enforces the pair in every hit and order. Pets of PvP off stay
     /// protected whatever the pairs. Pairs last for this world session (the mod declares them again after a restart).</summary>
+    /// <param name="a">One character.</param>
+    /// <param name="b">The other character.</param>
+    /// <param name="hostile">True to declare the pair hostile, false to end it.</param>
     /// <exception cref="ArgumentException">No character, or the same character twice.</exception>
+    /// <exception cref="KilnUnavailableException"><c>pets.fight</c> or <c>pets.records</c> is off.</exception>
+    /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>
+    /// <example><code>
+    /// // both players agreed to the duel (the mod's own rule): their duelists may now fight each other
+    /// Pets.SetHostile(owner, otherOwner, true);
+    /// // ... and when it ends
+    /// Pets.SetHostile(owner, otherOwner, false);
+    /// </code></example>
+    /// <seealso cref="IsHostile"/>
+    /// <seealso cref="PetTargetPolicy"/>
     [ServerOnly, TickThreadOnly, RequiresCapability(Caps.Fight)]
     public static void SetHostile(CharacterKey a, CharacterKey b, bool hostile)
     {
@@ -175,6 +367,15 @@ public static partial class Pets
     }
 
     /// <summary>Whether the two characters were declared hostile (<see cref="SetHostile"/>). Server tick thread.</summary>
+    /// <param name="a">One character.</param>
+    /// <param name="b">The other character.</param>
+    /// <returns>True when the pair is declared hostile now (the order of <paramref name="a"/> and <paramref name="b"/> does not matter).</returns>
+    /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>
+    /// <exception cref="KilnUnavailableException"><c>pets.records</c> is off.</exception>
+    /// <example><code>
+    /// if (!Pets.IsHostile(owner, otherOwner)) Log.Info("no duel is on between them: their pets are protected from each other");
+    /// </code></example>
+    /// <seealso cref="SetHostile"/>
     [ServerOnly, TickThreadOnly, RequiresCapability(Caps.Records)]
     public static bool IsHostile(CharacterKey a, CharacterKey b) => Roster("Pets.IsHostile").IsHostile(a, b);
 

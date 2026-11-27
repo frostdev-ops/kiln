@@ -124,6 +124,16 @@ class Pages(unittest.TestCase):
         self.assertIn("- [Build](../Kiln.Build.yml) (class): Builds Foo cells | fast.", page)
         self.assertIn("- [Apple&lt;T&gt;](../Kiln.Apple-1.yml) (struct)", (self.api / "services/Kiln.Api.md").read_text())
 
+    def test_a_service_page_names_the_types_to_start_with(self):
+        doc = json.loads(self.json.read_text())
+        doc["services"][0]["start"] = ["Gone", "Build"]
+        self.json.write_text(json.dumps(doc))
+        services.build(self.api, self.stage, self.json, self.wiki)
+        page = (self.api / "services/Kiln.Build.md").read_text()
+        self.assertIn("- **Start with:** [`Build`](../Kiln.Build.yml)\n", page)       # a name no type has is left out
+        self.assertNotIn("Gone", page)
+        self.assertNotIn("**Start with:**", (self.api / "services/Kiln.Api.md").read_text())
+
     def test_a_service_page_links_its_wiki_pages_and_opens_its_group(self):
         page = (self.api / "services/Kiln.Build.md").read_text()
         self.assertIn('---\ntitle: "Kiln.Build"\nkilnAsm: "Kiln.Build"\n---\n', page)
@@ -213,6 +223,12 @@ class Generator(unittest.TestCase):
         before = gen.generate(self.root)
         before["services"][1]["summary"] = "Reworded by hand."
         self.assertEqual(gen.generate(self.root, before)["services"][1]["summary"], "Reworded by hand.")
+
+    def test_a_start_list_is_kept_and_left_out_when_there_is_none(self):
+        before = gen.generate(self.root)
+        self.assertNotIn("start", before["services"][1])
+        before["services"][1]["start"] = ["Build"]
+        self.assertEqual(gen.generate(self.root, before)["services"][1]["start"], ["Build"])
 
     def test_check_says_when_the_file_is_out_of_date(self):
         target = self.root / "tools/docs-site/services.json"

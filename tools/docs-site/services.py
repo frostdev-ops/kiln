@@ -133,6 +133,13 @@ def wiki_links(wiki, asm):
     return ", ".join(f"[{esc(title)}]({base}{slug})" for slug, title in (wiki or {}).get("assemblies", {}).get(asm, []))
 
 
+def start_links(names, types, asm):
+    """Markdown links to the types services.json's `start` names (the entry points of a service, as the page lists them), in
+    that order; a name no type has is left out, so a renamed type costs a link and never a build."""
+    by_name = {display(item, asm): file for item, file in types}
+    return ", ".join(f"[`{esc(n)}`](../{by_name[n]})" for n in names or [] if n in by_name)
+
+
 def landing(asm, info, types, summaries, wiki=None):
     info = info or {}
     name = info.get("name")
@@ -151,6 +158,9 @@ def landing(asm, info, types, summaries, wiki=None):
         rows.append(("Guide", ", ".join("[{}]({})".format(*guide_link(g)) for g in info["guides"])))
     if wiki_links(wiki, asm):
         rows.append(("Wiki", wiki_links(wiki, asm)))
+    start = start_links(info.get("start"), types, asm)
+    if start:
+        rows.append(("Start with", start))
     rows.append(("Types", str(len(types))))
     out += [f"- **{k}:** {v}" for k, v in rows] + [""]
     if name:

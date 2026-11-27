@@ -75,15 +75,15 @@ public sealed class NativeTamingProgressEvent : KilnEvent
         Cause = cause;
     }
 
-    /// <summary>The animal.</summary>
+    /// <summary>The wild animal whose taming progress changed.</summary>
     public EntityId Creature { get; }
-    /// <summary>Progress before.</summary>
+    /// <summary>Its progress before the change, in the game's steps.</summary>
     public int Before { get; }
-    /// <summary>Progress now.</summary>
+    /// <summary>Its progress now, in the game's steps (<see cref="Required"/> is the number that tames it).</summary>
     public int After { get; }
     /// <summary>Steps to the farm transformation.</summary>
     public int Required { get; }
-    /// <summary>Why.</summary>
+    /// <summary>Why the progress changed: a step, a startle, or something else.</summary>
     public NativeTamingCause Cause { get; }
 
     /// <summary>For logs.</summary>
@@ -140,13 +140,31 @@ public sealed class NativeBaitEatenEvent : KilnEvent
 /// <param name="Reason">Why not.</param>
 public sealed record NativeStepResult(bool Ok, string? Reason) : IKilnResult;
 
-/// <summary>The game's own taming as mechanism (docs/re/taming.md). Server only, tick thread. Capability
-/// <c>taming.native</c> (sigdb: the game's four taming programs and their components' layouts on this build). Since
-/// 0.2.0-dev.32.</summary>
+/// <summary>
+/// The game's own taming as mechanism: a wild animal eats a bait of its favourite food and is petted while it eats; each
+/// petting is one step, and at its required steps the game makes it a farm animal. Kiln reads that state
+/// (<see cref="Read"/>), reports it as events (<see cref="NativeTamingProgressEvent"/>, <see cref="NativeTamedEvent"/>,
+/// <see cref="NativeBaitEatenEvent"/>) and lets a server mod play the animal's own pet sequence (<see cref="PetStep"/>).
+/// Nothing of the game's is hooked or replaced: the animal keeps its own offers, and who may tame what and what it costs stay
+/// the mod's. Server only, tick thread. Capability <c>taming.native</c> (sigdb: the game's four taming programs and their
+/// components' layouts on this build). Since 0.2.0-dev.32.
+/// </summary>
+/// <remarks>To make the game's taming a step of a Kiln taming, give a <see cref="TamingDefinition"/> a <see cref="NativeStep"/>:
+/// Kiln then waits for the game's own count to rise (<c>NativePending</c> until it does) and takes no cost of its own for that
+/// step. Use <see cref="Read"/> directly to build a HUD or a quest on the game's progress.</remarks>
+/// <example><code>
+/// if (NativeTaming.Available &amp;&amp; NativeTaming.Read(animal) is { Tameable: true } state)   // animal: an EntityId
+///     Log.Info($"{state.Phase}: {state.Progress}/{state.Required} step(s)");
+/// Events.On&lt;NativeTamedEvent&gt;(e =&gt; Log.Info($"the game tamed {e.Creature} after {e.Steps} step(s)"));
+/// </code></example>
+/// <seealso cref="NativeStep"/>
+/// <seealso cref="Taming"/>
+/// <seealso href="https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/taming.md">Taming: the modder's guide</seealso>
 [ServerOnly]
 public static class NativeTaming
 {
-    /// <summary>The capability.</summary>
+    /// <summary>The capability of reading and driving the game's taming: <c>"taming.native"</c>. It is a sigdb feature, so it
+    /// is off on a game build whose taming layouts Kiln does not know, and when <c>Kiln.Creatures</c> is unavailable.</summary>
     public const string Capability = "taming.native";
 
     /// <summary>The capability of <see cref="PlaceBait"/>: a bait Kiln places that the game senses. Off on every build so far
@@ -156,11 +174,13 @@ public static class NativeTaming
     internal const string BaitUnproven = "not proven: a bait Kiln spawns from its template has no bait marker and no animal sensed it in the lab "
         + "(docs/re/taming.md 6), while a player could pick it up as a free item; a lab must show a placement the game senses first";
 
-    /// <summary>True when the game's taming can be read and driven here.</summary>
+    /// <summary>True when the game's taming can be read and driven here (the capability <see cref="Capability"/> is on). Any thread.</summary>
     public static bool Available => NativeTamingRuntime.Available();
 
     /// <summary>The animal's taming now; null when it is no wild animal (no DynamicWildlife: a farm animal that never was
     /// wild, any other entity) or does not exist.</summary>
+    /// <param name="creature">The animal's entity id.</param>
+    /// <returns>Its state as the game has it now, or null.</returns>
     /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>
     /// <exception cref="KilnUnavailableException">The capability <c>taming.native</c> is off.</exception>
     [TickThreadOnly]
@@ -175,8 +195,12 @@ public static class NativeTaming
     /// <summary>Places the animal's own favourite bait (its template's, as the player's bait item places it) at
     /// <paramref name="at"/>, or <paramref name="distance"/> metres in front of it. No item is taken: the cost of a bait is
     /// the mod's (<see cref="ItemCosts"/>). The bait is not saved (as the game's own), a player can pick it up.</summary>
-    /// <returns>The bait entity; none when it could not be placed.</returns>
-    /// <exception cref="ArgumentException">The creature is no tameable wild animal.</exception>
+    /// <param name="creature">The animal whose favourite bait is placed.</param>
+    /// <param name="at">Where to place it; null: <paramref name="distance"/> metres in front of the animal.</param>
+    /// <param name="distance">0 to 8 metres: how far in front of the animal, when <paramref name="at"/> is null. Default 2.5.</param>
+    /// <returns>A task of the bait entity; none when it could not be placed. It completes at a later step.</returns>
+    /// <exception cref="ArgumentException">The creature is no tameable wild animal with a bait.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="distance"/> is outside 0 to 8.</exception>
     /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>
     /// <exception cref="KilnUnavailableException">The capability <c>taming.native</c> is off.</exception>
     /// <exception cref="KilnUnavailableException">The capability <c>taming.native_bait</c> is off: on every build so far (see
@@ -207,6 +231,11 @@ public static class NativeTaming
     /// player's petting starts, so the game may count the step itself (its TameWildlifeEvent, 3.75 s in, would consume the
     /// bait and add one: not proven yet, see remarks). Nothing is written: it only plays the game's own sequence. Refused, nothing played, unless the animal is eating its bait now and below its required steps. A step
     /// costs a bait like the game's own; the step's cost to a player is the mod's.</summary>
+    /// <param name="creature">The animal that is eating its bait.</param>
+    /// <returns>Ok when the animal's pet sequence started; else a reason (a word first): <c>NotWild</c>, <c>NotTameable</c>,
+    /// <c>Tamed</c>, <c>Complete</c> (it has its steps; the game tames it at its next step), <c>NotEating</c> (a step counts only
+    /// while it eats its bait), <c>OtherPetSequence</c> (its pet interaction is not the game's standard one) or
+    /// <c>SequenceRefused</c>. Ok only means the sequence started: watch <see cref="NativeTamingProgressEvent"/> for the step.</returns>
     /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>
     /// <exception cref="KilnUnavailableException">The capability <c>taming.native</c> is off.</exception>
     /// <remarks>Experimental (KILNX002): its refusals are lab-proven; that the game counts the step on an eating animal is not

@@ -9,6 +9,8 @@ One entry per assembly of the reference (Kiln.Api, Kiln.Game, Kiln.Testing, Kiln
   name          its KilnServices name (`<KilnServices>Build</KilnServices>` in a mod's project), null for Kiln.Api and Kiln.TestKit
   summary       one sentence, from the first comment of the assembly's .csproj; kept as it stands in services.json, so it can be
                 reworded by hand (a new assembly gets the one from its project file)
+  start         optional, written by hand and kept: the type names a modder starts with (services.py lists them first on the
+                service page, "Start with"); not written for an assembly without one
   guides        repository paths of its guide pages: docs/kiln/services/<name>.md and docs/kiln/modding/<name>.md when they exist,
                 and the ones GUIDES below names
   capabilities  [{name, members}]: the capabilities its members need ([RequiresCapability] in its sources, a constant resolved
@@ -31,15 +33,18 @@ CORE = [("Kiln.Api", None, "managed/Kiln.Api"), ("Kiln.Game", "Game", "managed/K
 # guide pages that are not named like the service: assembly -> repository paths
 GUIDES = {
     "Kiln.Api": ["docs/kiln/modding/contract.md", "docs/kiln/modding/lifecycle.md", "docs/kiln/modding/README.md"],
-    "Kiln.Blocks": ["docs/kiln/modding/blocks.md"],
+    "Kiln.Blocks": ["docs/kiln/modding/blocks.md", "docs/kiln/modding/npc-dialogue.md", "docs/kiln/services/npc-speech.md"],
     "Kiln.Client": ["docs/kiln/modding/client-hooks.md", "docs/kiln/services/client-building-input.md",
                     "docs/kiln/services/client-crosshair.md"],
+    "Kiln.Content": ["docs/kiln/modding/gear-rules.md"],
     "Kiln.CreatureControl": ["docs/kiln/services/creature-control.md"],
     "Kiln.Eml": ["docs/kiln/services/eml-archive.md", "docs/kiln/services/eml-startup.md", "docs/kiln/services/eml-values.md"],
     "Kiln.Game": ["docs/kiln/typegen.md"],
+    "Kiln.Items": ["docs/kiln/modding/item-costs.md", "docs/kiln/services/item-costs.md"],
     "Kiln.Network": ["docs/kiln/services/net-steam-messages.md"],
     "Kiln.PlayerAnim": ["docs/kiln/services/playeranim.md"],
     "Kiln.Sigs": ["docs/kiln/services/hooks.md"],
+    "Kiln.Terrain": ["docs/kiln/modding/terrain-tiles.md"],
     "Kiln.Testing": ["docs/kiln/modding/testing.md"],
     "Kiln.TestKit": ["docs/kiln/modding/unit-tests.md"],
 }
@@ -139,6 +144,7 @@ def generate(repo, previous=None):
             "assembly": assembly,
             "name": name,
             "summary": known.get(assembly, {}).get("summary") or summary_of(text),
+            **({"start": known[assembly]["start"]} if known.get(assembly, {}).get("start") else {}),
             "guides": list(dict.fromkeys(guides)),
             "capabilities": capabilities(repo, tracked, folder, constants),
             "samples": samples,

@@ -740,7 +740,7 @@ public static unsafe class GameEvents
         return EachOf(tbl, EventType(tbl, type), handler);
     }
 
-    /// <summary><see cref="Each(string, Action{ReflectedValue})"/> for a type resolved once (<see cref="GameTypes.Find"/>,
+    /// <summary><see cref="Each(string, Action{ReflectedValue})"/> for a type resolved once (<see cref="GameTypes.Find(string)"/>,
     /// <see cref="GameTypes.Events"/>): no name lookup at all. Throws <see cref="ArgumentException"/> when
     /// <paramref name="type"/> is not an ECS event type. Since 0.2.0-dev.30.3 (mod API 0.2.13).</summary>
     public static int Each(GameType type, Action<ReflectedValue> handler)

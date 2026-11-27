@@ -18,7 +18,7 @@ public sealed partial class KilnHarness
 /// the kit's kiln.ui.input, whose ownership rules are the native ones. Since 0.2.0-dev.31.13 (mod API 0.2.22).
 /// </summary>
 /// <remarks>
-/// <para><b>Modelled.</b> <see cref="Down"/> is a new press: the listeners with <c>KeyListenFlags.Own</c> whose flags take
+/// <para><b>Modelled.</b> <see cref="Down(uint, int, KeyMods, Vector2?)"/> is a new press: the listeners with <c>KeyListenFlags.Own</c> whose flags take
 /// its kind (a key; <c>Mouse</c> the middle and side buttons 0x04..0x06; <c>Pointer</c> the left and right buttons 0x01,
 /// 0x02; <c>Pad</c> a controller's 0x200..0x211) are offered it in the order they were made, and the first that keeps it owns
 /// it. <see cref="Repeat"/> (a key's auto-repeat) and <see cref="Up"/> of an owned press reach its owner only and stay kept

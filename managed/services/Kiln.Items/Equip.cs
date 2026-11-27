@@ -198,6 +198,9 @@ public static unsafe partial class Items
     /// into a free slot of the backpack. The change reaches the player like their own unequip, and Kiln.Players'
     /// <c>PlayerEquipmentChangedEvent</c> follows within four steps.
     /// </summary>
+    /// <param name="player">The player character.</param>
+    /// <param name="slot">The equipment slot to empty.</param>
+    /// <param name="options"><see cref="EquipOptions.DryRun"/> to only see what would happen.</param>
     /// <returns>Completes on the tick thread one step after the step it ran in. <see cref="ItemsStatus.SlotChanged"/>
     /// when nothing is equipped there, <see cref="ItemsStatus.NoRoom"/> when the backpack has no free slot (the game
     /// then shows the player its "inventory full" notice, as for their own unequip).</returns>

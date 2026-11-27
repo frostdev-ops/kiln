@@ -31,6 +31,9 @@ public sealed partial class KilnHarness
     public IReadOnlyList<LogLine> LogsOf(ModHandle mod) => LogsOf(mod.Id);
 
     /// <summary>The lines whose text contains <paramref name="text"/> (ordinal), optionally only those of one mod.</summary>
+    /// <param name="text">The text to look for (case matters).</param>
+    /// <param name="modId">Only lines of this mod; null: every line.</param>
+    /// <returns>The matching lines, in the order they were written.</returns>
     public IReadOnlyList<LogLine> FindLogs(string text, string? modId = null)
     {
         ArgumentNullException.ThrowIfNull(text);
@@ -39,6 +42,9 @@ public sealed partial class KilnHarness
     }
 
     /// <summary>Whether a line contains <paramref name="text"/>, optionally only one of mod <paramref name="modId"/>.</summary>
+    /// <param name="text">The text to look for (case matters).</param>
+    /// <param name="modId">Only lines of this mod; null: every line.</param>
+    /// <returns>True when one matches.</returns>
     public bool HasLog(string text, string? modId = null) => FindLogs(text, modId).Count > 0;
 
     /// <summary>The captured lines as text, one per line (for an assertion message).</summary>

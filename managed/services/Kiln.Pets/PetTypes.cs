@@ -3,7 +3,8 @@
 // order, revisions and the save receipt; requests and results; the change every event carries.
 namespace Kiln;
 
-/// <summary>A pet's id: random, kept in its owner's record for ever, never an entity id. Since 0.2.0-dev.32.</summary>
+/// <summary>A pet's id: random, kept in its owner's record for ever, never an entity id. A pet's body is a different thing
+/// (<see cref="PetSnapshot.Body"/>): it comes and goes, the id stays. Since 0.2.0-dev.32.</summary>
 /// <param name="Value">The id; <see cref="Guid.Empty"/> is none.</param>
 public readonly record struct PetId(Guid Value)
 {
@@ -11,7 +12,7 @@ public readonly record struct PetId(Guid Value)
     public static PetId None => default;
     /// <summary>True for <see cref="None"/>.</summary>
     public bool IsNone => Value == Guid.Empty;
-    /// <summary>The id as 32 hex digits.</summary>
+    /// <summary>The id as 32 hex digits (no dashes).</summary>
     public override string ToString() => Value.ToString("N");
 }
 
@@ -67,7 +68,10 @@ public enum PetOrder
     Attack = 2,
 }
 
-/// <summary>The save that holds a pet's state: what was serialized and committed. Since 0.2.0-dev.32.</summary>
+/// <summary>The save that holds a pet's state: what was serialized and committed. A pet's state is durable when a committed
+/// save holds its <see cref="PetSnapshot.StateRevision"/> (<see cref="PetSnapshot.DurableRevision"/>); until then a crash
+/// loses the change. Since 0.2.0-dev.32.</summary>
+/// <seealso cref="PetRecordCommittedEvent"/>
 public sealed record PetCommit
 {
     /// <summary>The save session it belongs to.</summary>
@@ -82,14 +86,25 @@ public sealed record PetCommit
     public string BundleHash { get; init; } = "";
 }
 
-/// <summary>A pet as it is now. Since 0.2.0-dev.32.</summary>
+/// <summary>
+/// A pet as it is now: an immutable copy, never updated in place. Read it again (<see cref="Pets.Get"/>, <see cref="Pets.Of"/>) or
+/// take the one an answer or an event carries. Since 0.2.0-dev.32.
+/// </summary>
+/// <remarks>A pet has three independent facts: <see cref="Life"/> (alive, down or gone), <see cref="Presence"/> (where it is: no
+/// body, a live body, a recovery anchor) and <see cref="Transition"/> (what is happening to it right now). A request made
+/// while a transition runs is <c>Busy</c>. <see cref="Body"/> is an entity only while the pet is <see cref="PetPresence.Live"/> or
+/// <see cref="PetPresence.Retiring"/>; never keep it across steps, ask again. Server side only: a client reads
+/// <see cref="PetViewEntry"/> through <see cref="PetsClient"/>.</remarks>
+/// <seealso cref="Pets.Of"/>
+/// <seealso cref="PetChange"/>
 public sealed record PetSnapshot
 {
-    /// <summary>Its id.</summary>
+    /// <summary>The pet's id: stable for the life of its record, whatever bodies it has.</summary>
     public PetId Id { get; init; }
-    /// <summary>Its owner.</summary>
+    /// <summary>The character that owns it (not the player's session: the owner need not be online).</summary>
     public CharacterKey Owner { get; init; }
-    /// <summary>Its definition's id.</summary>
+    /// <summary>The id of its <see cref="PetDefinition"/> (<c>my-mod:hound</c>). A record whose definition is not defined in this
+    /// session stays dormant.</summary>
     public string Definition { get; init; } = "";
     /// <summary>The name its owner reads.</summary>
     public string Label { get; init; } = "";
@@ -101,7 +116,7 @@ public sealed record PetSnapshot
     public EntityRef Body { get; init; }
     /// <summary>Alive, down or released.</summary>
     public PetLife Life { get; init; }
-    /// <summary>Where it is.</summary>
+    /// <summary>Where it is: no body, a live body, a recovery anchor, or a body being removed.</summary>
     public PetPresence Presence { get; init; }
     /// <summary>What is happening to it.</summary>
     public PetTransition Transition { get; init; }
@@ -113,7 +128,7 @@ public sealed record PetSnapshot
     public EntityRef RequestedTarget { get; init; }
     /// <summary>The recovery anchor's spot while it is shown (and the spot kept for it while Downed and Absent).</summary>
     public WorldPosition? RecoveryAnchor { get; init; }
-    /// <summary>Its level.</summary>
+    /// <summary>Its level, 1 to 255 (from the definition's <see cref="PetLevelPolicy"/>).</summary>
     public int Level { get; init; }
     /// <summary>Its health (0 while down; while it has no body, its kept share of <see cref="HealthMax"/>).</summary>
     public int Health { get; init; }
@@ -135,16 +150,28 @@ public sealed record PetSnapshot
 
 /// <summary>A request that changes a pet: its operation id makes a retry the same request (its first answer is given back
 /// for 10 minutes), and an expected revision refuses a request made on a stale view. Since 0.2.0-dev.32.</summary>
+/// <remarks>Make a new request for every intended action (<see cref="New"/>). To retry after a lost answer, send the same request
+/// again: nothing runs twice. Never reuse an operation id for another action: that is <c>RequestConflict</c>.</remarks>
+/// <example><code>
+/// PetRequest request = PetRequest.New();                   // a fresh operation id
+/// PetRequest guarded = PetRequest.New(snapshot.StateRevision);  // refused (StaleRevision) if the pet changed since this PetSnapshot
+/// </code></example>
+/// <seealso cref="Pets.Summon"/>
 /// <param name="OperationId">Unique per request; the same id with another request is <c>RequestConflict</c>.</param>
 /// <param name="ExpectedStateRevision">0: any; otherwise the pet's <see cref="PetSnapshot.StateRevision"/> the request was
 /// made on (<c>StaleRevision</c> when it moved on).</param>
 public sealed record PetRequest(Guid OperationId, ulong ExpectedStateRevision = 0)
 {
     /// <summary>A new request with a fresh operation id.</summary>
+    /// <param name="expectedStateRevision">0 to accept any state; otherwise the <see cref="PetSnapshot.StateRevision"/> the caller
+    /// saw (the request is <c>StaleRevision</c> when the pet moved on).</param>
+    /// <returns>A request with a new operation id.</returns>
     public static PetRequest New(ulong expectedStateRevision = 0) => new(Guid.NewGuid(), expectedStateRevision);
 }
 
-/// <summary>The answer to a request. Since 0.2.0-dev.32.</summary>
+/// <summary>The answer to a request: the outcome and the pet after it. A refusal is a result, not an exception; check
+/// <see cref="Ok"/> first. Since 0.2.0-dev.32.</summary>
+/// <seealso cref="PetRequest"/>
 /// <param name="Ok">True when the request did what it asked (or found it done: an idempotent repeat).</param>
 /// <param name="Reason">Why not: <c>Busy</c>, <c>StaleRevision</c>, <c>RequestConflict</c>, <c>NotOwner</c>,
 /// <c>AlreadyReleased</c>, <c>Capacity</c>, <c>NoSafeGround</c>, <c>BodyNotReady</c>, <c>TargetProtected</c>,
@@ -182,10 +209,11 @@ public enum PetChangeCause
     Unload = 10,
 }
 
-/// <summary>One change of a pet: before and after, the request behind it and when it happened. Since 0.2.0-dev.32.</summary>
+/// <summary>One change of a pet: before and after, the request behind it and when it happened. Every
+/// <see cref="PetChangeEvent"/> carries one. Since 0.2.0-dev.32.</summary>
 public sealed record PetChange
 {
-    /// <summary>Unique per change.</summary>
+    /// <summary>A GUID that is new for every change: it names this change in logs and in anything the mod keeps about it.</summary>
     public Guid EventId { get; init; }
     /// <summary>The request's operation id; empty when no request caused it.</summary>
     public Guid OperationId { get; init; }
@@ -195,6 +223,6 @@ public sealed record PetChange
     public PetSnapshot Before { get; init; } = new();
     /// <summary>The pet after.</summary>
     public PetSnapshot After { get; init; } = new();
-    /// <summary>Why.</summary>
+    /// <summary>Why the pet changed: a request, a lost body, a lethal hit, a logout, a revive channel's own course, ...</summary>
     public PetChangeCause Cause { get; init; }
 }

@@ -707,7 +707,7 @@ public readonly unsafe struct AttackControl
 
 /// <summary>
 /// Arsenals as data, and rules with Kiln's own kinds. An arsenal holds a creature's attacks and rules, and the AI looks it up by
-/// GUID in every update. <see cref="Define"/> makes a new one for a creature to use; <see cref="Extend"/> adds to one the game
+/// GUID in every update. <see cref="Define"/> makes a new one for a creature to use; <see cref="Extend(Guid, ArsenalSpec)"/> adds to one the game
 /// has, for every creature using it. Several mods on one arsenal merge. All of it is server side: a game sequence on a game body
 /// needs nothing on clients.
 /// </summary>

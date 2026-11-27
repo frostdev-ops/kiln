@@ -12,8 +12,8 @@ public enum PetLevelMode
 {
     /// <summary>Always <see cref="PetLevelPolicy.Level"/>.</summary>
     Fixed = 0,
-    /// <summary>The owner's level when the pet was tamed (taming lands with 19e; a granted pet takes the owner's level at
-    /// the grant).</summary>
+    /// <summary>The owner's level when the pet record was made: at the tame (<c>TamingDefinition.Pet</c> of Kiln.Taming), or at the grant for
+    /// a pet given with <see cref="Pets.Grant"/>. The owner must be in game then (<c>LevelUnavailable</c> otherwise).</summary>
     OwnerAtTame = 1,
     /// <summary>The owner's level each time a body is made (summon, revive).</summary>
     OwnerAtSummon = 2,
@@ -140,9 +140,9 @@ public enum PetDownedOutcome
     Release = 2,
 }
 
-/// <summary>What a downed pet is. The mod's choice; <c>PetDowningEvent</c> may choose per pet. A body left lying
-/// (a decorative corpse) is not possible yet: Kiln has no client-side decorative body (see docs/kiln/services/pets.md).
-/// Since 0.2.0-dev.32.</summary>
+/// <summary>What a downed pet is. The mod's choice; <see cref="PetDowningEvent"/> may choose per pet. A body left lying (a
+/// decorative corpse) is not an outcome: it needs a client-side decorative body that can neither act nor be hit, which Kiln
+/// does not have (see docs/kiln/services/pets.md). Since 0.2.0-dev.32.</summary>
 public sealed record PetDownedPolicy
 {
     /// <summary>Default <see cref="PetDownedOutcome.RecoveryAnchor"/>.</summary>
@@ -176,6 +176,25 @@ public sealed record PetHudPolicy
 /// record). Immutable: a definition cannot change while one of its pets has a live body or a revive running.
 /// Since 0.2.0-dev.32.
 /// </summary>
+/// <remarks>Only <see cref="Id"/> and <see cref="Creature"/> are required; every policy has a safe default, so a mod states only
+/// the choices it makes. The defaults: the pet follows 3 m behind its owner on walk-only routes; a downed pet leaves a bodyless
+/// recovery anchor; the owner revives it with a free 3 s channel next to the anchor; players are protected from pets and pets
+/// from players; 32 records of the definition per character, one live pet per character, 16 live in the world; a row in the
+/// owner's pet bar. A definition is data: define it when the mod loads. A mod's definitions go when the mod unloads (its pets'
+/// bodies are retired; the records stay, dormant).</remarks>
+/// <example><code>
+/// Pets.Define(new PetDefinition
+/// {
+///     Id = "my-mod:hound",
+///     Creature = "game:enemy_wildbeast_wolf_earlygame",
+///     DisplayName = "Hound",
+///     Level = new PetLevelPolicy { Mode = PetLevelMode.OwnerAtSummon },    // levels with its owner
+///     Movement = new PetMovementPolicy { FollowDistance = 4 },
+///     Caps = new PetCaps { LivePerCharacter = 2 },
+/// });
+/// </code></example>
+/// <seealso cref="Pets.Define"/>
+/// <seealso href="https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/pets.md">Pets: the modder's guide</seealso>
 public sealed record PetDefinition
 {
     /// <summary>The definition's Kiln id, <c>&lt;mod id&gt;:&lt;name&gt;</c> (lower case letters, digits, '-', '_', '.').
@@ -183,7 +202,8 @@ public sealed record PetDefinition
     public required string Id { get; init; }
     /// <summary>The creature the pet's body is, by its Kiln id: a game creature of the <c>creatures</c> registry
     /// (<c>game:enemy_wildbeast_wolf_earlygame</c>) or a creature block of a mod (<c>&lt;mod id&gt;:&lt;name&gt;</c>). Never a game
-    /// template name or GUID. Bodies are enemy creatures that walk (wildlife and flying bodies are not supported yet).</summary>
+    /// template name or GUID. Bodies are enemy creatures that walk: wildlife, farm animals and bosses are refused
+    /// (<c>CreatureUnsupported</c>), and a pet never flies (its routes are walk-only).</summary>
     public required string Creature { get; init; }
     /// <summary>The name owners read; null: the creature's own.</summary>
     public string? DisplayName { get; init; }

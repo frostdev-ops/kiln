@@ -48,6 +48,9 @@ internal static class VfxData
     };
 
     /// <summary>What a Vfx field names. A new VFX needs the mod on every client; a game VFX by name needs only what its data does.</summary>
+    /// <param name="ctx">The block being compiled.</param>
+    /// <param name="r">The VFX reference as the block wrote it.</param>
+    /// <param name="path">Where it is in the block, for errors.</param>
     /// <param name="defaultSlot">Where it shows when the field does not say.</param>
     /// <param name="parameters">This route can set <see cref="VfxRef.Parameters"/>. Only an effect can: every other route is data that a server can't lay out.</param>
     public static VfxTarget Lower(BlockContext ctx, VfxRef r, string path, Slot defaultSlot = Slot.Root, bool parameters = false)
@@ -90,6 +93,10 @@ internal static class VfxData
     }
 
     /// <summary>The fields of a generated sequence that make its <paramref name="index"/>-th VFX event play this one. A game VFX has its GUID later.</summary>
+    /// <param name="ctx">The block being compiled.</param>
+    /// <param name="v">The VFX the event plays.</param>
+    /// <param name="sequence">The generated sequence's field prefix.</param>
+    /// <param name="index">Which VFX event of the sequence (the first by default).</param>
     /// <param name="time">Seconds into the sequence; null: when the event already plays.</param>
     public static JsonObject Notifier(BlockContext ctx, VfxTarget v, string sequence, int index = 0, double? time = null)
     {

@@ -584,6 +584,13 @@ internal static partial class Compiler
 }
 
 /// <summary>A station's handle: where a recipe that names it goes.</summary>
+/// <param name="mod">The mod's id.</param>
+/// <param name="name">The block's name.</param>
+/// <param name="guid">The station's game GUID.</param>
+/// <param name="gameName">The block's debug name in the game.</param>
+/// <param name="block">The station block.</param>
+/// <param name="station">The station's id that recipes name.</param>
+/// <param name="menu">The station's menu, when it has one of its own.</param>
 /// <param name="item">With a workshop of its own: the item that places it, which names that workshop in a player's game.</param>
 internal sealed class StationHandle(string mod, string name, Guid guid, string gameName, StationBlock block, string station, string? menu, string? item) : BlockHandle<StationBlock>(mod, name, guid, gameName, block)
 {

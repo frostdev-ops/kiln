@@ -22,7 +22,7 @@ namespace Kiln;
 /// here. Whatever needs the task again (a continuation posted to its pool context, the work's end, the last tick item
 /// resolving) takes that registration, once, and resumes it. A stored registration means the task holds no worker.</para>
 /// <para>Locks: <c>_gate</c> guards this object's state. No user code runs under it; the backend calls made under it
-/// (<see cref="TaskBackend.TickHop"/>) never call back into the host.</para>
+/// (<see cref="TaskBackend.TickHop(ulong)"/>) never call back into the host.</para>
 /// </remarks>
 internal sealed class TaskRun
 {

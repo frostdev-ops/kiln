@@ -81,7 +81,7 @@ public sealed class AbilityDefinition
 
     /// <summary>An existing action sequence (ActorSequenceResource GUID) the caster plays when the cast starts: its
     /// animation, VFX/SFX and its own timed events (SpawnImpact, PayUsageCost, ability locks), exactly as the game
-    /// plays it (<see cref="Abilities.PlaySequence"/>). Pick one whose own costs and spawns you want; null = none.</summary>
+    /// plays it (<see cref="Abilities.PlaySequence(EntityId, Guid, bool)"/>). Pick one whose own costs and spawns you want; null = none.</summary>
     public Guid? CastSequence { get; init; }
 
     /// <summary>Where the ability aims. Default <see cref="AbilityTargeting.Self"/>.</summary>
@@ -141,13 +141,13 @@ public sealed class AbilityCast
     /// <summary>Completes on the tick thread once <paramref name="sinceStart"/> has passed since the cast started.</summary>
     public Task At(TimeSpan sinceStart) => AbilityRegistry.Timer(StartedMs + (long)sinceStart.TotalMilliseconds);
 
-    /// <summary>Spawns an impact template bound to the caster (<see cref="Abilities.RunImpact"/>), at
+    /// <summary>Spawns an impact template bound to the caster (<see cref="Abilities.RunImpact(string, WorldPosition, ImpactOptions)"/>), at
     /// <paramref name="at"/> or the cast's <see cref="Position"/>.</summary>
     [TickThreadOnly]
     public Task<EntityId> Impact(string template, WorldPosition? at = null, ImpactConfigs? configs = null) =>
         Abilities.RunImpact(template, at ?? Position, new ImpactOptions { Root = Caster, Configs = configs, Tag = Ability.Id });
 
-    /// <summary>Plays an existing action sequence on the caster (<see cref="Abilities.PlaySequence"/>).</summary>
+    /// <summary>Plays an existing action sequence on the caster (<see cref="Abilities.PlaySequence(EntityId, Guid, bool)"/>).</summary>
     [TickThreadOnly]
     public bool PlaySequence(Guid sequence, bool abortCurrent = true) => Abilities.PlaySequence(Caster, sequence, abortCurrent);
 

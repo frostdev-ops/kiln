@@ -246,22 +246,46 @@ public abstract record UiScalar
 
     /// <summary>A true/false.</summary>
     /// <param name="Value">The value.</param>
-    public sealed record Bool(bool Value) : UiScalar { public override UiScalarType Type => UiScalarType.Bool; }
+    public sealed record Bool(bool Value) : UiScalar
+    {
+        /// <inheritdoc/>
+        public override UiScalarType Type => UiScalarType.Bool;
+    }
     /// <summary>A signed whole number.</summary>
     /// <param name="Value">The number.</param>
-    public sealed record Int64(long Value) : UiScalar { public override UiScalarType Type => UiScalarType.Int64; }
+    public sealed record Int64(long Value) : UiScalar
+    {
+        /// <inheritdoc/>
+        public override UiScalarType Type => UiScalarType.Int64;
+    }
     /// <summary>An unsigned whole number.</summary>
     /// <param name="Value">The number.</param>
-    public sealed record UInt64(ulong Value) : UiScalar { public override UiScalarType Type => UiScalarType.UInt64; }
+    public sealed record UInt64(ulong Value) : UiScalar
+    {
+        /// <inheritdoc/>
+        public override UiScalarType Type => UiScalarType.UInt64;
+    }
     /// <summary>An exact decimal.</summary>
     /// <param name="Value">The number.</param>
-    public sealed record Decimal(decimal Value) : UiScalar { public override UiScalarType Type => UiScalarType.Decimal; }
+    public sealed record Decimal(decimal Value) : UiScalar
+    {
+        /// <inheritdoc/>
+        public override UiScalarType Type => UiScalarType.Decimal;
+    }
     /// <summary>A finite double (NaN and infinities are refused).</summary>
     /// <param name="Value">The number.</param>
-    public sealed record Float64(double Value) : UiScalar { public override UiScalarType Type => UiScalarType.Float64; }
+    public sealed record Float64(double Value) : UiScalar
+    {
+        /// <inheritdoc/>
+        public override UiScalarType Type => UiScalarType.Float64;
+    }
     /// <summary>A text.</summary>
     /// <param name="Value">The text.</param>
-    public sealed record String(string Value) : UiScalar { public override UiScalarType Type => UiScalarType.String; }
+    public sealed record String(string Value) : UiScalar
+    {
+        /// <inheritdoc/>
+        public override UiScalarType Type => UiScalarType.String;
+    }
 }
 
 /// <summary>A data field: its id (as <c>row.&lt;id&gt;</c> / <c>node.&lt;id&gt;</c> in templates) and type.</summary>

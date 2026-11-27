@@ -8,23 +8,25 @@ using System.Text;
 
 namespace Kiln;
 
-/// <summary>A pet body as the network names it: informational, never an entity to resolve on a client. Since 0.2.0-dev.32.</summary>
+/// <summary>A pet body as the network names it: informational (to tell whether a pet has a body, and which one), never an
+/// entity to resolve or act on from a client. Since 0.2.0-dev.32.</summary>
 /// <param name="NetworkEntityId">The server's entity id of the body.</param>
 /// <param name="BodyGeneration">The body's generation.</param>
 public sealed record PetBodyViewKey(uint NetworkEntityId, ulong BodyGeneration);
 
-/// <summary>One pet in its owner's view. Since 0.2.0-dev.32.</summary>
+/// <summary>One pet in its owner's view: what a HUD needs, and nothing the owner may not see. It mirrors a
+/// <see cref="PetSnapshot"/> without entities. Since 0.2.0-dev.32.</summary>
 public sealed record PetViewEntry
 {
-    /// <summary>The pet.</summary>
+    /// <summary>The pet's id (<see cref="PetSnapshot.Id"/>).</summary>
     public PetId Id { get; init; }
-    /// <summary>Its definition's id.</summary>
+    /// <summary>The id of its definition (<c>my-mod:hound</c>).</summary>
     public string Definition { get; init; } = "";
-    /// <summary>Its name.</summary>
+    /// <summary>The name its owner reads (at most 64 bytes).</summary>
     public string Label { get; init; } = "";
     /// <summary>Alive or down.</summary>
     public PetLife Life { get; init; }
-    /// <summary>Where it is.</summary>
+    /// <summary>Where it is: no body, a live body or a recovery anchor.</summary>
     public PetPresence Presence { get; init; }
     /// <summary>What is happening to it.</summary>
     public PetTransition Transition { get; init; }
@@ -36,7 +38,7 @@ public sealed record PetViewEntry
     public PetOrder RequestedOrder { get; init; }
     /// <summary>Its level.</summary>
     public int Level { get; init; }
-    /// <summary>Its health.</summary>
+    /// <summary>Its health now (0 while it is down).</summary>
     public int Current { get; init; }
     /// <summary>Its maximum health.</summary>
     public int Maximum { get; init; }
@@ -46,9 +48,10 @@ public sealed record PetViewEntry
     public uint ReviveElapsedMs { get; init; }
     /// <summary>Milliseconds the channel takes.</summary>
     public uint ReviveDurationMs { get; init; }
-    /// <summary>Its state revision.</summary>
+    /// <summary>The pet's <see cref="PetSnapshot.StateRevision"/>: goes up with every change of its state.</summary>
     public ulong StateRevision { get; init; }
-    /// <summary>Its durable revision.</summary>
+    /// <summary>The highest revision a committed save holds (<see cref="PetSnapshot.DurableRevision"/>): a HUD may show a pet whose
+    /// state is not saved yet differently.</summary>
     public ulong DurableRevision { get; init; }
     /// <summary>The definition wants it in the built-in bar (<see cref="PetHudPolicy.Bar"/>).</summary>
     public bool ShowBar { get; init; } = true;
@@ -56,7 +59,8 @@ public sealed record PetViewEntry
     public bool ShowMarker { get; init; } = true;
 }
 
-/// <summary>An owner's whole view of their pets, as one snapshot. Since 0.2.0-dev.32.</summary>
+/// <summary>An owner's whole view of their pets, as one snapshot: what <see cref="PetsClient.Snapshot"/> holds. Never a delta;
+/// a newer one replaces it. Since 0.2.0-dev.32.</summary>
 /// <param name="WorldEpoch">The server world session.</param>
 /// <param name="CharacterSession">The owner's join (a fresh random token each time).</param>
 /// <param name="Sequence">Strictly increasing within the session.</param>

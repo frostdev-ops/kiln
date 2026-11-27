@@ -98,7 +98,20 @@ public sealed record LabBotStatus(bool Available, int Bots, int Groups, ulong Pu
 /// (<c>labPort</c> in <c>kiln/config/network.json</c>). No Steam account, ticket or password is used. A mod's bots drop
 /// when it unloads, and every bot leaves when the world stops. Lab scripts drive bots with tools/labbot
 /// (mods/tests/labbot-test's control channel).</para>
+/// <para>Not for players or for a live server: it is dev tooling of Kiln's labs, experimental (<c>KILNX001</c>) and hidden from
+/// IntelliSense. Server only, tick thread. A bot is not a game client and never uses a real account.</para>
 /// </summary>
+/// <example><code>
+/// if (LabBots.Status().Available)
+/// {
+///     int id = LabBots.Join("tamer");                       // admin rights; the same name is the same character next time
+///     // a few server steps later:
+///     if (LabBots.Info(id) is { InGame: true } bot) Log.Info($"{bot.Name} is in game as {bot.Entity}");
+///     LabBots.SetReady(id);                                  // say its client is ready, so items can be used
+///     LabBots.Leave(id);                                     // logs out with a final save
+/// }
+/// </code></example>
+/// <seealso cref="LabBotInfo"/>
 [Experimental("KILNX001", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/analyzers.md#kilnx001")]
 [EditorBrowsable(EditorBrowsableState.Never)]
 public static unsafe class LabBots
@@ -110,6 +123,7 @@ public static unsafe class LabBots
     public const int Max = 4;
 
     /// <summary>Whether bots can join now, and why not.</summary>
+    /// <returns>The status: whether bots may join, how many are live and the reason when they may not.</returns>
     /// <exception cref="KilnUnavailableException">kiln.labbot is not here (not a server, or not installed).</exception>
     public static LabBotStatus Status()
     {
@@ -171,6 +185,8 @@ public static unsafe class LabBots
 
     /// <summary>Ends a bot's game: a logout (the final save, then the game removes it), or <paramref name="drop"/> as
     /// a lost connection. A bot not yet in game always drops.</summary>
+    /// <param name="id">A live bot's id (from <see cref="Join"/>).</param>
+    /// <param name="drop">True: a lost connection (no final save). False: a logout.</param>
     /// <exception cref="ArgumentException">No live bot of that id.</exception>
     /// <exception cref="KilnUnavailableException"><c>labbot.join</c> is off.</exception>
     [ServerOnly]
@@ -191,7 +207,7 @@ public static unsafe class LabBots
     /// at <paramref name="position"/> moved <paramref name="distance"/> along the view and flies along the view; the game
     /// turns its view as <paramref name="rotation"/> applied to (0, 0, 1) (yaw about +Y, then pitch: a positive pitch looks
     /// down). Kiln writes it into the bot's input every server frame from now on while the bot is in game, where a client's
-    /// input lands; it stays until set again. Since dev.32 (lab only).</summary>
+    /// input lands; it stays until set again. Since 0.2.0-dev.32 (lab only).</summary>
     /// <param name="id">A live bot.</param>
     /// <param name="position">Where the camera is (the bot's eyes are about 1.7 m above its feet).</param>
     /// <param name="rotation">Where it looks (normalised here).</param>
@@ -227,7 +243,9 @@ public static unsafe class LabBots
     /// <summary>Whether the bot's client says it is ready for gameplay (what a client sends with every input once its
     /// world is loaded): the game marks the bot's actor ready for gameplay only then, and a use of an item, its control
     /// programs and the readiness checks of the game wait for it. A bot says nothing until this is called. Kiln writes it
-    /// into the bot's input every server frame from now on while the bot is in game. Since dev.32 (lab only).</summary>
+    /// into the bot's input every server frame from now on while the bot is in game. Since 0.2.0-dev.32 (lab only).</summary>
+    /// <param name="id">A live bot's id.</param>
+    /// <param name="ready">True (the default): it says its client is ready; false: it says it is not.</param>
     /// <exception cref="ArgumentException">No live bot of that id.</exception>
     /// <exception cref="KilnUnavailableException"><c>labbot.join</c> is off, or kiln.labbot cannot write a bot's input on
     /// this build or is older (kiln.log says why).</exception>
@@ -270,6 +288,9 @@ public static unsafe class LabBots
     }
 
     /// <summary>The bot of <paramref name="id"/>, or null when none is remembered. Any thread.</summary>
+    /// <param name="id">The bot's id (from <see cref="Join"/>).</param>
+    /// <returns>The bot as kiln.labbot last stepped it, or null.</returns>
+    /// <exception cref="KilnUnavailableException">kiln.labbot is not here (not a server, or not installed).</exception>
     public static LabBotInfo? Info(int id)
     {
         var t = Require("Info");
@@ -282,6 +303,8 @@ public static unsafe class LabBots
     }
 
     /// <summary>Every remembered bot (live ones and the last that left or failed in each place), newest first. Any thread.</summary>
+    /// <returns>A copy of the list, at most 2 x <see cref="Max"/> bots.</returns>
+    /// <exception cref="KilnUnavailableException">kiln.labbot is not here (not a server, or not installed).</exception>
     public static IReadOnlyList<LabBotInfo> All()
     {
         var t = Require("All");
