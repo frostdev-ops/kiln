@@ -14,6 +14,10 @@
 //   position {id}                where the bot's entity is
 //   character {id}               the bot's CharacterKey (what per-character data such as pets is keyed by)
 //   players                      Players.All with positions
+//   told {id, since?}            the server's chat lines to that bot (a command's replies, Chat.Tell): every new newest
+//                                inbox line is kept with its reader mask (Chat.Diagnostics.LastLine, read in Pre and Post),
+//                                so two lines added in one step show only the second; "since" = a line number from an
+//                                earlier answer
 // Lab only: LabBots answers KilnUnavailableException off a lab server; the mod then answers every op with that error.
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -39,11 +43,30 @@ public sealed class LabBotTestMod : Mod
 {
     private NetChannel? _chan;
 
+    // the server's chat lines as they appear (newest inbox line, polled in Pre and Post): number, reader mask, text
+    private readonly List<(long N, uint Mask, uint Connection, string Text)> _lines = [];
+    private long _lineNo;
+    private ChatLine? _last;
+
+    private void PollLines()
+    {
+        ChatLine? l;
+        try { l = Chat.Diagnostics.LastLine(); }
+        catch (Exception e) when (e is KilnUnavailableException or InvalidOperationException) { return; }
+        if (l is not { } line || (_last is { } prev && prev.Text == line.Text && prev.Connection == line.Connection && prev.Account == line.Account))
+            return;
+        _last = line;
+        _lines.Add((++_lineNo, line.ReaderMask, line.Connection, line.Text));
+        if (_lines.Count > 400) _lines.RemoveRange(0, _lines.Count - 400);
+    }
+
     public override void OnLoad()
     {
         _chan = Network.Channel("labbot:control", "1", required: false)
             .Register<Request>((m, ctx) => Handle(m.Json, ctx.Sender), NetDirection.ToServer)
             .Register<Reply>(null, NetDirection.ToClient);
+        Context.Tick.Pre += (in TickInfo _) => PollLines();
+        Context.Tick.Post += (in TickInfo _) => PollLines();
         string state;
         try
         {
@@ -81,6 +104,7 @@ public sealed class LabBotTestMod : Mod
                 "position" => Position(rq),
                 "character" => Character(rq),
                 "players" => PlayersNow(),
+                "told" => Told(rq),
                 _ => Error($"unknown op '{op}'"),
             };
         }
@@ -214,6 +238,18 @@ public sealed class LabBotTestMod : Mod
         var b = InGame(rq);
         var key = CharacterData.KeyOf(b.Entity);
         return new JsonObject { ["id"] = b.Id, ["key"] = key.ToString(), ["known"] = !key.IsNone && !key.IsAccountOnly };
+    }
+
+    // lines a bot's reader was to get: its reader is its machine index (a bit set in the mask = that reader is done or
+    // not addressed; a line seen before the game sent it still has the bot's bit clear)
+    private JsonObject Told(JsonObject rq)
+    {
+        var b = Bot(Id(rq)) ?? throw new ArgumentException($"no bot {Id(rq)}");
+        var since = rq["since"]?.GetValue<long>() ?? 0;
+        var reader = (int)(b.Machine & 0x7f);
+        var lines = _lines.Where(x => x.N > since && x.Connection != b.Connection && (x.Mask & (1u << reader)) == 0)
+            .Select(x => (JsonNode)new JsonObject { ["n"] = x.N, ["text"] = x.Text, ["mask"] = x.Mask }).ToArray();
+        return new JsonObject { ["id"] = b.Id, ["lines"] = new JsonArray(lines), ["last"] = _lineNo };
     }
 
     private static JsonObject PlayersNow() =>

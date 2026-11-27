@@ -114,6 +114,8 @@ class FakeLab(threading.Thread):
             return {"id": i}
         if op == "teleport":
             return {"id": i, "position": [rq["x"], rq["y"], rq["z"]]}
+        if op == "told":
+            return {"id": i, "lines": [ln for ln in getattr(self, "told", []) if ln["n"] > rq.get("since", 0)], "last": 3}
         if op in ("say", "command"):
             return {"id": i, "echo": rq.get("text") or rq.get("line")}
         return {"ok": False, "error": f"unknown op '{op}'"}
@@ -199,6 +201,17 @@ class LabBotTests(unittest.TestCase):
         d = lab.spawn("Bot Drop", timeout=10)
         self.assertEqual(d.leave(drop=True, timeout=5)["phase"], "Left")
         self.assertTrue([r for r in f.requests if r["op"] == "leave" and r["drop"]])
+
+    def test_10_told_and_wait_told(self):
+        f = self.fake()
+        f.told = [{"n": 3, "text": "Hound: Alive, Summoned, 100/100", "mask": 0xfffeffff}]
+        lab = labbot.Lab(f.port, timeout=3)
+        b = lab.spawn("Bot Alder", timeout=10)
+        self.assertEqual(b.told()[0]["n"], 3)
+        self.assertIn("Summoned", b.wait_told("Summoned", timeout=2)["text"])
+        self.assertEqual(f.requests[-1]["since"], 0)
+        with self.assertRaisesRegex(labbot.LabBotError, "was not told 'refused'"):
+            b.wait_told("refused", timeout=0.5)
 
     def test_9_cli_exit_codes(self):
         f = self.fake()

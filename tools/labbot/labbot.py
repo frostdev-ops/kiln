@@ -11,6 +11,7 @@ speaks that channel as a lab peer (tools/nettest's codec): no game client, no St
     bot = lab.spawn("Bot Alder")            # join + wait until its player entity exists
     bot.say("/pet give hound")              # a chat line typed by the bot (commands run with the bot as source)
     bot.command("pet list")                 # Commands.Execute as the bot: result and immediate output
+    bot.wait_told("Hound")                  # a line the server told the bot (an async command's reply)
     bot.move_to(x, y, z)                    # teleport its entity
     bot.leave()                             # logout (final save), waits until it is gone
 
@@ -188,6 +189,22 @@ class Bot:
     def character(self):
         """The bot's character key (per-character data such as pets is keyed by it)."""
         return self.lab.call("character", id=self.id)["key"]
+
+    def told(self, since=0):
+        """The server's chat lines to this bot since line number `since` (a command's replies): [{"n", "text", "mask"}].
+        Two lines the server adds in the same step show only the second (labbot-test reads the newest inbox line)."""
+        return self.lab.call("told", id=self.id, since=since)["lines"]
+
+    def wait_told(self, pattern, since=0, timeout=20.0):
+        """Waits for a line to this bot containing `pattern` (a substring); returns it, or raises LabBotError."""
+        end = time.time() + timeout
+        while True:
+            for ln in self.told(since):
+                if pattern in ln["text"]:
+                    return ln
+            if time.time() > end:
+                raise LabBotError(f"bot {self.id} '{self.name}' was not told '{pattern}' in {timeout:.0f} s")
+            time.sleep(0.25)
 
     def stay(self, seconds):
         """Keeps the bot in the world, doing nothing, for `seconds` (it only moves when moved)."""
