@@ -10,7 +10,7 @@
     <Version>0.1.0</Version>
     <Description>Pets on Kiln.Pets: give, summon, order, revive and release; a consensual duel rule; per-pet choices.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <KilnServices>Blocks;Pets;Players;Saves;Chat</KilnServices>
+    <KilnServices>Blocks;Pets;Players;Saves;Chat;World</KilnServices>
   </PropertyGroup>
   <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.targets" />
 </Project>
