@@ -107,6 +107,39 @@ internal static class TamingCompiler
     /// <summary>Registers a definition with Kiln.Taming as the mod's (tests replace it).</summary>
     internal static Action<TamingDefinition, string> Register { get; set; } = (d, mod) => TamingRuntime.Define(d, mod);
 
+    /// <summary>Whether the game's item catalog is readable here now (tests replace it). On a dedicated server content is
+    /// ready before Kiln.Items reads the catalog (lab 11-27: a game item was "not there" at content ready and readable 20 s
+    /// later), so an item still unknown then waits for it instead of being called missing.</summary>
+    internal static Func<bool> ItemsReadable { get; set; } = () => Items.Available && Items.All.Count > 0;
+
+    /// <summary>How long a taming waits for the item catalog after content is ready, in service ticks (about 2 minutes).</summary>
+    internal const int MaxWaitTicks = 3000;
+
+    private static readonly object Gate = new();
+    private static readonly List<(TamingDefinition Def, string Mod, string Block, List<(int Index, string Path, string Name, string Written, bool Gear)> Late, Action<string> Problem, int Ticks)> Waiting = new();
+    private static IDisposable? _tick;
+
+    /// <summary>The tamings waiting for the item catalog: resolved (or reported) once it is readable (service tick, every 25
+    /// steps; tests call it).</summary>
+    internal static void Pump()
+    {
+        var readable = ItemsReadable();
+        var ready = new List<(TamingDefinition Def, string Mod, string Block, List<(int Index, string Path, string Name, string Written, bool Gear)> Late, Action<string> Problem, int Ticks)>();
+        lock (Gate)
+        {
+            for (var i = 0; i < Waiting.Count; i++) Waiting[i] = Waiting[i] with { Ticks = Waiting[i].Ticks + 25 };
+            ready.AddRange(Waiting.Where(w => readable || w.Ticks >= MaxWaitTicks));
+            Waiting.RemoveAll(w => readable || w.Ticks >= MaxWaitTicks);
+            if (Waiting.Count == 0) { _tick?.Dispose(); _tick = null; }
+        }
+        foreach (var (def, mod, block, late, problem, ticks) in ready)
+        {
+            if (ticks >= MaxWaitTicks && !ItemsReadable())
+                problem($"block {block}: the game's items were not readable {MaxWaitTicks / 25} s after content was ready (the taming {def.Id} is not defined)");
+            else Late(def, mod, block, late, problem);
+        }
+    }
+
     private static readonly string[] FeedFields = ["item", "count"], WeakenFields = ["maxHealthFraction"], ToolFields = ["item", "wear", "allowBreak"], NativeFields = ["steps"];
 
     public static BlockHandle Define(BlockContext ctx, Lowered low, string name, TamingBlock t)
@@ -282,6 +315,16 @@ internal static class TamingCompiler
     /// answers DefinitionUnknown, and nothing is ever taken for it).</summary>
     private static void Late(TamingDefinition def, string mod, string block, List<(int Index, string Path, string Name, string Written, bool Gear)> late, Action<string> problem)
     {
+        if (!ItemsReadable())
+        {
+            // not readable yet: wait for the catalog rather than call the item missing
+            lock (Gate)
+            {
+                Waiting.Add((def, mod, block, late, problem, 0));
+                _tick ??= ServiceTick.Add("kiln.blocks tamings waiting for items", static (in TickInfo t) => { if (t.Step % 25 == 0) Pump(); });
+            }
+            return;
+        }
         var steps = def.Steps.ToArray();
         foreach (var (index, path, itemName, written, gear) in late)
         {

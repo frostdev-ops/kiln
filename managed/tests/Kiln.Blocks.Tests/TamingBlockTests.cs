@@ -13,6 +13,7 @@ public sealed class TamingBlockTests : IDisposable
     private static readonly (Func<bool> Tick, Func<bool> Client, Func<bool> Running) Real = (NpcServerSide.OnTickThread, NpcServerSide.IsClient, NpcServerSide.ServerRunning);
     private readonly Func<string, (ItemId Id, bool Gear)?> _find = PetCompiler.FindItem;
     private readonly Action<TamingDefinition, string> _register = TamingCompiler.Register;
+    private readonly Func<bool> _readable = TamingCompiler.ItemsReadable;
     private readonly List<(TamingDefinition Def, string Mod)> _defined = new();
     private readonly Dictionary<string, (ItemId, bool)> _items = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -27,6 +28,7 @@ public sealed class TamingBlockTests : IDisposable
         NpcServerSide.ServerRunning = () => false;
         PetCompiler.FindItem = n => _items.TryGetValue(n, out var i) ? i : null;
         TamingCompiler.Register = (d, mod) => _defined.Add((d, mod));
+        TamingCompiler.ItemsReadable = () => true;
     }
 
     public void Dispose()
@@ -34,6 +36,7 @@ public sealed class TamingBlockTests : IDisposable
         (NpcServerSide.OnTickThread, NpcServerSide.IsClient, NpcServerSide.ServerRunning) = Real;
         PetCompiler.FindItem = _find;
         TamingCompiler.Register = _register;
+        TamingCompiler.ItemsReadable = _readable;
     }
 
     private static ModBlocks Mod(string id, string clients = "none") => new(id, 1) { ManifestClients = clients };
@@ -163,6 +166,29 @@ public sealed class TamingBlockTests : IDisposable
         foreach (var check in late.ReadyChecks.ToList()) check(problems.Add);
         Assert.Empty(problems);
         Assert.Equal(new ItemId(99), ((FeedStep)Assert.Single(_defined).Def.Steps[0]).Item);
+    }
+
+    // lab 11-27 (review bot lab bot1): on a dedicated server content is ready before Kiln.Items reads the game's item
+    // catalog, so a block taming's game item was reported "the game has no item" at content ready, and the taming was never
+    // defined, while the same item was readable 20 s later
+    [Fact]
+    public void An_item_catalog_not_readable_at_content_ready_is_waited_for()
+    {
+        var block = Wolf() with { Steps = [TamingStepBlock.Feed("Food_T9_Late_Bait")] };
+        var mod = Mod("tame-i");
+        Compiler.Lower(mod, "t", block).Low.CommitAfter();
+        TamingCompiler.ItemsReadable = () => false;               // content ready, the catalog not read yet
+        var problems = new List<string>();
+        foreach (var check in mod.ReadyChecks.ToList()) check(problems.Add);
+        Assert.Empty(problems);                                   // not called missing
+        Assert.Empty(_defined);
+        TamingCompiler.Pump();                                    // still not readable: still waiting
+        Assert.Empty(_defined);
+        _items["Food_T9_Late_Bait"] = (new ItemId(123), false);
+        TamingCompiler.ItemsReadable = () => true;
+        TamingCompiler.Pump();
+        Assert.Empty(problems);
+        Assert.Equal(new ItemId(123), ((FeedStep)Assert.Single(_defined).Def.Steps[0]).Item);
     }
 
     [Fact]
