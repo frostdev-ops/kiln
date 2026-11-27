@@ -188,6 +188,33 @@ public sealed class FollowTests : IDisposable
     }
 
     [Fact]
+    public void A_server_stall_is_no_stuck_time()
+    {
+        // one step the server took 6 s to make (a hitch: a long save, a loaded host) moved nothing and tried nothing: it is not 5 s
+        // of a pet walking without progress (PETS-E2E lab a3: a 6 s stall in one step teleported a hound that was walking through
+        // a 2 m gap behind its owner, 7.8 m short of 60)
+        Step(2);        // the route comes, it starts walking; the body never moves
+        Step(30);       // half a second of walking without progress
+        _now += 6;      // the next step comes 6 s of game time later
+        Step(30);
+        Assert.Empty(_m.Teleports);
+        Step(60 * 5);   // then 5 s of steps without progress: stuck
+        Assert.Single(_m.Teleports);
+    }
+
+    [Fact]
+    public void A_server_stall_is_no_time_without_a_route()
+    {
+        _m.Router = (_, _) => null;
+        Step(30);
+        _now += 6;
+        Step(30);
+        Assert.Empty(_m.Teleports);
+        Step(60 * 5);
+        Assert.Single(_m.Teleports);
+    }
+
+    [Fact]
     public void No_route_for_its_stuck_seconds_catches_up()
     {
         _m.Router = (_, _) => null;

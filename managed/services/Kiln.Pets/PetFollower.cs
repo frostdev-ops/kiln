@@ -60,6 +60,12 @@ internal sealed class PetFollower
     internal const double CatchUpBackoffSeconds = 10;
     private bool _stopped;
 
+    /// <summary>The most one step counts toward the stuck and no-route times: a server stall (a long save, a loaded host)
+    /// moves nothing and tries nothing, so a step that took longer is no more stuck time than this.</summary>
+    internal const double MaxStepSeconds = 0.25;
+    private double _lastNow = double.NaN;
+    private double _tried;   // game seconds the pet could act in (each step at most MaxStepSeconds)
+
     /// <summary>Why following is limited now (ClearanceMappingUnverified, no route, ...); null when it walks.</summary>
     public string? Limited { get; private set; }
     /// <summary>Catch-ups done (tests and logs).</summary>
@@ -82,6 +88,8 @@ internal sealed class PetFollower
     public void Step(PetState p, PetDefinition def, PetOwner owner, IPetMover m, double now)
     {
         if (p.Body is not { } body) return;
+        _tried += double.IsNaN(_lastNow) ? 0 : Math.Clamp(now - _lastNow, 0, MaxStepSeconds);
+        _lastNow = now;
         TargetEnded = false;
         if (p.Order == PetOrder.Attack)
         {
@@ -151,8 +159,8 @@ internal sealed class PetFollower
         if (_route is null)
         {
             Halt(body, m);
-            if (double.IsNaN(_noRouteSince)) _noRouteSince = now;
-            if (def.Movement.AllowCatchUp && now - _noRouteSince >= def.Movement.StuckSeconds) CatchUp(body, owner, def, m, now);
+            if (double.IsNaN(_noRouteSince)) _noRouteSince = _tried;
+            if (def.Movement.AllowCatchUp && _tried - _noRouteSince >= def.Movement.StuckSeconds) CatchUp(body, owner, def, m, now);
             return;
         }
         _noRouteSince = double.NaN;
@@ -222,15 +230,15 @@ internal sealed class PetFollower
         if (_stopped || _progressFrom is null)
         {
             _progressFrom = at;
-            _progressAt = now;
+            _progressAt = _tried;
             _stopped = false;
         }
         else if (at.DistanceTo(_progressFrom.Value) >= 0.25)
         {
             _progressFrom = at;
-            _progressAt = now;
+            _progressAt = _tried;
         }
-        else if (now - _progressAt >= def.Movement.StuckSeconds)
+        else if (_tried - _progressAt >= def.Movement.StuckSeconds)
         {
             // no progress for StuckSeconds while walking: catch up when allowed, else stop and wait
             _progressFrom = null;
