@@ -266,7 +266,7 @@ uint32_t PetSafety::hit_policy(const KilnPetHitQuery& q) {
         const KilnEntity owner = R->owner_entity.load(std::memory_order_acquire);
         if (T) {
             if (T->flags.load(std::memory_order_acquire) & kBlocked) return deny(R, T);
-            if (same_owner(*R, *T)) return heal ? (passed_.fetch_add(1), KILN_PET_HIT_PASS) : deny(R, T);
+            if (same_owner(*R, *T)) return heal ? (passed_.fetch_add(1), static_cast<uint32_t>(KILN_PET_HIT_PASS)) : deny(R, T);
             if (R->pvp == KILN_PET_PVP_BY_MOD_RULE && T->pvp == KILN_PET_PVP_BY_MOD_RULE && harm &&
                 hostile_pair(owner, T->owner_entity.load(std::memory_order_acquire))) {
                 // fall through to the target's lethal check below
@@ -290,7 +290,7 @@ uint32_t PetSafety::hit_policy(const KilnPetHitQuery& q) {
     const uint32_t tf = T->flags.load(std::memory_order_acquire);
     if (tf & kBlocked) return deny(R, T);
     if (!R) {
-        if (heal) return q.root_source && q.root_source == T->owner_entity.load(std::memory_order_acquire) ? (passed_.fetch_add(1), KILN_PET_HIT_PASS)
+        if (heal) return q.root_source && q.root_source == T->owner_entity.load(std::memory_order_acquire) ? (passed_.fetch_add(1), static_cast<uint32_t>(KILN_PET_HIT_PASS))
                                                                                                              : deny(R, T);
         if (!q.root_source) return deny(R, T);
         if (is_player(q.root_source, q.root_class)) {
