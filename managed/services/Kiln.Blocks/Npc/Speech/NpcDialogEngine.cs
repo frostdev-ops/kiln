@@ -4,6 +4,7 @@
 // so 31.16-31.21 clients keep kiln:npcspeech v1 exactly as they know it. docs/kiln/services/npc-speech.md.
 //   1 Lines   ToClient  u32 npc, u8 kind, u8 mode, u8 pick, u32 seed, u8 n, n x string (text JSON): the effective override
 //   2 Next    ToClient  u32 npc, u8 kind, i32 line: a host-picked line (SpeechPick.By) for this player's next open
+//   4 MenuSay ToClient  u32 npc, string (text JSON): a host's reply to this player in that NPC's menu (Npcs.MenuSay)
 //   5 Reset   ToClient  bool: forget everything this channel sent (the snapshot's first message)
 //   6 Opened  ToServer  u32 npc, u8 kind, i32 line, u32 opens: a host-picked line showed on this player's screen
 // A dev.32 client whose server has this channel takes greetings from Lines (with their pick) and ignores v1 Speech.
@@ -17,6 +18,7 @@ internal sealed record LinesMsg(uint Npc, NpcLineKind Kind, SpeechMode Mode, byt
 internal sealed record NextMsg(uint Npc, NpcLineKind Kind, int Line);
 internal sealed record OpenedMsg(uint Npc, NpcLineKind Kind, int Line, uint Opens);
 internal sealed record DialogResetMsg(bool All);
+internal sealed record MenuSayMsg(uint Npc, string Text);
 
 /// <summary>A Kiln client as the host sees it: its peer id, its player, whether it has kiln:npcdialog (Local: this
 /// process's own player, whose picks go to kiln.npcspeech here).</summary>
@@ -26,13 +28,15 @@ internal static partial class NpcSpeechEngine
 {
     public const string DialogChannel = "kiln:npcdialog";
     public const string DialogVersion = "1";
-    public const ushort MsgLines = 1, MsgNext = 2, MsgDialogReset = 5, MsgOpened = 6;
+    public const ushort MsgLines = 1, MsgNext = 2, MsgMenuSay = 4, MsgDialogReset = 5, MsgOpened = 6;
 
     /// <summary>Test seams: per-peer sends, the host's Kiln clients, whether the server has kiln:npcdialog, the local player.</summary>
     internal static Action<SpeechPeer, object>? SendToHook;
     internal static Func<IReadOnlyList<SpeechPeer>>? PeersHook;
     internal static Func<bool>? ServerDialogHook;
     internal static Func<EntityId>? LocalPlayerHook;
+    /// <summary>Kiln.TestKit: where Npcs.MenuSay goes in a kit (the kit is the host and has no players' games).</summary>
+    internal static Action<uint, EntityId, UiText>? ReplyHook;
 
     private static NetChannel? _dialog;
     private static IDisposable? _tick;
@@ -64,13 +68,15 @@ internal static partial class NpcSpeechEngine
         catch (Exception) { return EntityId.None; }
     }
 
+    /// <summary>The host's ready Kiln clients (Dialog: they have kiln:npcdialog).</summary>
     private static IReadOnlyList<SpeechPeer> DialogPeers()
     {
         if (PeersHook is { } hook) return hook();
         if (!IsHost) return [];
         try
         {
-            return Network.Peers.Where(p => p.State == NetPeerState.Ready && p.HasChannel(DialogChannel)).Select(PeerOf).ToArray();
+            return Network.Peers.Where(p => p.State == NetPeerState.Ready && (p.HasChannel(DialogChannel) || p.HasChannel(ChannelName)))
+                .Select(PeerOf).ToArray();
         }
         catch (Exception) { return []; }
     }
@@ -82,6 +88,7 @@ internal static partial class NpcSpeechEngine
             .Register<LinesMsg>(MsgLines, EncodeLines, DecodeLines, static (m, _) => Received(m), NetDirection.ToClient)
             .Register<NextMsg>(MsgNext, static (m, w) => w.UInt32(m.Npc).Byte((byte)m.Kind).Int32(m.Line),
                 static (ref NetReader r) => new NextMsg(r.UInt32(), Kind(r.Byte()), r.Int32()), static (m, _) => Received(m), NetDirection.ToClient)
+            .Register<MenuSayMsg>(MsgMenuSay, EncodeMenuSay, DecodeMenuSay, static (m, _) => Received(m), NetDirection.ToClient)
             .Register<DialogResetMsg>(MsgDialogReset, static (m, w) => w.Bool(m.All), static (ref NetReader r) => new DialogResetMsg(r.Bool()),
                 static (_, _) => ReceivedDialogReset(), NetDirection.ToClient)
             .Register<OpenedMsg>(MsgOpened, static (m, w) => w.UInt32(m.Npc).Byte((byte)m.Kind).Int32(m.Line).UInt32(m.Opens),
@@ -122,6 +129,7 @@ internal static partial class NpcSpeechEngine
             {
                 LinesMsg s => _dialog.SendTo(np, s),
                 NextMsg s => _dialog.SendTo(np, s),
+                MenuSayMsg s => _dialog.SendTo(np, s),
                 DialogResetMsg s => _dialog.SendTo(np, s),
                 _ => false,
             };
@@ -323,6 +331,50 @@ internal static partial class NpcSpeechEngine
             ModContext.CurrentMod = outer;
         }
     }
+
+    // ---------------------------------------------------------------------------------------- replies ----
+
+    /// <summary>A reply in one player's dialogue menu with the NPC: this game's own player through kiln.npcspeech, a
+    /// joined player's Kiln (with kiln:npcdialog) through a MenuSay message.</summary>
+    internal static SpeechResult MenuSay(EntityId npc, EntityId player, UiText text)
+    {
+        Start();
+        if (ReplyHook is { } hook)
+        {
+            hook(npc.Value, player, text);
+            return SpeechResult.Yes;
+        }
+        if (SpeechNative.Loaded && LocalPlayer() is { IsNone: false } local && local == player)
+        {
+            string? note = null;
+            if (Register(text, ref note) is not { } tag) return new SpeechResult(true, note);
+            return SpeechNative.MenuSay(npc.Value, tag) == SpeechNative.Ok
+                ? SpeechResult.Yes
+                : SpeechResult.No(Capabilities.Why(SpeechNative.MenuLineCapability) ?? "npcspeech.menu_line is off here");
+        }
+        if (!IsHost) return SpeechResult.No($"{player} is not this game's player: a joined client's reply shows on its own screen only");
+        var peer = DialogPeers().FirstOrDefault(p => p.Player == player);
+        if (peer is null) return SpeechResult.No($"{player} has no Kiln client on this server: the game's menu stays as it is");
+        if (!peer.Dialog)
+            return SpeechResult.No($"{player}'s Kiln has no {DialogChannel} (0.2.0-dev.31.21 or older): the game's menu stays as it is");
+        SendToPeer(peer, new MenuSayMsg(npc.Value, SpeechText.Json(text)));
+        return SpeechResult.Yes;
+    }
+
+    internal static void Received(MenuSayMsg m)
+    {
+        if (IsHost) return;
+        UiText text;
+        try { text = SpeechText.FromJson(m.Text); }
+        catch (Exception e) when (e is FormatException or System.Text.Json.JsonException) { return; }
+        string? note = null;
+        if (Register(text, ref note) is { } tag) SpeechNative.MenuSay(m.Npc, tag);
+        else if (Interlocked.Increment(ref _warned) <= 3) ModLog.Warn($"kiln.npcspeech: {note}");
+    }
+
+    internal static void EncodeMenuSay(MenuSayMsg m, NetWriter w) => w.UInt32(m.Npc).String(m.Text);
+
+    internal static MenuSayMsg DecodeMenuSay(ref NetReader r) => new(r.UInt32(), r.String(MaxLineBytes));
 
     // ---------------------------------------------------------------------------------------- client side ----
 

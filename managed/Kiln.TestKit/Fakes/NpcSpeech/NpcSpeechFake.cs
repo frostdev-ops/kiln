@@ -16,6 +16,7 @@ internal sealed class NpcSpeechFakeState
     // since 0.2.0-dev.32: the farewell and menu line overrides, and each override's pick (kind, seed)
     internal readonly Dictionary<(uint Npc, uint Kind), uint[]> Lines = new();
     internal readonly Dictionary<(uint Npc, uint Kind), (uint Pick, uint Seed)> Picks = new();
+    internal readonly List<(EntityId Player, uint Npc, string Json)> Replies = new();
     internal int Calls;
 }
 
@@ -43,9 +44,16 @@ internal sealed unsafe class NpcSpeechFake : IKitFake
             _table->Next = &Next;
             _table->Events = &Events;
             _table->DialogStatus = &DialogStatus;
+            _table->MenuSay = &MenuSay;
         }
         KitBackend.Instance.RegisterTable(Service, (nint)_table);
-        FakeTables.Features([N.BubbleCapability, N.VoiceCapability, N.FarewellCapability]);
+        FakeTables.Features([N.BubbleCapability, N.VoiceCapability, N.FarewellCapability, N.MenuLineCapability]);
+        // Npcs.MenuSay: the kit is the host with no players' games; it records what each player would be told
+        NpcSpeechEngine.ReplyHook = static (npc, player, text) =>
+        {
+            if (StateOf() is not { } s) return;
+            lock (s.Lock) s.Replies.Add((player, npc, SpeechText.Json(text)));
+        };
     }
 
     public void Start(KilnHarness harness) { }
@@ -53,10 +61,10 @@ internal sealed unsafe class NpcSpeechFake : IKitFake
     public void End(KilnHarness harness) { }
 
     public void AddCoverage(List<CoverageRow> rows) => rows.Add(new("NPC speech (since 0.2.0-dev.31.16)", CoverageKind.RecordingFake,
-        [Service, N.BubbleCapability, N.VoiceCapability, N.FarewellCapability],
+        [Service, N.BubbleCapability, N.VoiceCapability, N.FarewellCapability, N.MenuLineCapability],
         "Kiln.Npcs on the kit's kiln.npcspeech: Npcs.Say, Npcs.Speech(...).Suppress / Replace / Clear with the owners' priorities, " +
         "and what a Kiln client's bubble of each NPC would be told (KilnHarness.NpcSpeech: ModeOf, LinesOf, Saying in a language, " +
-        "since 0.2.0-dev.32 PickOf and FarewellsOf). " +
+        "since 0.2.0-dev.32 PickOf, FarewellsOf, MenuLinesOf and RepliesTo). " +
         "Not modelled: the game's bubble itself (which NPC is the player's target, the 5 m range, its random pick among the lines, " +
         "the voice-overs Kiln mutes) and the network: the kit is the host, nothing is sent."));
 
@@ -123,6 +131,9 @@ internal sealed unsafe class NpcSpeechFake : IKitFake
     }
 
     [UnmanagedCallersOnly]
+    private static int MenuSay(uint npc, uint tag) => 0;
+
+    [UnmanagedCallersOnly]
     private static int DialogStatus(N.DialogStatus* o)
     {
         if (o == null || o->Size < (uint)sizeof(N.DialogStatus)) return FakeTables.InvalidArgument;
@@ -173,6 +184,7 @@ internal sealed unsafe class NpcSpeechFake : IKitFake
                 s.Says.Clear();
                 s.Lines.Clear();
                 s.Picks.Clear();
+                s.Replies.Clear();
             }
             return 0;
         }

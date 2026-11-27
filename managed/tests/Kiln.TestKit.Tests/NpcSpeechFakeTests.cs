@@ -84,6 +84,20 @@ public sealed class NpcSpeechFakeTests
     }
 
     [Fact]
+    public void The_menu_line_and_replies_to_a_player_are_recorded()
+    {
+        using var h = new KilnHarness();
+        h.Step();
+        var player = new EntityId(501);
+        h.Run(() => Npcs.MenuLine(Npc).Replace("I can't work like this."));
+        Assert.Equal(["I can't work like this."], h.NpcSpeech.MenuLinesOf(Npc));
+        Assert.True(h.Run(() => Npcs.MenuSay(Npc, player, "Thank you!").Ok));
+        Assert.Equal([(Npc, "Thank you!")], h.NpcSpeech.RepliesTo(player));
+        h.Run(() => Npcs.MenuLine(Npc).Clear());
+        Assert.Empty(h.NpcSpeech.MenuLinesOf(Npc));
+    }
+
+    [Fact]
     public void A_second_harness_shows_the_same_texts_and_starts_clear()
     {
         for (var round = 0; round < 2; round++)

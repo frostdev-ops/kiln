@@ -56,6 +56,7 @@ internal static unsafe class SpeechNative
         public delegate* unmanaged<uint, uint, int, int> Next;
         public delegate* unmanaged<Event*, uint, uint*, int> Events;
         public delegate* unmanaged<DialogStatus*, int> DialogStatus;
+        public delegate* unmanaged<uint, uint, int> MenuSay;
     }
 
     /// <summary>The table ends at the 31.21 members (48 bytes) in a fake or an older kiln-npcspeech.dll: no dev.32
@@ -180,6 +181,12 @@ internal static unsafe class SpeechNative
             if (n < 64) break;
         }
         return all.ToArray();
+    }
+
+    public static int MenuSay(uint npc, uint tag)
+    {
+        var t = T;
+        return Has(t, V1Size + 40) && t->MenuSay != null ? t->MenuSay(npc, tag) : Unavailable;
     }
 
     public static DialogStatus? ReadDialog()

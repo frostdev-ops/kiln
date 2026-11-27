@@ -68,6 +68,26 @@ public sealed class HarnessNpcSpeech
             return S.Lines.TryGetValue((npc.Value, 1u), out var t) ? t.Select(x => TextOf(x, language)).ToArray() : [];
     }
 
+    /// <summary>The menu's own lines (<c>Npcs.MenuLine</c>) a Kiln client's dialogue menu shows for the NPC when it
+    /// opens, in <paramref name="language"/>; empty when it keeps the game's. Since 0.2.0-dev.32.</summary>
+    public IReadOnlyList<string> MenuLinesOf(EntityId npc, string language = "en-us")
+    {
+        lock (S.Lock)
+            return S.Lines.TryGetValue((npc.Value, 2u), out var t) ? t.Select(x => TextOf(x, language)).ToArray() : [];
+    }
+
+    /// <summary>What <c>Npcs.MenuSay</c> (and a topic's reply) told <paramref name="player"/>'s menu, oldest first: the
+    /// NPC and the text in <paramref name="language"/>. Since 0.2.0-dev.32.</summary>
+    public IReadOnlyList<(EntityId Npc, string Text)> RepliesTo(EntityId player, string language = "en-us")
+    {
+        lock (S.Lock)
+            return S.Replies.Where(r => r.Player == player)
+                .Select(r => (new EntityId(r.Npc), System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(r.Json) is { } m
+                    ? new UiText(m).For(language)
+                    : r.Json))
+                .ToArray();
+    }
+
     /// <summary>How many set and say calls reached the fake (a test that expects nothing new compares it).</summary>
     public int Calls
     {

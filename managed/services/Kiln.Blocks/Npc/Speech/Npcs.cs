@@ -31,7 +31,7 @@ public sealed record SpeechResult(bool Ok, string? Reason) : IKilnResult
 public sealed record SayOptions(bool Interrupt = true);
 
 /// <summary>One mod's override of one NPC's greeting bubble (<see cref="Npcs.Speech"/>), farewell
-/// (<see cref="Npcs.Farewells"/>) or menu line (<c>Npcs.MenuLine</c>). Several mods can each have one for the same
+/// (<see cref="Npcs.Farewells"/>) or menu line (<see cref="Npcs.MenuLine"/>). Several mods can each have one for the same
 /// NPC and kind: the highest <see cref="Priority"/> shows, on a tie the most recent <see cref="Suppress"/> or
 /// <see cref="Replace(string[])"/>; when it clears, the next one does, else the game's own lines come back. It ends by
 /// <see cref="Clear"/>, when the mod unloads, or when the world ends.</summary>
@@ -179,6 +179,39 @@ public static class Npcs
         if (npc.IsNone) throw new ArgumentException("no NPC (EntityId.None)", nameof(npc));
         NpcSpeechEngine.Start();
         return new NpcSpeech(npc, NpcSpeechEngine.Owner(), NpcLineKind.Farewell);
+    }
+
+    /// <summary>The calling mod's override of the NPC's own line in its dialogue menu: the speech box's text when a
+    /// player opens the menu (E). The game shows none there (the Flame altar's NPC aside); with this, the NPC says your
+    /// line first, then the player gets its topics (none: the menu ends when the line is dismissed), and a craftsperson
+    /// opens the menu instead of going straight to crafting. <see cref="NpcSpeech.Replace(string[])"/> with its
+    /// <see cref="NpcSpeech.Pick"/> (a <see cref="SpeechPick.By"/> callback is the condition per player: -1 = no line for
+    /// that player), or <see cref="NpcSpeech.Clear"/>. Kiln clients since 0.2.0-dev.32 (capability
+    /// <c>npcspeech.menu_line</c>). Any thread. Since 0.2.0-dev.32.</summary>
+    /// <exception cref="ArgumentException"><paramref name="npc"/> is None.</exception>
+    public static NpcSpeech MenuLine(EntityId npc)
+    {
+        if (npc.IsNone) throw new ArgumentException("no NPC (EntityId.None)", nameof(npc));
+        NpcSpeechEngine.Start();
+        return new NpcSpeech(npc, NpcSpeechEngine.Owner(), NpcLineKind.MenuLine);
+    }
+
+    /// <summary>Shows <paramref name="text"/> in the speech box of <paramref name="player"/>'s dialogue menu with the
+    /// NPC: now if it is open, else when the player opens it within 5 seconds; once. The same text in every language.
+    /// On the host: the host's own player, or a joined player whose Kiln has it (0.2.0-dev.32 or later); on a joined
+    /// client: this game's own player only. Any thread. Since 0.2.0-dev.32.</summary>
+    /// <exception cref="ArgumentException">The NPC or the player is None, or the text is empty or longer than 200
+    /// characters.</exception>
+    public static SpeechResult MenuSay(EntityId npc, EntityId player, string text) => MenuSay(npc, player, new UiText(text ?? ""));
+
+    /// <summary>As <see cref="MenuSay(EntityId, EntityId, string)"/>, with a text per language.</summary>
+    /// <exception cref="ArgumentException">The NPC or the player is None, or a text is empty or too long.</exception>
+    public static SpeechResult MenuSay(EntityId npc, EntityId player, UiText text)
+    {
+        if (npc.IsNone) throw new ArgumentException("no NPC (EntityId.None)", nameof(npc));
+        if (player.IsNone) throw new ArgumentException("no player (EntityId.None)", nameof(player));
+        if (SpeechText.Problem(text) is { } p) throw new ArgumentException(p, nameof(text));
+        return NpcSpeechEngine.MenuSay(npc, player, text);
     }
 
     /// <summary>What the NPC's greeting bubble does now, from every mod's overrides (a Say aside). Any thread.</summary>

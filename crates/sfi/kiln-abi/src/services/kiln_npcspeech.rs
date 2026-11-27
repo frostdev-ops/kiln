@@ -77,4 +77,5 @@ pub struct KilnNpcSpeechApi {
     pub next: Option<unsafe extern "C" fn(KilnEntity, u32, i32) -> KilnResult>,
     pub events: Option<unsafe extern "C" fn(*mut KilnSpeechEvent, u32, *mut u32) -> KilnResult>,
     pub dialog_status: Option<unsafe extern "C" fn(*mut KilnNpcDialogStatus) -> KilnResult>,
+    pub menu_say: Option<unsafe extern "C" fn(KilnEntity, u32) -> KilnResult>,
 }

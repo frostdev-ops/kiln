@@ -36,3 +36,6 @@ static Kiln.SpeechPick.InOrder.get -> Kiln.SpeechPick!
 static Kiln.SpeechPick.Random.get -> Kiln.SpeechPick!
 static Kiln.SpeechPick.Seeded(int seed) -> Kiln.SpeechPick!
 static Kiln.Npcs.Farewells(Kiln.EntityId npc) -> Kiln.NpcSpeech!
+static Kiln.Npcs.MenuLine(Kiln.EntityId npc) -> Kiln.NpcSpeech!
+static Kiln.Npcs.MenuSay(Kiln.EntityId npc, Kiln.EntityId player, Kiln.UiText! text) -> Kiln.SpeechResult!
+static Kiln.Npcs.MenuSay(Kiln.EntityId npc, Kiln.EntityId player, string! text) -> Kiln.SpeechResult!

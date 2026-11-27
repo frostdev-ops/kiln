@@ -103,6 +103,65 @@ int main() {
         c.clear_all();
         CHECK(!c.dialog_active() && c.tracked() == 0, "clear_all ends farewells too");
     }
+    // ---- slice 3: the menu's own line at an open, and a host's reply to one player ------------------------------
+    const uint32_t say[] = {0xc1, 0xc2};
+    {  // Kiln's menu line comes back for the caller to show with SetLine at the open, with straight-to-crafting off
+        npcspeech::Core c;
+        c.set_lines(7, KILN_SPEECH_KIND_MENU, KILN_SPEECH_REPLACE, say, 2, KILN_SPEECH_PICK_ORDER, 0);
+        CHECK(c.dialog_active(), "a menu line needs the window's hook");
+        Window w;
+        auto st = c.dialog(7, w.b.data(), d, true, false, true, 1000);
+        CHECK(st.set_line == 0xc1 && st.clear_direct, "at the open: Kiln's first line, the menu stays (no straight-to-crafting)");
+        CHECK(w.line() == 0, "the core leaves the box to SetLine");
+        st = c.dialog(7, w.b.data(), d, false, false, true, 1050);
+        CHECK(st.set_line == 0 && !st.clear_direct, "the next frames: nothing");
+        st = c.dialog(7, w.b.data(), d, true, false, false, 1500);
+        CHECK(st.set_line == 0, "the game gave the open up (no record): nothing");
+        st = c.dialog(7, w.b.data(), d, true, false, true, 2000);
+        CHECK(st.set_line == 0xc2, "the next open: the next line");
+        st = c.dialog(8, w.b.data(), d, true, false, true, 2100);
+        CHECK(st.set_line == 0, "another NPC's menu: nothing");
+        CHECK(c.counts().menu_lines == 2, "menu lines Kiln showed are counted");
+        c.set_lines(9, KILN_SPEECH_KIND_MENU, KILN_SPEECH_REPLACE, say, 2, KILN_SPEECH_PICK_HOST, 0);
+        c.next(9, KILN_SPEECH_KIND_MENU, KILN_SPEECH_LINE_GAME);
+        st = c.dialog(9, w.b.data(), d, true, false, true, 3000);
+        CHECK(st.set_line == 0 && !st.clear_direct, "the host said -1 for this player: no line, the game's menu as it is");
+        c.next(9, KILN_SPEECH_KIND_MENU, 1);
+        st = c.dialog(9, w.b.data(), d, true, false, true, 4000);
+        CHECK(st.set_line == 0xc2, "the host's pick for this player");
+        // a farewell and a menu line of one NPC: a close shows the farewell, an open the line
+        c.set_lines(7, KILN_SPEECH_KIND_FAREWELL, KILN_SPEECH_REPLACE, bye, 1, KILN_SPEECH_PICK_RANDOM, 0);
+        w.set_line(kSeeYouSoon);
+        st = c.dialog(7, w.b.data(), d, false, true, true, 5000);
+        CHECK(w.line() == 0xf1 && st.set_line == 0, "the close: the farewell, no menu line");
+    }
+    {  // menu_say: shown once in the box of that NPC's open menu, if it opens within kMenuSayMs; tag 0 cancels
+        npcspeech::Core c;
+        CHECK(c.menu_say(7, 0xd1, 1000), "menu_say");
+        CHECK(c.dialog_active() && c.menu_say_pending(), "a pending reply needs the window's hook every frame");
+        Window w;
+        auto st = c.dialog(8, w.b.data(), d, false, false, true, 1100);
+        CHECK(st.set_line == 0, "another NPC's menu: not there");
+        st = c.dialog(7, w.b.data(), d, false, false, true, 1200);
+        CHECK(st.set_line == 0xd1 && !st.clear_direct, "the reply shows in this NPC's menu");
+        st = c.dialog(7, w.b.data(), d, false, false, true, 1250);
+        CHECK(st.set_line == 0 && !c.menu_say_pending() && !c.dialog_active(), "once");
+        c.menu_say(7, 0xd2, 1000);
+        st = c.dialog(7, w.b.data(), d, false, false, true, 1000 + npcspeech::kMenuSayMs + 1);
+        CHECK(st.set_line == 0 && !c.menu_say_pending(), "too late: dropped");
+        c.menu_say(7, 0xd3, 1000);
+        c.menu_say(7, 0, 1001);
+        CHECK(!c.menu_say_pending(), "tag 0 cancels");
+        CHECK(!c.menu_say(0, 0xd4, 1000), "entity 0 is refused");
+        c.set_lines(7, KILN_SPEECH_KIND_MENU, KILN_SPEECH_REPLACE, say, 2, KILN_SPEECH_PICK_ORDER, 0);
+        c.menu_say(7, 0xd5, 2000);
+        st = c.dialog(7, w.b.data(), d, true, false, true, 2001);
+        CHECK(st.set_line == 0xd5 && st.clear_direct, "a reply waiting at an open wins over the menu line, the menu stays");
+        CHECK(c.counts().menu_lines == 2, "both replies counted as menu lines");
+        c.menu_say(7, 0xd6, 3000);
+        c.clear_all();
+        CHECK(!c.menu_say_pending() && !c.dialog_active(), "clear_all drops waiting replies");
+    }
     std::printf("npcdialog core: %d PASS, %d FAIL\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }

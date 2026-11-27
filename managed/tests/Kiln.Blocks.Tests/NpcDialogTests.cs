@@ -37,6 +37,7 @@ public sealed unsafe class NpcDialogTests : IDisposable
             _table->Next = &FakeNext;
             _table->Events = &FakeEvents;
             _table->DialogStatus = &FakeDialogStatus;
+            _table->MenuSay = &FakeMenuSay;
         }
         lock (Calls) Calls.Clear();
         Wire.Clear();
@@ -132,6 +133,13 @@ public sealed unsafe class NpcDialogTests : IDisposable
 
     [UnmanagedCallersOnly]
     private static int FakeDialogStatus(SpeechNative.DialogStatus* s) => 0;
+
+    [UnmanagedCallersOnly]
+    private static int FakeMenuSay(uint npc, uint tag)
+    {
+        lock (Calls) Calls.Add($"menusay {npc} {tag:x8}");
+        return 0;
+    }
 
     private static string[] Snapshot()
     {
@@ -383,5 +391,73 @@ public sealed unsafe class NpcDialogTests : IDisposable
         Assert.DoesNotContain(Snapshot(), c => c.StartsWith($"lines {Ramone.Value} 1 0", StringComparison.Ordinal));
         NpcSpeechEngine.ReceivedDialogReset();
         Assert.Contains($"lines {Ramone.Value} 1 0 [] pick 1 seed 0", Snapshot());
+    }
+
+    // ------------------------------------------------------------------------- slice 3: the menu's own line ----
+
+    [Fact]
+    public void The_menu_line_is_set_per_npc_with_its_pick_for_dev32_clients()
+    {
+        var m = Npcs.MenuLine(Ramone);
+        Assert.Equal(NpcLineKind.MenuLine, m.Kind);
+        Assert.True(m.Replace("I can't work like this. Bring me food.").Ok);
+        Assert.Contains($"lines {Ramone.Value} 2 2 [{Tag("I can't work like this. Bring me food."):x8}] pick 1 seed 0", Snapshot());
+        Assert.Equal(NpcLineKind.MenuLine, Assert.Single(Wire.OfType<LinesMsg>()).Kind);
+        Assert.Empty(Wire.OfType<SpeechMsg>());
+        Assert.False(m.Suppress().Ok);
+        Assert.Throws<ArgumentException>(() => Npcs.MenuLine(EntityId.None));
+    }
+
+    [Fact]
+    public void A_condition_per_player_is_a_By_pick_asked_again_at_Refresh()
+    {
+        Peers.Add(new SpeechPeer(1, P1, Dialog: true));
+        Peers.Add(new SpeechPeer(2, P2, Dialog: true));
+        var fed = new HashSet<EntityId> { P1 };
+        var m = Npcs.MenuLine(Hannah);
+        m.Pick = SpeechPick.By(ctx => fed.Contains(ctx.Player) ? -1 : 0);   // only to players who have not fed her
+        m.Replace("Have you brought bread?");
+        NpcSpeechEngine.Tick();
+        Assert.Contains((1u, (object)new NextMsg(Hannah.Value, NpcLineKind.MenuLine, -1)), ToPeers);
+        Assert.Contains((2u, (object)new NextMsg(Hannah.Value, NpcLineKind.MenuLine, 0)), ToPeers);
+        ToPeers.Clear();
+        fed.Add(P2);
+        m.Refresh();
+        NpcSpeechEngine.Tick();
+        Assert.Contains((2u, (object)new NextMsg(Hannah.Value, NpcLineKind.MenuLine, -1)), ToPeers);
+    }
+
+    [Fact]
+    public void A_reply_goes_to_one_players_menu()
+    {
+        Peers.Add(new SpeechPeer(1, P1, Dialog: true));
+        Peers.Add(new SpeechPeer(2, P2, Dialog: false));               // a 31.21 client
+        var r = Npcs.MenuSay(Ramone, P1, "Thank you, Flameborn!");
+        Assert.True(r.Ok, r.ToString());
+        Assert.Contains((1u, (object)new MenuSayMsg(Ramone.Value, SpeechText.Json(new UiText("Thank you, Flameborn!")))), ToPeers);
+        var old = Npcs.MenuSay(Ramone, P2, "Thank you!");
+        Assert.False(old.Ok);
+        Assert.Contains("kiln:npcdialog", old.Reason);
+        Assert.False(Npcs.MenuSay(Ramone, new EntityId(999), "Who?").Ok);   // not a Kiln player here
+
+        var mine = Npcs.MenuSay(Ramone, Local, UiText.Of(("en", "Thanks!"), ("de", "Danke!")));   // the host's own player
+        Assert.True(mine.Ok);
+        Assert.Contains($"menusay {Ramone.Value} {SpeechText.Tag(SpeechText.Json(UiText.Of(("en", "Thanks!"), ("de", "Danke!")))):x8}", Snapshot());
+        Assert.Throws<ArgumentException>(() => Npcs.MenuSay(Ramone, EntityId.None, "x"));
+        Assert.Throws<ArgumentException>(() => Npcs.MenuSay(Ramone, P1, ""));
+    }
+
+    [Fact]
+    public void A_joined_client_shows_a_reply_from_the_host_and_the_wire_round_trips()
+    {
+        _host = false;
+        var text = SpeechText.Json(new UiText("Thank you!"));
+        NpcSpeechEngine.Received(new MenuSayMsg(Ramone.Value, text));
+        Assert.Contains($"menusay {Ramone.Value} {SpeechText.Tag(text):x8}", Snapshot());
+        NpcSpeechEngine.Received(new MenuSayMsg(Ramone.Value, "not json"));   // ignored
+        var w = new NetWriter();
+        NpcSpeechEngine.EncodeMenuSay(new MenuSayMsg(5, text), w);
+        var rd = new NetReader(w.ToArray());
+        Assert.Equal(new MenuSayMsg(5, text), NpcSpeechEngine.DecodeMenuSay(ref rd));
     }
 }

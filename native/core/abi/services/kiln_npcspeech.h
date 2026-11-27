@@ -120,6 +120,11 @@ typedef struct KilnNpcSpeechApi {
     KilnResult(KILN_CALL* events)(KilnSpeechEvent* out, uint32_t max, uint32_t* n);
     /* Any thread. */
     KilnResult(KILN_CALL* dialog_status)(KilnNpcDialogStatus* out);
+    /* One text (a tag) in the speech box of the NPC's dialogue menu on this game: now if it is open, else when it opens
+     * within 5 s; once. Tag 0 cancels a waiting one. For a host's reply to one player (its client calls this). Any
+     * thread. KILN_ERR_UNAVAILABLE: npcspeech.menu_line is not on this build (or kiln.content's loca hooks are not here);
+     * KILN_ERR_INVALID_ARGUMENT: entity 0. */
+    KilnResult(KILN_CALL* menu_say)(KilnEntity npc, uint32_t tag);
 } KilnNpcSpeechApi;
 
 #ifdef __cplusplus
@@ -131,15 +136,15 @@ static_assert(sizeof(KilnNpcDialogStatus) == 72, "KilnNpcDialogStatus is 72 byte
 static_assert(offsetof(KilnNpcSpeechApi, status) == 40, "31.16's table ends with status at 40 (48 bytes)");
 static_assert(offsetof(KilnNpcSpeechApi, set_lines) == 48, "set_lines is appended at 48");
 static_assert(offsetof(KilnNpcSpeechApi, next) == 56 && offsetof(KilnNpcSpeechApi, events) == 64 &&
-                  offsetof(KilnNpcSpeechApi, dialog_status) == 72,
-              "next, events and dialog_status follow");
+                  offsetof(KilnNpcSpeechApi, dialog_status) == 72 && offsetof(KilnNpcSpeechApi, menu_say) == 80,
+              "next, events, dialog_status and menu_say follow");
 #else
 _Static_assert(sizeof(KilnSpeechEvent) == 16, "KilnSpeechEvent is 16 bytes");
 _Static_assert(sizeof(KilnNpcDialogStatus) == 72, "KilnNpcDialogStatus is 72 bytes");
 _Static_assert(offsetof(KilnNpcSpeechApi, status) == 40, "31.16's table ends with status at 40 (48 bytes)");
 _Static_assert(offsetof(KilnNpcSpeechApi, set_lines) == 48, "set_lines is appended at 48");
 _Static_assert(offsetof(KilnNpcSpeechApi, next) == 56 && offsetof(KilnNpcSpeechApi, events) == 64 &&
-                   offsetof(KilnNpcSpeechApi, dialog_status) == 72,
-               "next, events and dialog_status follow");
+                   offsetof(KilnNpcSpeechApi, dialog_status) == 72 && offsetof(KilnNpcSpeechApi, menu_say) == 80,
+               "next, events, dialog_status and menu_say follow");
 #endif
 #endif

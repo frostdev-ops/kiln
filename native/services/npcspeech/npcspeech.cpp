@@ -12,8 +12,10 @@
 // Kiln's texts are loca tags that kiln.content's loca hooks answer (kc_nc_set_texts). Nothing here runs a managed callback.
 //
 // Since 0.2.0-dev.32 the dialogue menu too (docs/re/npc-speech.md section 6): DialogUpdate's detour lets the game update
-// the window, then puts a farewell of Kiln's in its speech box after a close request. The dialogue's NPC is the UI's
-// play.target (ui/UiApp -> ui.data -> state -> state.play -> play.target, as kiln.ui reads it).
+// the window, then puts a farewell of Kiln's in its speech box after a close request, and after an open request shows
+// the menu's own line of Kiln's (or a host's reply) with the game's SetLine and keeps the menu from going straight to
+// crafting. The dialogue's NPC is the UI's play.target (ui/UiApp -> ui.data -> state -> state.play -> play.target, as
+// kiln.ui reads it).
 #include <windows.h>
 
 #include <atomic>
@@ -161,9 +163,10 @@ struct UiChain {
     int64_t ui_data = 0, state_play = 0, play_target = 0;
 };
 UiChain g_ui;
-uintptr_t g_update_at = 0;
+uintptr_t g_update_at = 0, g_set_line_at = 0;
 npcspeech::DialogLayout g_dlay;
 bool g_farewell_ok = false;  // npcspeech.farewell
+bool g_menu_ok = false;      // npcspeech.menu_line: SetLine too
 kiln::RawHook g_h_update;
 std::atomic<bool> g_dialog_installed{false}, g_dialog_failed{false};
 std::atomic<uint32_t> g_dialog_faults{0};
@@ -178,7 +181,10 @@ void resolve_dialog() {
                         (g_dlay.close = v, true) && constant("npcdialog/win.open", &v) && (g_dlay.open = v, true) &&
                         constant("npcdialog/win.direct", &v) && (g_dlay.direct = v, true) && g_dlay.sane();
     g_farewell_ok = update && g_api->feature(S("npcspeech.farewell"));
+    g_menu_ok = update && g_api->feature(S("npcspeech.menu_line")) && g_api->symbol(S("npcdialog/SetLine"), &g_set_line_at) == KILN_OK &&
+                g_set_line_at;
     if (!g_farewell_ok) NS_W("npcspeech.farewell did not resolve: farewells stay the game's");
+    if (!g_menu_ok) NS_W("npcspeech.menu_line did not resolve: the dialogue menu's own line stays the game's");
 }
 
 // The dialogue's NPC (play.target) while a UI frame runs; 0 when none. No C++ objects in here (__try).
@@ -218,6 +224,18 @@ bool seh_dialog(npcspeech::Core* core, uint32_t npc, uint8_t* w, bool open, bool
 }
 
 using UpdateFn = uint8_t (*)(void*);
+using SetLineFn = void (*)(void*, uint32_t);
+
+// The game's own SetLine (the box's text, its reveal and sound) and no straight-to-crafting, under SEH.
+bool seh_show(uint8_t* w, const npcspeech::DialogStep& step) {
+    __try {
+        if (step.set_line && g_menu_ok) reinterpret_cast<SetLineFn>(g_set_line_at)(w, step.set_line);
+        if (step.clear_direct && g_menu_ok) w[g_dlay.direct] = 0;
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
 
 uint8_t hk_update(void* window) {
     auto* w = static_cast<uint8_t*>(window);
@@ -225,9 +243,10 @@ uint8_t hk_update(void* window) {
     if (!w || !g_core.dialog_active() || g_dialog_faults.load(std::memory_order_relaxed) >= 8 || !seh_flags(w, &open, &close))
         return g_h_update.original<UpdateFn>()(window);
     const uint8_t kept = g_h_update.original<UpdateFn>()(window);
-    if (!open && !close) return kept;
+    if (!open && !close && !g_core.menu_say_pending()) return kept;
     npcspeech::DialogStep step;
-    if (!seh_dialog(&g_core, dialog_npc(), w, open, close, kept != 0, &step) && g_dialog_faults.fetch_add(1) == 7)
+    const bool ok = seh_dialog(&g_core, dialog_npc(), w, open, close, kept != 0, &step) && seh_show(w, step);
+    if (!ok && g_dialog_faults.fetch_add(1) == 7)
         NS_W("the dialogue window faulted 8 times: farewells and menu lines are left to the game for this session");
     return kept;
 }
@@ -235,6 +254,7 @@ uint8_t hk_update(void* window) {
 KilnResult dialog_usable(uint32_t kind) {
     if (g_dialog_failed.load()) return KILN_ERR_UNAVAILABLE;
     if (kind == KILN_SPEECH_KIND_FAREWELL) return g_farewell_ok ? KILN_OK : KILN_ERR_UNAVAILABLE;
+    if (kind == KILN_SPEECH_KIND_MENU) return g_menu_ok ? KILN_OK : KILN_ERR_UNAVAILABLE;
     return KILN_ERR_UNAVAILABLE;
 }
 
@@ -242,7 +262,7 @@ std::mutex g_dialog_mu;
 
 bool install_dialog() {
     if (g_dialog_installed.load()) return true;
-    if (g_dialog_failed.load() || !g_farewell_ok) return false;
+    if (g_dialog_failed.load() || !(g_farewell_ok || g_menu_ok)) return false;
     std::lock_guard lock(g_dialog_mu);
     if (g_dialog_installed.load()) return true;
     if (!g_h_update.install(g_api, g_owner, g_update_at, reinterpret_cast<void*>(&hk_update), "npcdialog/DialogUpdate")) {
@@ -257,9 +277,13 @@ bool install_dialog() {
     return true;
 }
 
-uint32_t dialog_resolved() { return g_farewell_ok ? 1u : 0u; }
+uint32_t dialog_resolved() { return (g_farewell_ok ? 1u : 0u) | (g_menu_ok ? 2u : 0u); }
 uint32_t dialog_installed() { return g_dialog_installed.load() ? 1u : 0u; }
-void dialog_counts(KilnNpcDialogStatus* out) { out->farewells = g_core.counts().farewells; }
+void dialog_counts(KilnNpcDialogStatus* out) {
+    const auto c = g_core.counts();
+    out->farewells = c.farewells;
+    out->menu_lines = c.menu_lines;
+}
 
 // ------------------------------------------------------------------------------------------------ table ----------
 KilnResult usable() {
@@ -323,6 +347,16 @@ KilnResult KILN_CALL events(KilnSpeechEvent* out, uint32_t max, uint32_t* n) {
     return KILN_OK;
 }
 
+KilnResult KILN_CALL menu_say(KilnEntity npc, uint32_t tag) {
+    if (!npc) return KILN_ERR_INVALID_ARGUMENT;
+    if (tag) {
+        if (KilnResult rc = dialog_usable(KILN_SPEECH_KIND_MENU); rc != KILN_OK) return rc;
+        if (!texts_here() || !install_dialog()) return KILN_ERR_UNAVAILABLE;
+    }
+    g_core.menu_say(npc, tag, GetTickCount64());
+    return KILN_OK;
+}
+
 KilnResult KILN_CALL dialog_status(KilnNpcDialogStatus* out) {
     if (!out || out->size < sizeof(KilnNpcDialogStatus)) return KILN_ERR_INVALID_ARGUMENT;
     std::memset(reinterpret_cast<uint8_t*>(out) + sizeof(uint32_t), 0, sizeof(KilnNpcDialogStatus) - sizeof(uint32_t));
@@ -353,7 +387,7 @@ KilnResult KILN_CALL status(KilnNpcSpeechStatus* out) {
 }
 
 const KilnNpcSpeechApi kTable = {{sizeof(KilnNpcSpeechApi), KILN_NPCSPEECH_VERSION}, &set, &say, &text, &clear_all, &status,
-                                  &set_lines, &next, &events, &dialog_status};
+                                  &set_lines, &next, &events, &dialog_status, &menu_say};
 
 void KILN_CALL on_ready(void*) {
     if (!texts_here()) NS_W("kiln.content's loca hooks (content.loca) are not here: Kiln's lines cannot be shown, only Suppress works");

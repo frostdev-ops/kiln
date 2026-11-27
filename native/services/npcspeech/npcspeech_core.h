@@ -36,7 +36,7 @@ struct Layout {
 
 struct Counts {
     uint32_t overrides = 0, says = 0, texts = 0, lines = 0, queued = 0;
-    uint64_t bubbles = 0, changed = 0, muted = 0, opens = 0, dropped = 0, farewells = 0;
+    uint64_t bubbles = 0, changed = 0, muted = 0, opens = 0, dropped = 0, farewells = 0, menu_lines = 0;
 };
 
 // The dialogue window's offsets (sigdb client.d/npcdialog.json; 26430625's values as defaults for the tests).
@@ -61,6 +61,7 @@ constexpr uint64_t kMaxEntries = 256;  // a list longer than this is not a dialo
 constexpr uint64_t kReopenMs = KILN_SPEECH_REOPEN_MS;  // hidden this long, then shown: a new greeting
 constexpr uint32_t kMaxEvents = 512;                   // events() keeps this many; older ones are dropped
 constexpr uint32_t kKinds = 3;
+constexpr uint64_t kMenuSayMs = 5000;                  // a host's reply waits this long for its NPC's menu
 
 class Core {
 public:
@@ -137,8 +138,21 @@ public:
         return k;
     }
 
-    // A farewell or menu line is set for some NPC (the dialogue window's hooks have work).
-    bool dialog_active() const { return lines_.load(std::memory_order_acquire); }
+    // A farewell or menu line is set for some NPC, or a reply waits (the dialogue window's hook has work).
+    bool dialog_active() const { return lines_.load(std::memory_order_acquire) || says_waiting_.load(std::memory_order_acquire); }
+
+    // A host's reply waits for a menu (the window's hook looks every frame, not only at an open or a close).
+    bool menu_say_pending() const { return says_waiting_.load(std::memory_order_acquire); }
+
+    // A reply in the speech box of npc's menu: now if it is open, else at its open within kMenuSayMs; once. Tag 0 cancels.
+    bool menu_say(uint32_t npc, uint32_t tag, uint64_t now) {
+        if (!npc) return false;
+        std::lock_guard lock(mu_);
+        if (tag) says_[npc] = MenuSay{tag, now + kMenuSayMs};
+        else says_.erase(npc);
+        publish();
+        return true;
+    }
 
     // After the game's DialogUpdate(W) for the dialogue with `npc` (play.target): `was_open` / `was_close` are W's
     // requests at the call's entry, `kept` its answer (false: the caller closes the dialogue). A farewell of Kiln's
@@ -151,9 +165,33 @@ public:
         uint32_t farewell = 0;
         {
             std::lock_guard lock(mu_);
+            bool replied = false;
+            if (!says_.empty()) {
+                for (auto x = says_.begin(); x != says_.end();) x = x->second.until < now ? says_.erase(x) : std::next(x);
+                auto r = says_.find(npc);
+                if (r != says_.end() && !was_close && (!was_open || kept)) {  // a host's reply to this player
+                    out.set_line = r->second.tag;
+                    out.clear_direct = was_open;
+                    says_.erase(r);
+                    menu_lines_++;
+                    replied = true;
+                }
+                publish();
+            }
             auto it = npcs_.find(npc);
             if (it == npcs_.end()) return out;
             auto& s = it->second;
+            if (was_open && kept && !replied) {  // the menu's own line (the game clears it at an open, Flame NPCs aside)
+                auto& m = s.kinds[KILN_SPEECH_KIND_MENU];
+                if (m.mode == KILN_SPEECH_REPLACE && !m.tags.empty()) {
+                    const int32_t i = choose(npc, KILN_SPEECH_KIND_MENU, m);
+                    if (i >= 0) {
+                        out.set_line = m.tags[static_cast<size_t>(i) < m.tags.size() ? i : 0];
+                        out.clear_direct = true;
+                        menu_lines_++;
+                    }
+                }
+            }
             if (was_close && !was_open) {
                 auto& f = s.kinds[KILN_SPEECH_KIND_FAREWELL];
                 if (f.mode == KILN_SPEECH_REPLACE && !f.tags.empty()) {
@@ -181,6 +219,7 @@ public:
 
     void clear_all() {
         std::lock_guard lock(mu_);
+        says_.clear();
         for (auto it = npcs_.begin(); it != npcs_.end();) {
             for (auto& L : it->second.kinds) L = Lines{};
             it->second.say_tag = 0;
@@ -308,6 +347,7 @@ public:
         c.opens = opens_;
         c.dropped = dropped_;
         c.farewells = farewells_;
+        c.menu_lines = menu_lines_;
         c.queued = static_cast<uint32_t>(events_.size());
         return c;
     }
@@ -427,6 +467,7 @@ private:
         }
         any_.store(any, std::memory_order_release);
         lines_.store(lines, std::memory_order_release);
+        says_waiting_.store(!says_.empty(), std::memory_order_release);
     }
 
     void tally(Counts& c) const {
@@ -499,7 +540,13 @@ private:
     std::atomic<bool> any_{false}, lines_{false};
     std::atomic<uint32_t> texts_{0};
     bool prune_later_ = false;
-    uint64_t bubbles_ = 0, changed_ = 0, muted_ = 0, opens_ = 0, dropped_ = 0, farewells_ = 0;
+    uint64_t bubbles_ = 0, changed_ = 0, muted_ = 0, opens_ = 0, dropped_ = 0, farewells_ = 0, menu_lines_ = 0;
+    struct MenuSay {
+        uint32_t tag;
+        uint64_t until;
+    };
+    std::unordered_map<uint32_t, MenuSay> says_;  // a host's replies waiting for their NPC's menu
+    std::atomic<bool> says_waiting_{false};
     uint32_t rng_ = 0x9e3779b9u;
 };
 
