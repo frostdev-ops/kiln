@@ -70,7 +70,7 @@ passes for the newest one. Two lines added in the same server step show only the
 Joins per server session: each bot gets a machine index no bot held before in that server session (a left bot's index
 stays backed up with what the server sent it, which nothing ever acknowledged: the next bot there stayed in the game's
 spawn search for good, `docs/re/labbot.md` "A join after a bot left"). There are 16 (less one for each player
-connected), so about 15 joins per server session; then `join` refuses with `LabBotError` "... no machine index is free
+connected), so about 15 joins per server session; then `join` refuses with `LabBotError` "... no machine index is left
 that no bot held in this server session ... restart the lab". Bots may leave and join again in any order until then,
 under new names or the same one (the same name is the same character; a bot uploads a new character at each join, so
 its inventory starts empty again: the game keeps a character's save on its client).

@@ -130,7 +130,8 @@ public static unsafe class LabBots
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="group"/> is none of <see cref="LabBotGroup"/>.</exception>
     /// <exception cref="InvalidOperationException"><see cref="Max"/> bots are live, no player slot is free, no machine
     /// index is free that no bot held in this server session (each bot needs a fresh one, about 15 per server session:
-    /// restart the lab), or no such user group.</exception>
+    /// restart the lab), or no such user group. The message says which (the slot and machine cases together; kiln.log
+    /// tells them apart).</exception>
     /// <exception cref="KilnUnavailableException"><c>labbot.join</c> is off (not a lab server) or no server world runs.</exception>
     [ServerOnly]
     [TickThreadOnly]
@@ -160,9 +161,7 @@ public static unsafe class LabBots
             case LabBotNative.InvalidArgument:
                 throw new ArgumentException($"bot '{name}': {WhyRefused(name)}", nameof(name));
             case LabBotNative.NotFound:
-                throw new InvalidOperationException($"no room for bot '{name}': {Max} bots are live, no player slot is free, no machine " +
-                                                    "index is free that no bot held in this server session (each bot needs a fresh one: " +
-                                                    "restart the lab), or no such user group");
+                throw new InvalidOperationException($"no room for bot '{name}': {WhyNoRoom(group, groupIndex)}");
             case LabBotNative.Unavailable:
                 throw new KilnUnavailableException(Capability, Status().Why);
             default:
@@ -306,6 +305,18 @@ public static unsafe class LabBots
             return "a bot name uses letters, digits, space, '_', '-' and '.' only";
         if (All().Any(b => !b.Ended && b.Name == name)) return "a live bot has that name";
         return "kiln.labbot refused the join (kiln.log says why)";
+    }
+
+    // kiln.labbot's KILN_ERR_NOT_FOUND for a join, told apart: Max live bots, a user group the server does not have, else
+    // the machine indices (each bot needs one no bot held in this server session) or, on a full server, the player slots
+    private static string WhyNoRoom(LabBotGroup group, int groupIndex)
+    {
+        if (All().Count(b => !b.Ended) >= Max) return $"{Max} bots are live (LabBots.Max): one must leave first";
+        var groups = Status().Groups;
+        if (groups == 0) return "the server has no user groups";
+        if (group == LabBotGroup.Index && groupIndex >= groups) return $"the server has no user group {groupIndex} (it has {groups})";
+        return "no machine index is left that no bot held in this server session (each bot needs a fresh one: about 15 joins " +
+               "per server session, less one for each player on it; restart the lab), or no player slot is free (kiln.log says which)";
     }
 
     private static LabBotInfo Convert(LabBotNative.Info* i) =>

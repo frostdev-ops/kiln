@@ -20,6 +20,7 @@ public sealed unsafe class LabBotsTests : IDisposable
     private static uint _group, _groupIndex, _flags, _leaveId, _leaveFlags;
     private static ulong _owner;
     private static uint _inputId;
+    private static int _live = 7;  // FakeList: how many of its bots after the newest (Failed) are in game; the rest left
     private static LabBotNative.InputData _input;
     private static readonly LabBotNative.Table* Table = MakeTable(withInput: true);
     private static readonly LabBotNative.Table* OldTable = MakeTable(withInput: false);  // kiln.labbot before input()
@@ -127,7 +128,7 @@ public sealed unsafe class LabBotsTests : IDisposable
         for (uint k = 0; k < cap; k++)
         {
             if (o[k].Size < 328) return 1;
-            Fill(&o[k], 10 - k, k == 0 ? 8u : 5u, $"bot {10 - k}");
+            Fill(&o[k], 10 - k, k == 0 ? 8u : k <= _live ? 5u : 7u, $"bot {10 - k}");
         }
         return 0;
     }
@@ -135,6 +136,7 @@ public sealed unsafe class LabBotsTests : IDisposable
     public LabBotsTests()
     {
         _rc = 0;
+        _live = 7;
         LabBotNative.UseTable(Table);
     }
 
@@ -173,6 +175,7 @@ public sealed unsafe class LabBotsTests : IDisposable
         _rc = 1;
         Assert.Throws<ArgumentException>(() => LabBots.Join("x/y"));
         _rc = 2;
+        _live = 1;
         var room = Assert.Throws<InvalidOperationException>(() => LabBots.Join("Bot Birch")).Message;
         Assert.Contains("no room", room);
         // each bot needs a machine index no bot held in this server session (lab p1): a restart gives them back
@@ -199,6 +202,28 @@ public sealed unsafe class LabBotsTests : IDisposable
         Assert.Contains("kiln.log", e.Message);
         Assert.DoesNotContain("logged in earlier", e.Message);
         Assert.Throws<ArgumentOutOfRangeException>(() => LabBots.Join("Bot Alder", (LabBotGroup)7));
+    }
+
+    [Fact]
+    public void ANoRoomRefusalSaysWhichLimitTheJoinMet()
+    {
+        _rc = 2;  // kiln.labbot answers KILN_ERR_NOT_FOUND for each of these (kiln.log says which)
+        _live = 4;
+        var full = Assert.Throws<InvalidOperationException>(() => LabBots.Join("Bot Birch")).Message;
+        Assert.Contains($"{LabBots.Max} bots are live", full);
+        Assert.DoesNotContain("restart the lab", full);
+        _live = 1;
+        // the about-15-joins limit: each bot needs a machine index no bot held in this server session (lab p1)
+        var spent = Assert.Throws<InvalidOperationException>(() => LabBots.Join("Bot Birch")).Message;
+        Assert.Contains("no machine index is left", spent);
+        Assert.Contains("about 15 joins per server session", spent);
+        Assert.Contains("restart the lab", spent);
+        Assert.DoesNotContain("bots are live", spent);
+        Assert.DoesNotContain("user group", spent);
+        // FakeStatus: 4 user groups
+        var group = Assert.Throws<InvalidOperationException>(() => LabBots.Join("Bot Birch", LabBotGroup.Index, 9)).Message;
+        Assert.Contains("no user group 9 (it has 4)", group);
+        Assert.DoesNotContain("restart the lab", group);
     }
 
     [Fact]
