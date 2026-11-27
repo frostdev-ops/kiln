@@ -161,6 +161,7 @@ struct TreeView final : kiln::boot_view::BaseView {
     }
 };
 
+const char* kLootItems = "3064d35d-7342-40ca-bdc9-aad58f83bf45";  // lootRules' one resource (regmap/common/lootRules.json)
 TreeView world() {
     TreeView v;
     auto item = [&](int n, const std::string& name, int stack) {
@@ -174,7 +175,7 @@ TreeView world() {
           {{"recipes", json::array({{{"debugName", "Craft_Planks"}, {"recipeGuid", g(101)}, {"recipeId", 5001}, {"input", json::array({in})},
                                      {"output", json::array({{{"item", 1002}, {"itemRef", g(2)}, {"count", 1}}})}, {"craftingDuration", 2.0}}})},
            {"inputCategories", json::array()}});
-    v.add("keen::LootableItemsResource", g(200), {{"globalRarityDropRates", json::array({40.0, 30.0, 20.0, 8.0, 2.0})},
+    v.add("keen::LootableItemsResource", kLootItems, {{"globalRarityDropRates", json::array({40.0, 30.0, 20.0, 8.0, 2.0})},
                                                   {"items", json::array({{{"itemId", 1002}, {"stackSizeMin", 1}, {"stackSizeMax", 2}}})}});
     // the random loot tables (lootRules / randomLoot): one label table by its id, one world table named after its first chest
     auto table = [](const char* mode, double weight) {
@@ -1398,7 +1399,7 @@ std::vector<stage::Env::DataFile> loot_rules_sections(const Schema& schema) {
 void archive_journal_loot_rules_shares_its_resource(const std::string& dir) {
     const std::string live = std::string(64, 'a');
     auto journal = [&](int format, json paths) {
-        json changed = {{"guid", g(200)}, {"typeHash", "0badf00d"}, {"part", 0}, {"createdBy", nullptr}};
+        json changed = {{"guid", kLootItems}, {"typeHash", "0badf00d"}, {"part", 0}, {"createdBy", nullptr}};
         if (format == 2) changed["paths"] = paths;
         return json{{"format", format}, {"stem", "enshrouded_server"}, {"generation", live}, {"receiptSha256", std::string(64, 'b')},
                     {"dialect", format == 2 ? "eml" : "shroudforge"}, {"attempt", "first"}, {"truncated", false},
