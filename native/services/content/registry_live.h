@@ -139,9 +139,48 @@ KilnResult registry_live_begin(KilnOwner owner, const std::string& mod, uint32_t
 KilnResult registry_live_submit(KilnOwner owner, uint64_t handle, const std::string& ir, RegistryLiveReply* out, std::string* report);
 KilnResult registry_live_commit(KilnOwner owner, uint64_t handle, RegistryLiveReply* out);
 KilnResult registry_live_revert(KilnOwner owner, uint64_t handle, RegistryLiveReply* out);
+// One turn (dev.32, Registry.Reauthor's replace): commit's drafts commit in that order (each later than the one before) and
+// replaced's retained changes come out, in one composition and one write of the bytes that change, so the game never holds
+// the earlier layers gone without the new ones, nor both. A candidate whose own write, binding or slot fails rolls the whole
+// turn back: no candidate stays and every replaced change is in its place again. *out: one reply per commit entry, then one per
+// replaced entry (Reverted; Skipped or Unverified as a revert says them; Refused when the turn rolled back and it stayed). Every
+// handle is its owner's (commit: drafts, replaced: retained changes), each once; world thread, like commit and revert.
+struct RegistryLiveTurn {
+    std::vector<std::pair<KilnOwner, uint64_t>> commit, replaced;
+};
+KilnResult registry_live_replace(const RegistryLiveTurn& turn, std::vector<RegistryLiveReply>* out);
+// Registry.Reauthor off the world tick (dev.32 LOOT-2). A re-authored pass runs on a worker thread of Kiln.Host's and reads
+// with registry_live_read's world; its calls (one IR per callback, in commit order) are parsed, composed, bound and evaluated
+// off the world thread by registry_live_prepare, from the live state as it is (the store's lock held a slice at a time), and
+// the world thread lands them with registry_live_install_turn: the changes, bindings and layers swap in and one flush writes the
+// bytes that change. epoch: what a pass reads moves it (any composition, a world's begin or end, a write below the registry).
+struct RegistryLiveCall {
+    KilnOwner owner = 0;
+    std::string mod;
+    uint32_t point = 2;  // KILN_REGISTRY_LIVE_WORLD_LOAD
+    std::string ir;
+};
+uint64_t registry_live_epoch();
+// *ticket: the prepared turn. KILN_ERR_UNAVAILABLE and *stale: 1 the registry moved since `epoch` (run the pass again), 2 it
+// moved while preparing (prepare again); also no world, or no live back-end. INVALID_ARGUMENT: an IR or a handle refused.
+KilnResult registry_live_prepare(const std::vector<RegistryLiveCall>& calls, const std::vector<std::pair<KilnOwner, uint64_t>>& replaced,
+                                 uint64_t epoch, uint64_t* ticket, uint32_t* stale);
+// The world thread lands a prepared turn: *replies one per call then one per replaced change (as registry_live_replace's), and
+// *handles one per call (its retained change, 0: none). KILN_ERR_UNAVAILABLE and *stale (the ticket is used up): 1 the pass's
+// reads are stale, 2 only the preparation is; with kRegistryInstallAnyway a stale preparation lands the classic way instead (the
+// same turn composed and written on the world thread), as a turn the preparation does not cover always does (a field evaluated
+// over other fields' values, a removal, the stack guard). NOT_FOUND: no such ticket.
+constexpr uint32_t kRegistryInstallAnyway = 1;
+KilnResult registry_live_install_turn(uint64_t ticket, uint32_t flags, std::vector<RegistryLiveReply>* replies, std::vector<uint64_t>* handles,
+                                      uint32_t* stale);
+void registry_live_discard(uint64_t ticket);
+// Builds the registry.json report a landed turn owes, off the world thread (the store's lock a slice at a time). False: the
+// registry moved meanwhile (the world tick builds it if no later call does).
+bool registry_live_build_report();
 // exclude_mod (kiln.internal.registry read_pass, review4 NS5): the value without that mod's own registry rows.
+// world (dev.32): a pass prepared off the world thread reads on any thread, in that world only (KILN_ERR_UNAVAILABLE in another).
 KilnResult registry_live_read(const std::string& registry, const std::string& id, const std::string& field, std::string* out,
-                              const std::string& exclude_mod = {});
+                              const std::string& exclude_mod = {}, uint64_t world = 0);
 RegistryLiveStatus registry_live_status();
 void registry_live_world_begin(uint32_t kind = KILN_WORLD_SERVER);
 void registry_live_world_stop();

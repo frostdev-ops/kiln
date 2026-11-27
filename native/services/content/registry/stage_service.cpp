@@ -564,7 +564,64 @@ KilnResult KILN_CALL h_read_pass(KilnOwner owner, KilnStr reg, KilnStr id, KilnS
     const KilnResult rc = registry_live_read(str(reg), str(id), str(field), &text, mod);
     return rc == KILN_OK ? copy_out(text, buf, cap, len) : rc;
 }
-const KilnRegistryHostApi kHostTable = {{sizeof(KilnRegistryHostApi), KILN_REGISTRY_HOST_VERSION}, &h_set_order, &h_set_mode, &h_read_pass};
+// v3 (dev.32 LOOT-2): Registry.Reauthor's turn prepared off the world tick (registry_live.h).
+uint64_t KILN_CALL h_epoch() { return registry_live_epoch(); }
+KilnResult KILN_CALL h_read_pass_in(KilnOwner owner, uint64_t world, KilnStr reg, KilnStr id, KilnStr field, char* buf, size_t cap, size_t* len) {
+    if (!world || !str_ok(reg, 1024) || !str_ok(id, 1024) || !str_ok(field, 1024) || (!buf && cap)) return KILN_ERR_INVALID_ARGUMENT;
+    std::string mod;
+    const KilnResult own = bound_owner(owner, &mod);
+    if (own != KILN_OK) return own;
+    std::string text;
+    const KilnResult rc = registry_live_read(str(reg), str(id), str(field), &text, mod, world);
+    return rc == KILN_OK ? copy_out(text, buf, cap, len) : rc;
+}
+KilnResult KILN_CALL h_prepare(const KilnRegistryPassCall* calls, size_t call_count, const KilnRegistryTurnItem* replaced, size_t replaced_count,
+                               uint64_t epoch, uint64_t* ticket, uint32_t* stale) {
+    if (!ticket || !stale || (!calls && call_count) || (!replaced && replaced_count) || call_count > 64 || replaced_count > 1024) return KILN_ERR_INVALID_ARGUMENT;
+    std::vector<RegistryLiveCall> in;
+    for (size_t i = 0; i < call_count; ++i) {
+        RegistryLiveCall c;
+        if (!str_ok(calls[i].ir, KILN_REGISTRY_MAX_IR_BYTES)) return KILN_ERR_INVALID_ARGUMENT;
+        if (const KilnResult own = bound_owner(calls[i].owner, &c.mod); own != KILN_OK) return own;
+        c.owner = calls[i].owner, c.point = calls[i].point, c.ir = str(calls[i].ir);
+        in.push_back(std::move(c));
+    }
+    std::vector<std::pair<KilnOwner, uint64_t>> out;
+    for (size_t i = 0; i < replaced_count; ++i) {
+        if (const KilnResult own = bound_owner(replaced[i].owner); own != KILN_OK) return own;
+        out.emplace_back(replaced[i].owner, replaced[i].handle);
+    }
+    return registry_live_prepare(in, out, epoch, ticket, stale);
+}
+void result_out(const RegistryLiveReply& reply, KilnRegistryLiveResult* out) {  // live_table.cpp's live_out
+    std::memset(out, 0, sizeof(*out)); out->size = sizeof(*out);
+    out->outcome = static_cast<uint32_t>(reply.outcome); out->accepted = reply.accepted;
+    out->refused = reply.refused; out->skipped = reply.skipped; out->world = reply.world;
+    out->generation = runner().generation();
+    size_t n = std::min(reply.reason.size(), sizeof(out->reason) - 1);
+    while (n && n < reply.reason.size() && (static_cast<unsigned char>(reply.reason[n]) & 0xc0) == 0x80) --n;
+    std::memcpy(out->reason, reply.reason.data(), n);
+}
+KilnResult KILN_CALL h_install(uint64_t ticket, uint32_t flags, KilnRegistryLiveResult* results, size_t result_count, uint64_t* handles,
+                               size_t handle_count, uint32_t* stale) {
+    if (!stale || (!results && result_count) || (!handles && handle_count)) return KILN_ERR_INVALID_ARGUMENT;
+    for (size_t i = 0; i < result_count; ++i)
+        if (results[i].size < sizeof(KilnRegistryLiveResult)) return KILN_ERR_INVALID_ARGUMENT;
+    std::vector<RegistryLiveReply> replies;
+    std::vector<uint64_t> retained;
+    const KilnResult rc = registry_live_install_turn(ticket, flags, &replies, &retained, stale);
+    if (rc != KILN_OK) return rc;
+    for (size_t i = 0; i < result_count; ++i) {
+        if (i < replies.size()) result_out(replies[i], &results[i]);
+        else std::memset(reinterpret_cast<char*>(&results[i]) + sizeof(uint32_t), 0, sizeof(KilnRegistryLiveResult) - sizeof(uint32_t));
+    }
+    for (size_t i = 0; i < handle_count; ++i) handles[i] = i < retained.size() ? retained[i] : 0;
+    return result_count < replies.size() || handle_count < retained.size() ? KILN_ERR_BUFFER_TOO_SMALL : KILN_OK;
+}
+KilnResult KILN_CALL h_discard(uint64_t ticket) { registry_live_discard(ticket); return KILN_OK; }
+KilnResult KILN_CALL h_build_report() { return registry_live_build_report() ? KILN_OK : KILN_ERR_UNAVAILABLE; }
+const KilnRegistryHostApi kHostTable = {{sizeof(KilnRegistryHostApi), KILN_REGISTRY_HOST_VERSION}, &h_set_order, &h_set_mode, &h_read_pass,
+                                        &h_epoch, &h_read_pass_in, &h_prepare, &h_install, &h_discard, &h_build_report};
 
 }  // namespace
 

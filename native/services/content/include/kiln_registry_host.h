@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: MIT
- * kiln.internal.registry v1: what Kiln.Host tells kiln.registry (kiln_registry.h) before the stage. Kiln-internal
+ * kiln.internal.registry v3: what Kiln.Host tells kiln.registry (kiln_registry.h) before the stage, a runtime pass's reads, and
+ * (v3) Registry.Reauthor's turn prepared off the world tick. Kiln-internal
  * (docs/kiln/services/README.md "Kiln-internal tables"): NOT a public ABI, never in native/core/abi, kiln-abi or the SDK;
  * it may change between Kiln builds. Published by kiln-content.dll (a kiln/services DLL of this very build) and meant for
  * one consumer, the managed host: Kiln.Host checks header.version == KILN_REGISTRY_HOST_VERSION and header.size ==
@@ -20,18 +21,33 @@
 #include <stdint.h>
 
 #include "kiln_api.h"
+#include "services/kiln_registry_live.h"
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 #define KILN_REGISTRY_HOST_SERVICE "kiln.internal.registry"
-#define KILN_REGISTRY_HOST_VERSION 2u
+#define KILN_REGISTRY_HOST_VERSION 3u
 
 /* set_mode: where the stage runs (P1-PLAN.md section 1). */
 enum {
     KILN_REGISTRY_MODE_RESOURCES_READY = 0, /* option B, the default: at kiln.assets' resources-ready, over the live bytes */
     KILN_REGISTRY_MODE_ONBOOT = 1           /* option A: with OnBoot, over the committed boot generation's base view */
 };
+
+/* v3 (dev.32 LOOT-2): one call of a re-authored pass (one OnRegistry callback's IR, as kiln.registry.live submit takes it), and
+ * a retained change a turn takes out. */
+typedef struct KilnRegistryPassCall {
+    KilnOwner owner; /* the pass's mod (a bound owner) */
+    uint32_t point;  /* KILN_REGISTRY_LIVE_WORLD_LOAD */
+    uint32_t reserved;
+    KilnStr ir;
+} KilnRegistryPassCall;
+typedef struct KilnRegistryTurnItem {
+    KilnOwner owner;
+    uint64_t handle;
+} KilnRegistryTurnItem;
+#define KILN_REGISTRY_INSTALL_ANYWAY 1u /* install: a preparation stale only in its bindings lands the classic way */
 
 typedef struct KilnRegistryHostApi {
     KilnServiceHeader header; /* { sizeof(KilnRegistryHostApi), KILN_REGISTRY_HOST_VERSION } */
@@ -52,6 +68,30 @@ typedef struct KilnRegistryHostApi {
      * errors and the text contract are kiln.registry.live read's. Any time after START. */
     KilnResult(KILN_CALL* read_pass)(KilnOwner owner, KilnStr registry, KilnStr id, KilnStr field, char* buf, size_t cap,
                                      size_t* out_len);
+    /* v3 (dev.32 LOOT-2, Registry.Reauthor off the world tick): Kiln.Host runs a re-authored WorldLoad pass on a worker thread
+     * of its own and lands its turn on the world thread in one step (registry_live.h has the rules).
+     * epoch: moves with every change of what a pass reads (any composition, a world's begin or end, a write below the
+     * registry). Any thread. */
+    uint64_t(KILN_CALL* epoch)(void);
+    /* read_pass for a pass off the world thread: in world `world` (kiln.registry.live status's token) only, else
+     * KILN_ERR_UNAVAILABLE. Any thread. */
+    KilnResult(KILN_CALL* read_pass_in)(KilnOwner owner, uint64_t world, KilnStr registry, KilnStr id, KilnStr field, char* buf,
+                                        size_t cap, size_t* out_len);
+    /* Prepares a turn: the calls (in commit order) become the pass's changes, the replaced retained changes come out; parsed,
+     * composed, bound and evaluated from the registry as it is at `epoch`. *ticket: what install takes. KILN_ERR_UNAVAILABLE
+     * with *stale 1: the registry moved since epoch (run the pass again), 2: while preparing (prepare again). Any thread. */
+    KilnResult(KILN_CALL* prepare)(const KilnRegistryPassCall* calls, size_t call_count, const KilnRegistryTurnItem* replaced,
+                                   size_t replaced_count, uint64_t epoch, uint64_t* ticket, uint32_t* stale);
+    /* Lands a prepared turn on the world thread. results: call_count + replaced_count (each call's, then each replaced
+     * change's: REVERTED); handles: call_count (each call's retained change, 0: none). KILN_ERR_UNAVAILABLE with *stale (the
+     * ticket is used up): 1 the pass's reads are stale, 2 only the preparation; KILN_REGISTRY_INSTALL_ANYWAY lands a
+     * preparation stale in its bindings the classic way (composed and written on the world thread). */
+    KilnResult(KILN_CALL* install)(uint64_t ticket, uint32_t flags, KilnRegistryLiveResult* results, size_t result_count,
+                                   uint64_t* handles, size_t handle_count, uint32_t* stale);
+    KilnResult(KILN_CALL* discard)(uint64_t ticket);
+    /* Builds the registry.json report a landed turn owes, off the world thread. KILN_ERR_UNAVAILABLE: the registry moved
+     * meanwhile (the world tick builds it a few seconds later if no later call does). Any thread. */
+    KilnResult(KILN_CALL* build_report)(void);
 } KilnRegistryHostApi;
 
 #ifdef __cplusplus
@@ -59,13 +99,21 @@ typedef struct KilnRegistryHostApi {
 #endif
 
 #ifdef __cplusplus
-static_assert(sizeof(KilnRegistryHostApi) == 32 && offsetof(KilnRegistryHostApi, set_order) == 8 &&
-                  offsetof(KilnRegistryHostApi, set_mode) == 16 && offsetof(KilnRegistryHostApi, read_pass) == 24,
-              "kiln.internal.registry v2 (Kiln-internal; checked with the build stamp, not an ABI promise)");
+static_assert(sizeof(KilnRegistryHostApi) == 80 && offsetof(KilnRegistryHostApi, set_order) == 8 &&
+                  offsetof(KilnRegistryHostApi, set_mode) == 16 && offsetof(KilnRegistryHostApi, read_pass) == 24 &&
+                  offsetof(KilnRegistryHostApi, epoch) == 32 && offsetof(KilnRegistryHostApi, read_pass_in) == 40 &&
+                  offsetof(KilnRegistryHostApi, prepare) == 48 && offsetof(KilnRegistryHostApi, install) == 56 &&
+                  offsetof(KilnRegistryHostApi, discard) == 64 && offsetof(KilnRegistryHostApi, build_report) == 72 &&
+                  sizeof(KilnRegistryPassCall) == 32 && sizeof(KilnRegistryTurnItem) == 16,
+              "kiln.internal.registry v3 (Kiln-internal; checked with the build stamp, not an ABI promise)");
 #else
-_Static_assert(sizeof(KilnRegistryHostApi) == 32 && offsetof(KilnRegistryHostApi, set_order) == 8 &&
-                   offsetof(KilnRegistryHostApi, set_mode) == 16 && offsetof(KilnRegistryHostApi, read_pass) == 24,
-               "kiln.internal.registry v2 (Kiln-internal; checked with the build stamp, not an ABI promise)");
+_Static_assert(sizeof(KilnRegistryHostApi) == 80 && offsetof(KilnRegistryHostApi, set_order) == 8 &&
+                   offsetof(KilnRegistryHostApi, set_mode) == 16 && offsetof(KilnRegistryHostApi, read_pass) == 24 &&
+                   offsetof(KilnRegistryHostApi, epoch) == 32 && offsetof(KilnRegistryHostApi, read_pass_in) == 40 &&
+                   offsetof(KilnRegistryHostApi, prepare) == 48 && offsetof(KilnRegistryHostApi, install) == 56 &&
+                   offsetof(KilnRegistryHostApi, discard) == 64 && offsetof(KilnRegistryHostApi, build_report) == 72 &&
+                   sizeof(KilnRegistryPassCall) == 32 && sizeof(KilnRegistryTurnItem) == 16,
+               "kiln.internal.registry v3 (Kiln-internal; checked with the build stamp, not an ABI promise)");
 #endif
 
 #endif /* KILN_REGISTRY_HOST_H */

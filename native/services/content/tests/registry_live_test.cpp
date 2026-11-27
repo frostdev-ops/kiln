@@ -59,7 +59,9 @@ bool rd(uintptr_t address, void* out, size_t n) {
     std::memcpy(out, reinterpret_cast<const void*>(address), n);
     return true;
 }
+size_t g_write_batches = 0;  // test-only: write batches made (a flush that writes something is one)
 size_t write_batch(std::vector<Write>& writes, uintptr_t* failed) {
+    ++g_write_batches;
     if (g_before_write) { auto callback = std::move(g_before_write); g_before_write = {}; callback(); }
     size_t limit = writes.size();
     if (!g_write_limits.empty()) { limit = g_write_limits.front(); g_write_limits.erase(g_write_limits.begin()); }
