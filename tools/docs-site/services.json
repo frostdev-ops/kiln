@@ -1091,7 +1091,7 @@
         },
         {
           "name": "kiln.registry.live",
-          "members": 2
+          "members": 3
         },
         {
           "name": "registry.items.add",
