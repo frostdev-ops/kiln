@@ -1475,7 +1475,7 @@ impl<'g> Ctx<'_, 'g> {
     /// SHA-256 (the startup cache keeps it).
     /// Format 2 (0.2.0-dev.32: the ShroudForge dialect with the member paths each package changed, and kiln mode's EML
     /// dialect) lists the plan's packages the committed attempt did not run (`rows`' failed and excluded ones, with their
-    /// texts) as `notApplied`: effect replay (the registry's opt-in D6) reads it.
+    /// texts; not one excluded as package-changed) as `notApplied`: effect replay (the registry's opt-in D6) reads it.
     fn write_journal(
         &self,
         file: &StartupJournal<'_>,
@@ -1504,9 +1504,13 @@ impl<'g> Ctx<'_, 'g> {
                 settings_sha256: p.config_sha256,
             })
         };
+        // a package left out because it is not as the plan lists it (package-changed: changed, switched off or removed since
+        // the plan, or one that needs such a one) is no Lua that failed on this build: effect replay must never replay it
+        // (review-j3)
         let not_applied: Vec<journal::NotApplied> = rows
             .iter()
             .filter(|r| matches!(r.data, Data::Failed | Data::Excluded))
+            .filter(|r| r.code.as_deref() != Some("package-changed"))
             .filter_map(|r| {
                 let p = self.plan.package(&r.id)?;
                 Some(journal::NotApplied {

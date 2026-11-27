@@ -291,7 +291,8 @@ this is format 2 of dialect `shroudforge` (`schema/sfi/eml-journal/eml-journal-2
 asset session compares the resources it wrote (format 1's rule) with what they held before it ran, as the commit encodes
 them, and names the package on the members that differ (`sf_startup/journal_paths.rs`; kiln-eml README change 45); a
 resource it wrote back as it was is left out. The record lists the plan's packages the committed attempt did not run
-(`notApplied`: the failed package and those left out with it, with the row's text), which the registry's effect replay
+(`notApplied`: the failed package and those left out with it, with the row's text; never a package left out as
+`package-changed`, which is not as the plan lists it rather than failed on this build), which the registry's effect replay
 reads. Before, format 1 (`startup-journal.schema.json`): the resources each package wrote, per resource. The startup
 cache's record is format 3 since (a record of format 2 names a format-1 journal: it misses once, and the pass journals its
 publication anew).

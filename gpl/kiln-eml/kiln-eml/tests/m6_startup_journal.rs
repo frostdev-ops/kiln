@@ -287,6 +287,24 @@ fn the_journal_names_each_packages_changes_of_the_committed_attempt_only() {
     );
 }
 
+// review-j3: a package Kiln left out because it is not as the launch plan lists it (package-changed: its files changed, it
+// was switched off or removed since the plan, or it needs such a one) did not fail on this game build: its record must
+// never be replayed for it, so the journal leaves it out of notApplied (the package whose Lua failed stays).
+#[test]
+fn a_package_not_as_planned_is_never_listed_as_not_applied() {
+    let s = Start::new("r1-not-as-planned");
+    mixed_packages(&s);
+    let mut plan = mixed_plan(&s);
+    plan.packages.iter_mut().find(|p| p.id == "charlie").unwrap().content_sha256 = [9; 32];
+    let (_, out) = s.start(&plan, &native());
+    assert_eq!(out.state, State::Committed, "{out:?}");
+    let charlie = out.packages.iter().find(|r| r.id == "charlie").unwrap();
+    assert_eq!((charlie.data, charlie.code.as_deref()), (Data::Excluded, Some("package-changed")), "{out:?}");
+    let j = journal(&s, "not-as-planned");
+    let not: Vec<&str> = j["notApplied"].as_array().unwrap().iter().map(|n| n["id"].as_str().unwrap()).collect();
+    assert_eq!(not, ["bad"], "{j}");
+}
+
 // Each kind of write names its writer, and only the resource it wrote: a mapped field, an array element, an insertion,
 // a removal, a variant's value, a whole data assignment (a copy of another resource), a write into that copy, a write
 // into a copy assigned into another resource (the copy is the target's, never its source's), a refused insertion
