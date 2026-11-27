@@ -1,0 +1,11 @@
+{
+  "id": "gear-frontend-test",
+  "name": "gear and gearRules on the registry: lab test",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "GearFrontendTest.dll",
+  "side": "server",
+  "clients": "none",
+  "boot": true,
+  "description": "The in-process half of tools/gear-frontend: a data pack with gear and gearRules (content/gear.json), its equivalent as registry edits (registry/registry.json, which the session puts in content/ in place of gear.json), and a dump at every content ready of the served bytes of every item and of the balancing table (SHA-256, and the table's bytes), the target items' values and registry.json. Writes nothing into the game."
+}
