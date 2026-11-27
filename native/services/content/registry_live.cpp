@@ -13,6 +13,7 @@
 #include <optional>
 #include <string_view>
 #include <tuple>
+#include <type_traits>
 #include <unordered_map>
 
 #include "registry/drift.h"
@@ -86,6 +87,10 @@ struct LiveState {
     // write or revert is named in Kiln words even after its field was unbound (a removed pack, an ended world)
     std::unordered_map<uintptr_t, std::string> slot_places;
     std::vector<std::string> suspects;  // the drift probe's suspects in this world (drift.h), read at world begin
+    // sfi R3: kiln.assets' run-time write records (RegistryLive::runtime_writes), asked at most once per report, only when a
+    // row needs a name; dropped when the report is built
+    bool runtime_asked = false;
+    registry::RuntimeWrites runtime;
     std::set<registry::EntryRef> boot_written;  // entries an old boot document wrote (RegistryLive::old's OldPatch rows), per report
     // Writes made after the last report (registry-followups 1): what that report saw, so registry_live_publish can tell, cheaply
     // and never per tick, when a bound field's slot changed since (late_check): the store's generation, a signature of each
@@ -1070,11 +1075,53 @@ void name_code_writer(ChainRow& row, const Layer& layer, const Slot& slot, const
     row.who = who + ": " + ref.text();
 }
 
+// sfi R3: the run-time writers kiln.assets' records prove (registry/runtime_writes.h). The records are asked for once per
+// report, on the first row that needs a name.
+static_assert(std::is_same_v<SlotBytes, registry::RuntimeBytes>, "a slot's bytes are what runtime_writes.h explains");
+const registry::RuntimeWrites& runtime_writes() {
+    if (!g.runtime_asked) {
+        g.runtime_asked = true;
+        g.runtime = g.in && g.in->runtime_writes ? registry::RuntimeWrites(g.in->runtime_writes()) : registry::RuntimeWrites();
+    }
+    return g.runtime;
+}
+// The named writers of a field whose game bytes `held` differ from what Kiln expected (`expected` of the bytes with the
+// recorded writes taken back), as writer rows in write order; empty: the records do not prove it.
+ChainRow runtime_row(const std::string& writer, Value v) {
+    ChainRow row;
+    row.kind = registry::WriterKind::Runtime;
+    row.who = writer;
+    if (v.kind == Value::List) row.list = registry::ListOp::Replace, row.list_values = v.list;
+    else row.op.set = true, row.op.value = v;
+    row.after = std::move(v);
+    return row;
+}
+std::vector<ChainRow> runtime_rows(const LiveField& field, const std::vector<SlotBytes>& held,
+                                   const std::function<bool(const std::vector<SlotBytes>&)>& expected) {
+    std::vector<registry::RuntimeSlot> slots;
+    for (const LiveSlot& s : field.slots) slots.push_back({s.addr, s.size});
+    std::vector<ChainRow> rows;
+    for (const registry::RuntimeStep& step : runtime_writes().explain(slots, held, expected)) {
+        auto v = field.decode(step.bytes, nullptr);
+        if (!v) return {};
+        rows.push_back(runtime_row(step.writer, std::move(*v)));
+    }
+    return rows;
+}
+std::string runtime_names(const std::vector<ChainRow>& rows) {
+    std::string s;
+    for (size_t i = 0; i < rows.size(); ++i) s += (i == 0 ? "" : i + 1 == rows.size() ? " and " : ", ") + rows[i].who;
+    return s;
+}
+
 // Replay the store's writes as whole field values. A pack or code call can write several slots
 // of the same list or formula, so apply all its slots before decoding that writer's row.
 void live_row(registry::Result& r, const registry::FieldRef& ref, const LiveField& field) {
-    // kiln_wrote: what Kiln last wrote into each slot (the store's current bytes; the game's bytes where the store holds none)
-    std::vector<SlotBytes> bytes(field.slots.size()), effective(field.slots.size()), kiln_wrote(field.slots.size());
+    // kiln_wrote: what Kiln last wrote into each slot (the store's current bytes; the game's bytes where the store holds none);
+    // kiln_last: the same, but Kiln's own last write for a slot another writer took (the store's current bytes are then
+    // that writer's): what a run-time writer is named over (sfi R3)
+    std::vector<SlotBytes> bytes(field.slots.size()), effective(field.slots.size()), kiln_wrote(field.slots.size()),
+        kiln_last(field.slots.size());
     struct Write {
         size_t slot;
         SlotBytes bytes;
@@ -1094,10 +1141,12 @@ void live_row(registry::Result& r, const registry::FieldRef& ref, const LiveFiel
         if (!store_slot_copy(addr, &slot) || slot.n != size) {
             bytes[i] = effective[i];
             kiln_wrote[i] = effective[i];
+            kiln_last[i] = effective[i];
             continue;
         }
         std::memcpy(bytes[i].data(), slot.original, size);
         std::memcpy(kiln_wrote[i].data(), slot.current, size);
+        std::memcpy(kiln_last[i].data(), slot.foreign ? slot.foreign_was : slot.current, size);
         late = late || (!slot.foreign && std::memcmp(effective[i].data(), slot.current, size) != 0);
         for (const Layer& layer : slot.layers) {
             Write write{i, {}};
@@ -1149,22 +1198,33 @@ void live_row(registry::Result& r, const registry::FieldRef& ref, const LiveFiel
     // an entry an old boot document wrote holds Kiln's own patch, which many of its paths have no row to explain (a formula's
     // input, an element of a list of structs, "[*]" over a registry's elements): never another loader's change there.
     bool drift = false;
-    std::string drift_was, drift_now;
+    std::string drift_was, drift_now, drift_named;
     const registry::EntryRef entry{ref.registry, ref.id};
     const bool added = std::find(r.added.begin(), r.added.end(), entry) != r.added.end();
     if (!added && fo.base.kind != Value::None && !g.boot_written.count(entry)) {
-        const Value& expected = chain.empty() ? fo.base : chain.back().after;
+        const Value expected = chain.empty() ? fo.base : chain.back().after;
         if (auto observed = field.decode(bytes, nullptr); observed && !(*observed == expected)) {
-            ChainRow row;
-            row.kind = registry::WriterKind::Drift;
-            row.who = registry::drift_who(g.suspects);
-            if (observed->kind == Value::List) row.list = registry::ListOp::Replace, row.list_values = observed->list;
-            else row.op.set = true, row.op.value = *observed;
-            row.after = std::move(*observed);
             drift_was = registry::report_value_text(expected);
-            drift_now = registry::report_value_text(row.after);
+            drift_now = registry::report_value_text(*observed);
             drift = true;
-            chain.push_back(std::move(row));
+            // sfi R3: a ShroudForge package of kiln mode wrote it at run time, when kiln.assets' records prove it (its writes
+            // taken back give what the stage read): its named rows instead of the best-effort one
+            std::vector<ChainRow> named = runtime_rows(field, bytes, [&](const std::vector<SlotBytes>& undone) {
+                const auto v = field.decode(undone, nullptr);
+                return v && *v == expected;
+            });
+            if (!named.empty()) {
+                drift_named = runtime_names(named);
+                for (ChainRow& row : named) chain.push_back(std::move(row));
+            } else {
+                ChainRow row;
+                row.kind = registry::WriterKind::Drift;
+                row.who = registry::drift_who(g.suspects);
+                if (observed->kind == Value::List) row.list = registry::ListOp::Replace, row.list_values = observed->list;
+                else row.op.set = true, row.op.value = *observed;
+                row.after = std::move(*observed);
+                chain.push_back(std::move(row));
+            }
         }
     }
     auto next = writers.begin();
@@ -1206,12 +1266,21 @@ void live_row(registry::Result& r, const registry::FieldRef& ref, const LiveFiel
             if (drift) {
                 const std::string place = ref.text(), now = registry::report_value_text(chain.back().after);
                 registry::Line line;
-                line.field = ref, line.winner = first_reg->mod, line.loser = registry::drift_who(g.suspects);
-                line.certainty = registry::Certainty::BestEffort;
+                line.field = ref, line.winner = first_reg->mod;
                 line.kind = absolute_row(*first_reg) ? registry::LineKind::Overridden : registry::LineKind::ComposedOn;
-                line.text = place + ": the game's value changed outside Kiln after the stage read it (" + drift_was + " -> " + drift_now +
-                            " before Kiln's first write in this world) and no writer Kiln knows explains it; " + line.loser + ". " +
-                            first_reg->mod + "'s edit applies over the game's value: " + now;
+                if (!drift_named.empty()) {  // sfi R3: named from kiln.assets' write records
+                    line.loser = drift_named;
+                    line.certainty = registry::Certainty::Named;
+                    line.text = place + ": " + drift_named + " changed it at run time after the stage read it (" + drift_was + " -> " +
+                                drift_now + " before Kiln's first write in this world). " + first_reg->mod +
+                                "'s edit applies over the game's value: " + now;
+                } else {
+                    line.loser = registry::drift_who(g.suspects);
+                    line.certainty = registry::Certainty::BestEffort;
+                    line.text = place + ": the game's value changed outside Kiln after the stage read it (" + drift_was + " -> " + drift_now +
+                                " before Kiln's first write in this world) and no writer Kiln knows explains it; " + line.loser + ". " +
+                                first_reg->mod + "'s edit applies over the game's value: " + now;
+                }
                 r.lines.push_back(std::move(line));
             }
         }
@@ -1249,9 +1318,33 @@ void live_row(registry::Result& r, const registry::FieldRef& ref, const LiveFiel
                     registry::report_value_text(original ? *original : fo.base) + ", not on the registry's)";
         r.lines.push_back(std::move(line));
     }
+    // sfi R3: a ShroudForge package of kiln mode that wrote the field at run time after Kiln's layer, when kiln.assets' records
+    // prove it (its writes taken back give Kiln's own last write there): its named rows instead of the best-effort one below
+    std::vector<ChainRow> later_named;
+    if (blocked || late)
+        later_named = runtime_rows(field, effective, [&](const std::vector<SlotBytes>& undone) {
+            for (size_t i = 0; i < field.slots.size(); ++i)
+                if (std::memcmp(undone[i].data(), kiln_last[i].data(), field.slots[i].size) != 0) return false;
+            return true;
+        });
     // a slot another writer changed after Kiln's layer (the store's compare-before-write skipped Kiln's write): the same
     // best-effort row, last, with the value the game holds
-    if (blocked) {
+    if (blocked && !later_named.empty()) {
+        const std::string winner = later_named.back().who;
+        for (ChainRow& row : later_named) chain.push_back(std::move(row));
+        if (fo.winner.empty() || skipped) fo.winner = winner;
+    } else if (late && !later_named.empty()) {
+        const auto wrote = field.decode(kiln_wrote, nullptr);
+        registry::Line line;
+        line.field = ref, line.winner = later_named.back().who, line.certainty = registry::Certainty::Named;
+        line.kind = registry::LineKind::Overridden;
+        if (!chain.empty()) line.loser = chain.back().mod.empty() ? chain.back().who : chain.back().mod;
+        line.text = ref.text() + ": " + runtime_names(later_named) + " changed it at run time after Kiln's last write in this world (" +
+                    (wrote ? registry::report_value_text(*wrote) : std::string("?")) + " -> " + registry::report_value_text(*result) + ")";
+        r.lines.push_back(std::move(line));
+        fo.winner = later_named.back().who;
+        for (ChainRow& row : later_named) chain.push_back(std::move(row));
+    } else if (blocked) {
         ChainRow row;
         row.kind = registry::WriterKind::Drift;
         row.who = registry::drift_who(g.suspects);
@@ -1290,13 +1383,25 @@ void late_seen();
 
 // A write compare-before-write skipped, in Kiln words (P32): the store's own row names the game's debug and member
 // names; the report names the Kiln place the slot's bound field had (slot_places, refreshed from g.fields per report).
+// sfi R3: a ShroudForge package of kiln mode that wrote it at run time is named when kiln.assets' records prove it (its writes
+// taken back give Kiln's last write there).
 std::string skipped_text(const StoreSkipped& s) {
     const auto it = g.slot_places.find(s.addr);
     const std::string place = it != g.slot_places.end() ? it->second : "a game memory slot Kiln wrote";
-    return place + " was written by another writer after Kiln's layer: Kiln's " + (s.revert ? "revert" : "edit") + " not applied";
+    std::string who = "another writer";
+    std::vector<SlotBytes> held(1);
+    if (s.n && s.n <= kSlotBytes && rd(s.addr, held[0].data(), s.n)) {
+        const auto steps = runtime_writes().explain({{s.addr, s.n}}, held, [&](const std::vector<SlotBytes>& undone) {
+            return std::memcmp(undone[0].data(), s.was, s.n) == 0;
+        });
+        if (!steps.empty()) who = registry::runtime_writers_text(steps) + " at run time";
+    }
+    return place + " was written by " + who + " after Kiln's layer: Kiln's " + (s.revert ? "revert" : "edit") + " not applied";
 }
 void report(bool application = true) {
     g.tables_changed = false;
+    g.runtime_asked = false;  // this report asks kiln.assets' records again when a row needs a name (sfi R3)
+    g.runtime = {};
     registry::Result r = g.in->result;
     g.boot_written.clear();
     for (const registry::OldWrite& w : g.in->old)
@@ -1335,6 +1440,7 @@ void report(bool application = true) {
     g.pending = std::move(r);  // written by registry_live_publish, outside the store's lock (review finding 10)
     g.pending_set = true;
     g.pending_application |= application;
+    g.runtime = {};
     late_seen();
 }
 

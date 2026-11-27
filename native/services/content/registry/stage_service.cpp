@@ -290,6 +290,34 @@ std::vector<std::string> drift_suspects_now() {
     return drift_suspects(map, hosted);
 }
 
+// sfi R3: kiln.assets' run-time write records (loaded_write_records, since 0.2.0-dev.32), each placed where its resource's
+// bytes live now (resource_data), for the live back-end's run-time writer rows (runtime_writes.h). Asked under the store's
+// lock: both members copy under kiln.assets' own locks and call nothing back. An older kiln.assets: none.
+std::vector<RuntimeWrite> runtime_writes_now() {
+    const auto* a = g_api ? static_cast<const KilnAssetsApi*>(g_api->service(KilnStr{KILN_ASSETS_SERVICE, sizeof(KILN_ASSETS_SERVICE) - 1}, 1))
+                          : nullptr;
+    if (!a || a->header.size < offsetof(KilnAssetsApi, loaded_write_records) + sizeof(void*) || !a->loaded_write_records ||
+        !a->resource_data)
+        return {};
+    std::vector<KilnLoadedWriteRecord> records;
+    size_t n = 0;
+    for (int attempt = 0; attempt < 3; ++attempt) {
+        const KilnResult rc = a->loaded_write_records(records.data(), sizeof(KilnLoadedWriteRecord), records.size(), &n);
+        if (rc == KILN_OK) {
+            records.resize(n);
+            return place_runtime_writes(records, [a](const KilnAssetKey& key, uintptr_t* at, size_t* len) {
+                const void* p = nullptr;
+                if (a->resource_data(&key, &p, len) != KILN_OK || !p) return false;
+                *at = reinterpret_cast<uintptr_t>(p);
+                return true;
+            });
+        }
+        if (rc != KILN_ERR_BUFFER_TOO_SMALL || n > KILN_LOADED_WRITE_PLACES) return {};
+        records.resize(n + 16);  // a few more may come before the next call
+    }
+    return {};
+}
+
 Env make_env() {
     Env e;
     KilnBuildInfo bi{};
@@ -707,6 +735,7 @@ void bind_service() {
         in.on_world_thread = [](uint32_t kind) { return g_api && g_api->on_world_thread && g_api->on_world_thread(kind); };
         in.suspects = &drift_suspects_now;
         in.owner_name = &owner_text;
+        in.runtime_writes = &runtime_writes_now;
         if (!in.result.definitions.empty()) registry_entries_prepare(&in);
         Result reconciled = in.result;
         registry_live_install(std::move(in));

@@ -472,9 +472,16 @@ const char* write_refusal(const Source& s) {
 KilnResult compare_exchange(const Source& s, KilnOwner owner, const KilnAssetKey* key, std::uint64_t expected_session,
                             const void* expected_full, std::size_t resource_size, std::size_t offset, const void* desired,
                             std::uint32_t width, KilnMutationReply* reply) {
+    return compare_exchange_named(s, owner, key, expected_session, expected_full, resource_size, offset, desired, width,
+                                  KilnStr{nullptr, 0}, KilnStr{nullptr, 0}, reply);
+}
+
+KilnResult compare_exchange_named(const Source& s, KilnOwner owner, const KilnAssetKey* key, std::uint64_t expected_session,
+                                  const void* expected_full, std::size_t resource_size, std::size_t offset, const void* desired,
+                                  std::uint32_t width, KilnStr writer, KilnStr field, KilnMutationReply* reply) {
     if (!owner || !key || !expected_full || !desired || !reply || reply->size < sizeof(KilnMutationReply) ||
         !expected_session || !(width == 1 || width == 2 || width == 4 || width == 8) || !resource_size ||
-        offset % width || offset > resource_size || width > resource_size - offset)
+        offset % width || offset > resource_size || width > resource_size - offset || !valid_name(writer) || !valid_name(field))
         return KILN_ERR_INVALID_ARGUMENT;
     const std::uint32_t reply_size = reply->size;
     *reply = KilnMutationReply{};
@@ -645,8 +652,121 @@ KilnResult compare_exchange(const Source& s, KilnOwner owner, const KilnAssetKey
                                                                                                        : KILN_ECS_WRITE_WHY_READBACK,
                       KILN_MUTATION_TARGET_LATCHED);
     }
-    if (status == KILN_ECS_OK && s.committed) s.committed(s.user, owner, *key, offset, width, expected_session);
+    if (status == KILN_ECS_OK && s.committed) {
+        Commit c;
+        c.owner = owner;
+        c.key = *key;
+        c.offset = offset;
+        c.width = width;
+        c.session = expected_session;
+        c.before = expected_bits;
+        c.after = desired_bits;
+        if (writer.len) c.writer = std::string_view(writer.ptr, writer.len);
+        if (field.len) c.field = std::string_view(field.ptr, field.len);
+        s.committed(s.user, c);
+    }
     return finish(status, why, flags);
+}
+
+// ---- named loaded writes (sfi R3) -----------------------------------------------------------------------------------
+
+bool valid_name(KilnStr name) {
+    if (!name.len) return true;
+    if (!name.ptr || name.len > KILN_LOADED_WRITE_NAME_MAX) return false;
+    const auto* p = reinterpret_cast<const unsigned char*>(name.ptr);
+    for (std::size_t i = 0; i < name.len;) {
+        const unsigned char c = p[i];
+        if (c < 0x20 || c == 0x7f) return false;
+        if (c < 0x80) {
+            ++i;
+            continue;
+        }
+        std::size_t n = 0;
+        std::uint32_t cp = 0, min = 0;
+        if ((c & 0xE0) == 0xC0) n = 2, cp = c & 0x1F, min = 0x80;
+        else if ((c & 0xF0) == 0xE0) n = 3, cp = c & 0x0F, min = 0x800;
+        else if ((c & 0xF8) == 0xF0) n = 4, cp = c & 0x07, min = 0x10000;
+        else return false;
+        if (n > name.len - i) return false;
+        for (std::size_t k = 1; k < n; ++k) {
+            if ((p[i + k] & 0xC0) != 0x80) return false;
+            cp = cp << 6 | (p[i + k] & 0x3F);
+        }
+        if (cp < min || cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF) || (cp >= 0x80 && cp < 0xA0)) return false;
+        i += n;
+    }
+    return true;
+}
+
+std::uint64_t WriteRecords::commit(const Commit& c) {
+    Place place{};
+    std::memcpy(place.key, &c.key, sizeof place.key);
+    place.offset = c.offset;
+    place.width = c.width;
+    std::lock_guard lock(mu_);
+    const std::uint64_t id = ++ids_;
+    auto it = records_.find(place);
+    if (it != records_.end()) {
+        Record& r = it->second;
+        by_id_.erase(r.id);
+        // the same owner and writer over the value its last write left: the run goes on (it keeps what it began over)
+        const bool run = r.owner == c.owner && r.writer == c.writer && r.after == c.before;
+        if (!run) r.before = c.before;
+        r.id = id, r.owner = c.owner, r.session = c.session, r.after = c.after;
+        r.writer.assign(c.writer), r.field.assign(c.field);
+    } else {
+        while (records_.size() >= places_ && !by_id_.empty()) {  // the place written longest ago makes room
+            records_.erase(by_id_.begin()->second);
+            by_id_.erase(by_id_.begin());
+            ++dropped_;
+        }
+        Record r;
+        r.id = id, r.owner = c.owner, r.session = c.session, r.before = c.before, r.after = c.after;
+        r.writer.assign(c.writer), r.field.assign(c.field);
+        records_.emplace(place, std::move(r));
+    }
+    by_id_.emplace(id, place);
+    recent_.push_back({id, c.owner, c.key, c.offset, c.width, c.session, std::string(c.writer), std::string(c.field)});
+    if (recent_.size() > 256) recent_.pop_front();
+    return id;
+}
+
+KilnResult WriteRecords::read(KilnLoadedWriteRecord* out, std::uint32_t record_size, std::size_t capacity,
+                              std::size_t* required) const {
+    if (!required || record_size < sizeof(KilnLoadedWriteRecord) || (!out && capacity)) return KILN_ERR_INVALID_ARGUMENT;
+    std::lock_guard lock(mu_);
+    *required = by_id_.size();
+    if (capacity < by_id_.size()) return KILN_ERR_BUFFER_TOO_SMALL;
+    auto* at = reinterpret_cast<unsigned char*>(out);
+    for (const auto& [id, place] : by_id_) {
+        const Record& r = records_.at(place);
+        KilnLoadedWriteRecord w{};
+        w.size = sizeof w;
+        w.width = place.width;
+        w.id = r.id;
+        w.owner = r.owner;
+        w.session = r.session;
+        std::memcpy(&w.key, place.key, sizeof w.key);
+        w.offset = place.offset;
+        std::memcpy(w.before, &r.before, place.width);
+        std::memcpy(w.after, &r.after, place.width);
+        std::memcpy(w.writer, r.writer.data(), std::min(r.writer.size(), sizeof w.writer - 1));
+        std::memcpy(w.field, r.field.data(), std::min(r.field.size(), sizeof w.field - 1));
+        std::memcpy(at, &w, sizeof w);
+        std::memset(at + sizeof w, 0, record_size - sizeof w);
+        at += record_size;
+    }
+    return KILN_OK;
+}
+
+std::vector<WriteRecords::Recent> WriteRecords::recent() const {
+    std::lock_guard lock(mu_);
+    return {recent_.begin(), recent_.end()};
+}
+
+std::size_t WriteRecords::dropped() const {
+    std::lock_guard lock(mu_);
+    return dropped_;
 }
 
 }  // namespace ka::loaded

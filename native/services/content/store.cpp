@@ -36,6 +36,8 @@ struct SkippedRaw {
     int32_t field, sub;
     std::string mod, source;
     bool revert;
+    uint8_t n;
+    uint8_t was[kSlotBytes];  // Kiln's last write there, before the other writer's
 };
 std::vector<SkippedRaw> g_skipped;
 
@@ -556,8 +558,10 @@ size_t store_flush_checked(std::string* error, std::vector<uintptr_t>* unwritten
                     if (is_registry_seq(l.seq)) mod = l.mod, source = l.source, revert = false;
                 if (revert)  // the dropped layer is gone: name the slot only
                     mod.clear();
-                g_skipped.push_back(SkippedRaw{addr, s.kind, s.id, s.field, s.sub, mod, source, revert});
+                g_skipped.push_back(SkippedRaw{addr, s.kind, s.id, s.field, s.sub, mod, source, revert, s.n, {}});
+                std::memcpy(g_skipped.back().was, s.current, s.n);
                 s.foreign = true;
+                std::memcpy(s.foreign_was, s.current, s.n);  // sfi R3: a run-time writer is named over Kiln's last write
                 std::memcpy(s.current, now, s.n);
                 fold(s, want);  // the registry's layers left out: what an older path's own change in this flush writes (today's behaviour)
             }
@@ -894,7 +898,8 @@ std::vector<StoreSkipped> store_skipped() {
         std::string field;
         const Field* f = nullptr;
         StoreSkipped x;
-        x.addr = r.addr, x.kind = r.kind, x.id = r.id, x.mod = r.mod, x.source = r.source, x.revert = r.revert;
+        x.addr = r.addr, x.kind = r.kind, x.id = r.id, x.mod = r.mod, x.source = r.source, x.revert = r.revert, x.n = r.n;
+        std::memcpy(x.was, r.was, sizeof x.was);
         x.what = slot_what(s, &field, &f);  // game debug and member names: diagnostics only, never a report row (P32)
         // the registry's report names the Kiln place instead (registry_live.cpp skipped_text)
         x.text = std::string("a slot Kiln wrote was written by another writer after Kiln's layer: Kiln's ") + (r.revert ? "revert" : "edit") + " not applied";

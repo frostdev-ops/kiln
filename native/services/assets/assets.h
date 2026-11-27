@@ -323,6 +323,11 @@ KilnResult op_loaded_list(KilnOwner owner, uint32_t type, KilnAssetKey* out, siz
                           KilnLoadedInfo* info);
 KilnResult op_loaded_scalar_cas(KilnOwner owner, const KilnAssetKey* key, uint64_t expected_session, const void* expected_full,
                                size_t resource_size, size_t offset, const void* desired, uint32_t width, KilnMutationReply* reply);
+// The named loaded writes (sfi R3, kiln_assets.h loaded_scalar_compare_exchange_named, loaded_write_records).
+KilnResult op_loaded_scalar_cas_named(KilnOwner owner, const KilnAssetKey* key, uint64_t expected_session, const void* expected_full,
+                                     size_t resource_size, size_t offset, const void* desired, uint32_t width, KilnStr writer,
+                                     KilnStr field, KilnMutationReply* reply);
+KilnResult op_loaded_write_records(KilnLoadedWriteRecord* out, uint32_t record_size, size_t capacity, size_t* required);
 std::string loaded_writes_json();  // the committed loaded-resource writes, for status
 void loaded_report_capability();
 int32_t op_resource_is_new(const KilnAssetKey* key);

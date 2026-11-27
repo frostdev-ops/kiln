@@ -539,12 +539,14 @@ pub fn write_loaded_field(
                 &crate::runtime::overrides::StorageKey::Resource(ownership_key(&resource.key)),
             )?;
         }
+        // sfi R3: the write names its package and the field path it gave, for Kiln's registry report
         if let Err(reason) = assets.compare_exchange(
             &resource.key,
             &before,
             offset,
             &after[range.clone()],
             session,
+            &super::WriteName::package(package_id, &path),
         ) {
             if reason.to_lowercase().contains("uncertain") {
                 resource.stop_writes(&reason);

@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cstdarg>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <map>
 #include <set>
@@ -213,10 +214,14 @@ std::shared_ptr<registry::map::RegMap> g_regmap;
 registry::Result g_last_report;
 int g_reports = 0;
 std::function<std::string(KilnOwner)> g_owner_name;  // stage(): RegistryLive::owner_name (the core's id of an owner)
+std::vector<registry::RuntimeWrite> g_runtime;      // stage(): RegistryLive::runtime_writes (kiln.assets' records, placed)
+int g_runtime_asked = 0;                            // how often the live back-end asked for them
 std::function<void(RegistryLive&)> g_stage_extra;    // stage(): more base entries, ids and numbers (composed again after it)
 
 void world() {
     g_owner_name = {};
+    g_runtime.clear();
+    g_runtime_asked = 0;
     g_stage_extra = {};
     g_write_limits.clear(); g_before_write = {}; g_after_each_write = {}; g_fail_addrs.clear(); g_integer_impacts.clear();
     g_registry_type_size = [](const char* q) -> uint32_t { return std::string(q) == "keen::KnowledgeQueryData" ? 12u : 0u; };
@@ -419,6 +424,10 @@ void stage(const std::vector<PackFile>& files, const std::vector<registry::Batch
     }
     in.rollback = rollback, in.left_out = left_out;  // a rolled-back start (stage.h LiveHandoff::rollback, left_out)
     in.owner_name = g_owner_name;
+    in.runtime_writes = [] {
+        ++g_runtime_asked;
+        return g_runtime;
+    };
     registry_live_install(std::move(in));
 }
 
@@ -852,6 +861,116 @@ void another_writer_in_the_report() {
               last["who"].get<std::string>().rfind("outside Kiln (best effort", 0) == 0,
           "the foreign write is a best-effort drift row: " + row["writers"].dump());
 }
+// sfi R3: kiln.assets' record of a ShroudForge package's run-time write (kiln mode, through the named loaded write), placed in
+// game memory: the place's value before the package's run of writes and the value it left.
+registry::RuntimeWrite runtime_write(size_t off, uint32_t before, uint32_t after, const char* writer, uint64_t id) {
+    registry::RuntimeWrite w;
+    w.addr = A(off), w.width = 4, w.writer = writer, w.id = id;
+    std::memcpy(w.before, &before, 4);
+    std::memcpy(w.after, &after, 4);
+    return w;
+}
+// sfi R3: a ShroudForge package of kiln mode that wrote the field at run time after Kiln's layer is named per field, as an
+// archive-writer package is: the skipped row names it, and its writer row is "runtimeWriter", certainty "named", in place of
+// the best-effort drift row. kiln.assets is asked once per report, and only when a row needs a name. An unnamed record (an
+// older kiln-sfi) or one that does not explain the value (it wrote over another value than Kiln's) keeps today's rows.
+void runtime_writer_after_kilns_layer() {
+    world();
+    g_files = {{"bigstacks/content/a.json",
+                R"({"registry": {"alter": [{"registry": "items", "select": {"id": "game:material_t1_wood_logs"}, "field": "maxStack", "op": {"mul": 4}}]}})"}};
+    const auto files = files_of({{"bigstacks", "bigstacks/content/a.json"}});
+    const registry::FieldRef logs{"items", "game:material_t1_wood_logs", "maxStack"};
+    stage(files);
+    apply_registry_files(files);
+    check(at<uint32_t>(WOOD_AT) == 40 && g_runtime_asked == 0, "Kiln's 40; a report with nothing to name never asks kiln.assets");
+    mem<uint32_t>(WOOD_AT, 777);  // the package's write, recorded by kiln.assets
+    g_runtime = {runtime_write(WOOD_AT, 40, 777, "shroudforge:big-sf", 5)};
+    apply_registry_files(files);  // a pack reload: compare-before-write skips Kiln's write
+    check(at<uint32_t>(WOOD_AT) == 777, "the package's value stays");
+    check(reported("items[game:material_t1_wood_logs].maxStack was written by shroudforge:big-sf at run time after Kiln's layer: Kiln's edit not applied"),
+          "the skipped row names the package");
+    check(!reported("another writer"), "not another writer");
+    auto row = json_field(logs);
+    auto last = row["writers"].back();
+    check(last["kind"] == "runtimeWriter" && last["certainty"] == "named" && last["who"] == "shroudforge:big-sf" && last["value"] == 777 &&
+              last["op"] == 777 && !last.contains("mod") && row["winner"] == "shroudforge:big-sf" && row["result"] == 777,
+          "a named run-time writer row, last: " + row.dump());
+    for (const auto& w : row["writers"]) check(w["kind"] != "drift", "no drift row beside it: " + row.dump());
+    check(g_runtime_asked == 1, "kiln.assets asked once for the report (" + std::to_string(g_runtime_asked) + ")");
+    // the document, for a schema check of its rows (REGISTRY_LIVE_DOC: where to write it)
+    if (const char* doc = std::getenv("REGISTRY_LIVE_DOC"))
+        if (FILE* f = std::fopen(doc, "w")) {
+            const std::string text = registry::report_json(registry_schema(), g_last_report, {}).dump(1);
+            std::fwrite(text.data(), 1, text.size(), f);
+            std::fclose(f);
+        }
+    // an older kiln-sfi: its write named nobody
+    g_runtime = {runtime_write(WOOD_AT, 40, 777, "", 6)};
+    apply_registry_files(files);
+    check(reported("items[game:material_t1_wood_logs].maxStack was written by another writer after Kiln's layer"), "unnamed: another writer");
+    last = json_field(logs)["writers"].back();
+    check(last["kind"] == "drift" && last["certainty"] == "bestEffort", "unnamed: the best-effort row: " + last.dump());
+    // a record that does not explain it: the package wrote over 10 (before Kiln's layer), so something else wrote after Kiln
+    g_runtime = {runtime_write(WOOD_AT, 10, 777, "shroudforge:big-sf", 7)};
+    apply_registry_files(files);
+    check(reported("was written by another writer after Kiln's layer") && json_field(logs)["writers"].back()["kind"] == "drift",
+          "not proven: today's rows");
+    // a newer value than the record's: not the package's
+    g_runtime = {runtime_write(WOOD_AT, 40, 700, "shroudforge:big-sf", 8)};
+    apply_registry_files(files);
+    check(json_field(logs)["writers"].back()["kind"] == "drift", "777 is not the 700 it wrote");
+}
+// sfi R3: the skipped revert names the package too
+void runtime_writer_skipped_revert() {
+    world();
+    g_files = {{"bigstacks/content/a.json",
+                R"({"registry": {"alter": [{"registry": "items", "select": {"id": "game:material_t1_wood_logs"}, "field": "maxStack", "op": {"mul": 4}}]}})"}};
+    stage(files_of({{"bigstacks", "bigstacks/content/a.json"}}));
+    apply_registry_files(files_of({{"bigstacks", "bigstacks/content/a.json"}}));
+    mem<uint32_t>(WOOD_AT, 777);
+    g_runtime = {runtime_write(WOOD_AT, 40, 777, "shroudforge:big-sf", 5)};
+    apply_registry_files({});  // the pack removed: Kiln's revert is skipped
+    check(at<uint32_t>(WOOD_AT) == 777, "the package's value stays");
+    check(reported("items[game:material_t1_wood_logs].maxStack was written by shroudforge:big-sf at run time after Kiln's layer: Kiln's revert not applied"),
+          "the skipped revert names the package");
+}
+// sfi R3: a package that wrote the field at run time before Kiln's first write in this world (the drift probe's case: here the
+// stage read 10, the package made it 12): a named row below the registry edit, and a named line
+void runtime_writer_before_kilns_first_write() {
+    world();
+    g_files = {{"bigstacks/content/a.json",
+                R"({"registry": {"alter": [{"registry": "items", "select": {"id": "game:material_t1_wood_logs"}, "field": "maxStack", "op": {"mul": 4}}]}})"}};
+    const auto files = files_of({{"bigstacks", "bigstacks/content/a.json"}});
+    stage(files);
+    mem<uint32_t>(WOOD_AT, 12);
+    g_runtime = {runtime_write(WOOD_AT, 10, 12, "shroudforge:early", 3)};
+    apply_registry_files(files);
+    check(at<uint32_t>(WOOD_AT) == 48, "Kiln's x4 composes on the value the game holds");
+    check(g_last_report.refused.empty(), "never a refusal");
+    const auto row = json_field({"items", "game:material_t1_wood_logs", "maxStack"});
+    check(row["writers"].size() == 2 && row["writers"][0]["kind"] == "runtimeWriter" && row["writers"][0]["certainty"] == "named" &&
+              row["writers"][0]["who"] == "shroudforge:early" && row["writers"][0]["value"] == 12 && row["writers"][1]["kind"] == "registry" &&
+              row["result"] == 48,
+          "a named row below the registry edit: " + row.dump());
+    const registry::Line* line = nullptr;
+    for (const registry::Line& l : g_last_report.lines)
+        if (l.field.id == "game:material_t1_wood_logs") line = &l;
+    check(line && line->certainty == registry::Certainty::Named && line->kind == registry::LineKind::ComposedOn && line->winner == "bigstacks" &&
+              line->loser == "shroudforge:early" &&
+              line->text.find("shroudforge:early changed it at run time after the stage read it (10 -> 12") != std::string::npos &&
+              line->text.find("best effort") == std::string::npos,
+          "one named line: " + (line ? line->text : std::string("none")));
+    // the record does not take it back to what the stage read: the best-effort row
+    world();
+    g_files = {{"bigstacks/content/a.json",
+                R"({"registry": {"alter": [{"registry": "items", "select": {"id": "game:material_t1_wood_logs"}, "field": "maxStack", "op": {"mul": 4}}]}})"}};
+    stage(files);
+    mem<uint32_t>(WOOD_AT, 12);
+    g_runtime = {runtime_write(WOOD_AT, 11, 12, "shroudforge:early", 3)};
+    apply_registry_files(files);
+    check(json_field({"items", "game:material_t1_wood_logs", "maxStack"})["writers"][0]["kind"] == "drift", "11 is not what the stage read");
+}
+
 // P32: a skipped revert (the pack removed after another writer took the slot) still names the Kiln place it had
 void skipped_revert_names_the_kiln_place() {
     world();
@@ -960,6 +1079,38 @@ void later_writes_reach_the_report() {
     check(line, "with a best-effort line");
     check(g_last_report.refused.size() == refused, "never a refusal");
     check(at<uint32_t>(WOOD_AT) == 777, "and nothing was written over it");
+    g_registry_now_ms = &steady_ms;
+}
+// sfi R3: a package's run-time write after the world load's report, found by the later-writes look: a named row, last, and a
+// named line
+void runtime_writer_later_write() {
+    world();
+    g_registry_now_ms = [] { return g_now; };
+    g_files = {{"compat/content/a.json",
+                R"({"registry": {"alter": [{"registry": "items", "select": {"id": "game:material_t1_wood_logs"}, "field": "maxStack", "op": 30}]}})"}};
+    const auto files = files_of({{"compat", "compat/content/a.json"}});
+    stage(files);
+    registry_live_world_begin();
+    apply_registry_files(files);
+    const registry::FieldRef logs{"items", "game:material_t1_wood_logs", "maxStack"};
+    check(at<uint32_t>(WOOD_AT) == 30, "the registry's 30");
+    const int reports = g_reports;
+    mem<uint32_t>(WOOD_AT, 999);
+    g_runtime = {runtime_write(WOOD_AT, 30, 999, "shroudforge:late-sf", 9)};
+    g_now += 20000;
+    registry_live_publish();
+    check(g_reports == reports + 1, "the look rebuilt registry.json");
+    const auto row = json_field(logs);
+    const auto& last = row["writers"].back();
+    check(row["result"] == 999 && last["kind"] == "runtimeWriter" && last["certainty"] == "named" && last["who"] == "shroudforge:late-sf" &&
+              last["value"] == 999 && row["winner"] == "shroudforge:late-sf",
+          "a named row, last: " + row.dump());
+    bool line = false;
+    for (const registry::Line& l : g_last_report.lines)
+        line = line || (l.field == logs && l.certainty == registry::Certainty::Named && l.winner == "shroudforge:late-sf" && l.loser == "compat" &&
+                        l.text == "items[game:material_t1_wood_logs].maxStack: shroudforge:late-sf changed it at run time after Kiln's last write in this world (30 -> 999)");
+    check(line, "with a named line");
+    check(g_last_report.refused.empty() && at<uint32_t>(WOOD_AT) == 999, "never a refusal, nothing written over it");
     g_registry_now_ms = &steady_ms;
 }
 // registry-followups 1: a code writer's row names the Kiln place and the mod, never the game's debug or member names (the
@@ -1478,6 +1629,10 @@ int main() {
         {"hot_reload", hot_reload},
         {"restart_required_on_reload", restart_required_on_reload},
         {"another_writer_in_the_report", another_writer_in_the_report},
+        {"runtime_writer_after_kilns_layer", runtime_writer_after_kilns_layer},
+        {"runtime_writer_skipped_revert", runtime_writer_skipped_revert},
+        {"runtime_writer_before_kilns_first_write", runtime_writer_before_kilns_first_write},
+        {"runtime_writer_later_write", runtime_writer_later_write},
         {"live_c_table", live_c_table},
         {"skipped_revert_names_the_kiln_place", skipped_revert_names_the_kiln_place},
         {"drift_probe", drift_probe},

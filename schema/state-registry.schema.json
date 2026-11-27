@@ -726,9 +726,10 @@
             "code",
             "registry",
             "check",
-            "drift"
+            "drift",
+            "runtimeWriter"
           ],
-          "description": "archiveWriter: a ShroudForge or EML package that wrote the entry's resource (or, see named, this field) in the archive before Kiln (named from kiln-eml's change journal; its value is the base); oldPatch: an older Kiln boot resource patch; oldPack: an older Kiln data pack; code: a Content.* change made by code; registry: a registry edit. check: the stage's reference check (list elements naming an entry the stage removed, taken out of an entry of a registry whose entries are not removed). drift (since 0.2.0-dev.31.17): the best-effort drift probe found the game's value changed outside Kiln (between the stage's read and Kiln's first write in the world, or after Kiln's layer) with no writer Kiln knows to explain it; who names the suspects Kiln can see, certainty bestEffort."
+          "description": "archiveWriter: a ShroudForge or EML package that wrote the entry's resource (or, see named, this field) in the archive before Kiln (named from kiln-eml's change journal; its value is the base); oldPatch: an older Kiln boot resource patch; oldPack: an older Kiln data pack; code: a Content.* change made by code; registry: a registry edit. check: the stage's reference check (list elements naming an entry the stage removed, taken out of an entry of a registry whose entries are not removed). drift (since 0.2.0-dev.31.17): the best-effort drift probe found the game's value changed outside Kiln (between the stage's read and Kiln's first write in the world, or after Kiln's layer) with no writer Kiln knows to explain it; who names the suspects Kiln can see, certainty bestEffort. runtimeWriter (next release, sfi R3): the same change, named: a ShroudForge package of kiln mode wrote the field at run time (through kiln.assets' named loaded writes) and kiln.assets' write records prove it (its writes taken back give what Kiln expected there: what the stage read, or Kiln's own last write); who is \"shroudforge:<package>\", certainty named, the row's value what the game holds after its writes. A value no record proves (an unnamed write, an older Kiln interpreter or kiln.assets) stays a drift row."
         },
         "mod": {
           "type": "string",
@@ -736,7 +737,7 @@
         },
         "who": {
           "type": "string",
-          "description": "What the writer is called when that is not just the mod: \"<mod>: content/<file>\", \"<mod>/<key>\", \"<mod or loader's mod>: <Kiln place>\" (a code change made through Kiln's content service, also another loader's: \"emf:big_stacks: items[game:material_t1_wood_logs].maxStack\"; since 0.2.0-dev.31.18, before it the game's item and member), \"shroudforge:<package>\", \"eml:<package>\" (an EML mod: of EML's own pass, or an EML package of the kiln-mode startup pass), \"kiln-eml:unattributed\" (a startup write no package made, or an EML mod whose id the journal cannot name), \"outside Kiln (best effort; suspects: ...)\" (a drift row)."
+          "description": "What the writer is called when that is not just the mod: \"<mod>: content/<file>\", \"<mod>/<key>\", \"<mod or loader's mod>: <Kiln place>\" (a code change made through Kiln's content service, also another loader's: \"emf:big_stacks: items[game:material_t1_wood_logs].maxStack\"; since 0.2.0-dev.31.18, before it the game's item and member), \"shroudforge:<package>\", \"eml:<package>\" (an EML mod: of EML's own pass, or an EML package of the kiln-mode startup pass), \"kiln-eml:unattributed\" (a startup write no package made, or an EML mod whose id the journal cannot name), \"outside Kiln (best effort; suspects: ...)\" (a drift row); a runtimeWriter row (next release): \"shroudforge:<package>\"."
         },
         "stage": {
           "enum": [
@@ -889,7 +890,7 @@
             "named",
             "bestEffort"
           ],
-          "description": "certain: Kiln's own writers; named: an archive-writer package, from its journal; bestEffort: other loaders' DLLs and hooks."
+          "description": "certain: Kiln's own writers; named: an archive-writer package, from its journal, or (next release) a run-time writer, from kiln.assets' write records; bestEffort: other loaders' DLLs and hooks."
         }
       },
       "additionalProperties": false

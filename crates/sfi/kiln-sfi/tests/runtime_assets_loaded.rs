@@ -765,14 +765,93 @@ fn an_uncertain_write_stops_the_resource_and_latches_the_session() {
         Some(uncertain)
     );
     // the object's writes stop (no second native call)
-    let calls = fs::counters(v.owner).calls("loaded_scalar_compare_exchange");
+    let calls = fs::counters(v.owner).calls("loaded_scalar_compare_exchange_named");
+    assert_eq!(calls, 1);
     let again: String =
         v.eval("local r, why = g_alpha.assets.write_loaded_field(res, 'hp', 1, 10); return why");
     assert_eq!(again, uncertain);
     assert_eq!(
-        fs::counters(v.owner).calls("loaded_scalar_compare_exchange"),
+        fs::counters(v.owner).calls("loaded_scalar_compare_exchange_named"),
         calls
     );
+}
+
+// ---- sfi R3: a write names its package (kiln.assets' loaded_scalar_compare_exchange_named) ----
+
+#[test]
+fn a_write_names_its_package_and_field_for_kilns_registry_report() {
+    let v = health_vm();
+    v.eval::<()>(&format!(
+        "res = g_alpha.assets.get_loaded_resource('{GUID}', '{HEALTH}')"
+    ));
+    let ok: bool = v.eval("return g_alpha.assets.write_loaded_field(res, 'hp', 12) ~= nil");
+    assert!(ok);
+    assert_eq!(stored(&v, GUID), words(&[12, 50]));
+    assert_eq!(
+        fs::loaded(v.owner, |f| f.names.clone()).unwrap(),
+        vec![("shroudforge:alpha".to_owned(), "hp".to_owned())]
+    );
+    assert_eq!(
+        fs::counters(v.owner).calls("loaded_scalar_compare_exchange_named"),
+        1
+    );
+    assert_eq!(
+        fs::counters(v.owner).calls("loaded_scalar_compare_exchange"),
+        0
+    );
+    // the resource override target writes through write_loaded_field: named the same way
+    v.eval::<()>(&format!(
+        "target = rt_alpha.overrides.resource(g_alpha.assets.get_loaded_resource('{GUID}', '{HEALTH}'), 'hp')"
+    ));
+    let (ok, actual): (bool, i64) = v.eval("return target.write(target.read(), 20)");
+    assert_eq!((ok, actual), (true, 20));
+    let names = fs::loaded(v.owner, |f| f.names.clone()).unwrap();
+    assert_eq!(names.len(), 2);
+    assert_eq!(names[1], ("shroudforge:alpha".to_owned(), "hp".to_owned()));
+}
+
+#[test]
+fn an_older_kiln_assets_without_the_named_member_still_writes_unnamed() {
+    // a kiln.assets of 0.2.0-dev.31 ends at loaded_scalar_compare_exchange (256 bytes)
+    fs::set_shape("kiln.assets", Some(fs::Shape::Short(256)));
+    let v = health_vm();
+    v.eval::<()>(&format!(
+        "res = g_alpha.assets.get_loaded_resource('{GUID}', '{HEALTH}')"
+    ));
+    let (ok, why): (bool, Value) = v.eval(
+        "local updated, why = g_alpha.assets.write_loaded_field(res, 'hp', 12); return updated ~= nil, why",
+    );
+    fs::set_shape("kiln.assets", None);
+    assert!(ok && why.is_nil(), "{why:?}");
+    assert_eq!(stored(&v, GUID), words(&[12, 50]));
+    assert_eq!(
+        fs::loaded(v.owner, |f| f.names.clone()).unwrap(),
+        vec![(String::new(), String::new())]
+    );
+    assert_eq!(
+        fs::counters(v.owner).calls("loaded_scalar_compare_exchange"),
+        1
+    );
+}
+
+#[test]
+fn a_write_name_is_text_kiln_assets_keeps_and_never_refuses_a_write() {
+    use kiln_sfi::runtime::assets::{NAME_MAX, WriteName};
+    assert_eq!(NAME_MAX, 127);
+    let n = WriteName::package("alpha", "hp");
+    assert_eq!((n.writer(), n.field()), ("shroudforge:alpha", "hp"));
+    let id = "a".repeat(NAME_MAX - "shroudforge:".len());
+    assert_eq!(WriteName::package(&id, "hp").writer().len(), NAME_MAX);
+    // not a plain package id, or too long for kiln.assets: the write names nobody
+    let longer = format!("{id}a");
+    for bad in ["", "bad id", "caf\u{e9}", "a\u{0}b", longer.as_str()] {
+        assert_eq!(WriteName::package(bad, "hp").writer(), "", "{bad:?}");
+    }
+    // the field: control characters as '?', cut on a character boundary
+    assert_eq!(WriteName::package("alpha", "a\u{1}b\u{85}c").field(), "a?b?c");
+    let long = WriteName::package("alpha", &"\u{e9}".repeat(100));
+    assert_eq!(long.field().len(), 126);
+    assert_eq!(WriteName::package("alpha", &"x".repeat(300)).field().len(), NAME_MAX);
 }
 
 #[test]

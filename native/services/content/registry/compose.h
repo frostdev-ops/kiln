@@ -81,8 +81,10 @@ struct BaseModel {
 
 // Check: the stage's reference check itself (a list element naming an entry the stage removed, taken out of an entry of a
 // registry whose entries are not removed). Drift: the live back-end's best-effort drift probe (drift.h): the game's value
-// changed outside Kiln and no writer Kiln knows explains it (never composed; a report row only).
-enum class WriterKind : uint8_t { ArchiveWriter, OldPatch, OldPack, Code, Registry, Check, Drift };
+// changed outside Kiln and no writer Kiln knows explains it (never composed; a report row only). Runtime (sfi R3): the
+// same change, named: a ShroudForge package of kiln mode wrote the field at run time and kiln.assets' write records prove
+// it (runtime_writes.h; a report row only, never composed).
+enum class WriterKind : uint8_t { ArchiveWriter, OldPatch, OldPack, Code, Registry, Check, Drift, Runtime };
 const char* writer_kind_name(WriterKind k);
 
 // A write below the registry: an old Kiln path, or an archive-writer package the journal names (D1).
@@ -139,7 +141,8 @@ enum class LineKind : uint8_t { Overridden, Composed, ComposedOn, Exclusive, Dro
 const char* line_kind_name(LineKind k);
 std::string report_value_text(const Value& v);
 // How sure a conflict line is (registry.json "certainty"): Kiln's own writers are seen for certain; an archive-writer package
-// is named from its journal (sfi R1); other loaders' DLLs and hooks (P4's drift probe) are best effort.
+// is named from its journal (sfi R1), a run-time writer from kiln.assets' write records (sfi R3); other loaders' DLLs and
+// hooks (P4's drift probe) are best effort.
 enum class Certainty : uint8_t { Certain, Named, BestEffort };
 const char* certainty_name(Certainty c);
 struct Line {

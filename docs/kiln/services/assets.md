@@ -268,10 +268,32 @@ every later write of the process: those answer `UNCERTAIN` with `KILN_ECS_WRITE_
 is recorded with its owner, key, offset, width, session and a write id (the last 256 in `status`'s `"loadedWrites"`) and
 logged in kiln.log.
 
+**Naming who wrote** (since 0.2.0-dev.32, after `loaded_scalar_compare_exchange`; check
+`header.size >= offsetof(KilnAssetsApi, loaded_write_records) + sizeof(void*)`):
+`loaded_scalar_compare_exchange_named(owner, key, expected_session, expected_full, resource_size, offset, desired, width,
+writer, field, &reply)` is the same write, whose record also names `writer` (who the write is for) and `field` (the
+caller's own words for the field, for diagnostics). Each is up to 127 bytes of UTF-8 without a control character; an
+empty `writer` names nobody, as the unnamed member. A name that is not such text is `KILN_ERR_INVALID_ARGUMENT` before
+anything happens. The name is what the caller says, not a security claim. Kiln's interpreter of ShroudForge mods
+(kiln-sfi, kiln mode) names each package's writes `shroudforge:<package id>`, so kiln.content's registry report names
+that package on the field it changed at run time instead of "another writer" (see
+[registry.md](registry.md)).
+- `loaded_write_records(out, record_size, capacity, &required)` copies one `KilnLoadedWriteRecord` (336 bytes) per
+  **place** (a resource's key, offset and width) for its newest committed write, oldest first: its id, owner, session,
+  the place, the writer and field it named (`""` none), `after` (the value the newest write left) and `before` (the value
+  its run began over: consecutive writes there by the same owner and writer, each over the value the one before left).
+  Any other write starts a new record, an unnamed one too, so a place is named only while its newest writer named itself.
+  `KILN_ERR_BUFFER_TOO_SMALL` sets `required` and copies nothing; `record_size` must be at least 336 (bytes past it are
+  zeroed). A copy under kiln.assets' own lock, any thread, no call out.
+- Records live for the process (the game keeps its loaded resources across worlds): at most 16,384 places, the place
+  written longest ago dropped first (kiln.log says so once). `status`'s `"loadedWrites"` rows carry `"writer"` and
+  `"field"` when a write named them, and kiln.log's line names them.
+
 Adapted from ShroudForge by bonsaibauer, MIT (its loaded ResourceService reads and its guarded resource scalar update).
 The portable part is
-`native/services/assets/loaded.{h,cpp}`, host-tested over a fake engine by `tests/test_loaded.cpp` (`tests/run.sh`,
-ASan and TSan; the CMake target `assets-loaded-test` builds the same test as a Windows program).
+`native/services/assets/loaded.{h,cpp}` (the write records too: `WriteRecords`), host-tested over a fake engine by
+`tests/test_loaded.cpp` (`tests/run.sh`, ASan and TSan; the CMake target `assets-loaded-test` builds the same test as a
+Windows program).
 
 ## Icons for model overrides
 The game's icons are baked: a `keen::UiTextureResource` per item GUID (BC7 256×256 with mips on client 26430625),

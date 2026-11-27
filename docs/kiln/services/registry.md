@@ -123,9 +123,11 @@ slot to it for the rest of that world and names the skipped operation in the rep
 applied. A retained change that cannot apply at a later application (a binding or evaluation failure, or a failed write of
 one of its own slots) is inactive for that world only: its handle stays valid, a Mod load change is tried again in the next
 world, and the report names its mod. A failed write is charged to the change that owns the slot, never to another change,
-an unrelated pack edit or a committing candidate's own failure. The current wording is “another
-writer”; naming a ShroudForge runtime package (a kiln-mode run-time write) still needs an owner-write record of those
-writes (sfi R3: kiln.assets keeps its loaded writes with the kiln-sfi plugin's owner, not the package's). Since 0.2.0-dev.31.17 the
+an unrelated pack edit or a committing candidate's own failure. The wording is “another
+writer”, unless kiln.assets' write records prove a ShroudForge package of kiln mode wrote the slot at run time (next
+release, sfi R3: kiln-sfi names each package's loaded writes, `shroudforge:<package>`): then the skipped row names it and
+the field gets a `runtimeWriter` writer of certainty `named` in place of the drift row
+([registries guide](../modding/registries/README.md#who-else-wrote-a-field)). Since 0.2.0-dev.31.17 the
 field's row in `registry.json` also gets a best-effort `drift` writer naming the suspects Kiln can see (the drift probe,
 [registries guide](../modding/registries/README.md#who-else-wrote-a-field)). This is not a promise to identify arbitrary
 DLL writes. Since 0.2.0-dev.31.18: writes made after the last report (a later code change, another loader's write) reach

@@ -56,8 +56,11 @@ json writer_json(const ChainRow& r, size_t list_cap) {
         if (r.list_values.size() > list_cap) w["listEntriesLeftOut"] = r.list_values.size() - list_cap;
     }
     write_value(w, "value", r.after, "valueEntriesLeftOut", list_cap);
-    // the check's own rows too are Kiln's: certain; a package from the journal: named; the drift probe: best effort
-    w["certainty"] = r.kind == WriterKind::ArchiveWriter ? "named" : r.kind == WriterKind::Drift ? "bestEffort" : "certain";
+    // the check's own rows too are Kiln's: certain; a package from the journal, or a run-time writer from kiln.assets' write
+    // records (sfi R3): named; the drift probe: best effort
+    w["certainty"] = r.kind == WriterKind::ArchiveWriter || r.kind == WriterKind::Runtime ? "named"
+                     : r.kind == WriterKind::Drift                                         ? "bestEffort"
+                                                                                           : "certain";
     return w;
 }
 
