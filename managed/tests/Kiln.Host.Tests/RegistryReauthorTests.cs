@@ -153,6 +153,29 @@ public sealed class RegistryReauthorTests : ModsFixture
         Assert.True(rig.Native.Host.Has("needs the tick thread: its passes run on the world tick"), rig.Native.Host.Dump());
         owner.Retire();
     }
+    // review of LOOT-2: most tick-thread members of Kiln's services refuse through Services.RequireTickThread (Progression,
+    // Items, World...), not Game.AssertTickThread. A pass that catches that refusal off the tick is not landed either: its
+    // mod's passes run on the tick from then on.
+    [Fact(Timeout = 30_000)]
+    public async Task APassThatCatchesAServiceTickRefusalRunsOnTheTick()
+    {
+        await Task.Yield();
+        using var rig = new Rig(this);
+        var owner = Owner(rig.Native, "leveler"); var threads = new List<int>(); var level = 0;
+        rig.Dispatch.Loaded(new WorldOnlyAuthor(c => {
+            if (c.Phase != RegistryPhase.Alter) return;
+            lock (threads) threads.Add(Environment.CurrentManagedThreadId);
+            try { Services.RequireTickThread("Progression.UnlockedNodes"); level = 7; } catch (InvalidOperationException) { level = 0; }
+            Edit(c, 10 + level);
+        }), owner, Root, false);
+        rig.Dispatch.FlushLoads(); Assert.Equal(17, rig.Native.Value);
+        Assert.Null(RegistryRuntime.Reauthor!(owner, RegistryEntryPoint.WorldLoad));
+        Settle(rig.Dispatch);
+        Assert.Equal(17, rig.Native.Value);  // never 10: the result built around the caught refusal was not landed
+        Assert.Equal(rig.Tick, threads[^1]);
+        Assert.True(rig.Native.Host.Has("calls Progression.UnlockedNodes, which needs the tick thread"), rig.Native.Host.Dump());
+        owner.Retire();
+    }
     // The registry moved after the pass read it (another mod's commit): that turn is not landed and the pass runs again.
     [Fact(Timeout = 30_000)]
     public async Task AStaleTurnRunsThePassAgain()

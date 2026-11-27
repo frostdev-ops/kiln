@@ -153,10 +153,15 @@ public static class Game
 
     /// <summary>A re-authored registry pass (Registry.Reauthor, 0.2.0-dev.32) runs on a worker thread of Kiln.Host's, off the
     /// world tick. A tick-thread call in it is refused and noted (<see cref="OffTickRefused"/>): Kiln.Host then runs that mod's
-    /// passes on the tick, so a mod that caught the refusal never lands a result built around it.</summary>
+    /// passes on the tick, so a mod that caught the refusal never lands a result built around it. Every tick-thread check
+    /// notes it: <see cref="AssertTickThread()"/>, Services.RequireTickThread (most services' members) and a service's own
+    /// <c>if (!Game.IsTickThread) throw</c> (<see cref="TickRefusal"/>), the checks the analyzers' KILN101 table is made of.</summary>
     [ThreadStatic] internal static bool OffTickPass;
     [ThreadStatic] internal static string? OffTickRefused;
-    private static InvalidOperationException OffTick(string member)
+    /// <summary>A tick-thread member's refusal off the tick: in a re-authored registry pass noted and named as such, else
+    /// <paramref name="otherwise"/>.</summary>
+    internal static Exception TickRefusal(string member, Exception otherwise) => OffTickPass ? OffTick(member) : otherwise;
+    internal static InvalidOperationException OffTick(string member)
     {
         OffTickRefused ??= member;
         return new InvalidOperationException($"{member} must run on the tick thread, and a re-authored registry pass (Registry.Reauthor) runs off it: " +
