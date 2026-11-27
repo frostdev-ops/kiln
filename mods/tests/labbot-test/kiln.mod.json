@@ -1,0 +1,11 @@
+{
+  "id": "labbot-test",
+  "name": "lab bot players: control channel",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "LabBotTest.dll",
+  "side": "server",
+  "clients": "none",
+  "advanced": true,
+  "description": "Lab servers only: the control channel labbot:control v1 for tools/labbot (lab scripts): join, info, list, leave, chat lines and commands as a bot, teleport, positions, players and character keys, as JSON over kiln.net's lab transport. Logs 'labbot-test: ...' lines. Without policy any or a lab port it only logs that LabBots is off."
+}

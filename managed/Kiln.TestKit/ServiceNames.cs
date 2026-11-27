@@ -41,6 +41,7 @@ internal static class ServiceNames
         "kiln.items.inventory_kinds",
         "kiln.items.storage",
         "kiln.knowledge",
+        "kiln.labbot",
         "kiln.log",
         "kiln.markers",
         "kiln.markers.bridge",
