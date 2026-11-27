@@ -51,8 +51,11 @@ internal sealed class FakeTamingCosts : ITamingCosts
     public Task<CostReceipt> Take(ItemSelection selection, int count, Guid requestId) => Pay("take", selection, count, requestId);
     public Task<CostReceipt> Wear(ItemSelection selection, int wear, Guid requestId, bool allowBreak) => Pay("wear", selection, wear, requestId);
 
+    public Exception? RefundThrow;
+
     public Task<CostReceipt> Refund(CostReceipt paid, Guid requestId)
     {
+        if (RefundThrow is { } t) throw t;
         Refunds.Add((paid, requestId));
         return Task.FromResult(new CostReceipt(paid.Item, paid.Taken, paid.Taken, true) { RequestId = requestId, RefundOf = paid.RequestId, Kind = CostKind.StackRefund });
     }

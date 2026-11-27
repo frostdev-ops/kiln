@@ -126,7 +126,9 @@ A step's cost is exact and receipted ([item-costs.md](item-costs.md)): `Progress
 | `Escrow` | given back | given back | given back | kept |
 
 - **Refunds** go through `ItemCosts.Refund`, once per paid receipt, under a request id derived from the paid one: a
-  second settlement can never refund twice. `Progress.Refunds` pairs each paid receipt with its refund's receipt.
+  second settlement can never refund twice. `Progress.Refunds` pairs each paid receipt with its refund's receipt. A refund
+  the adapter refuses before it runs (its row went off) is a refused receipt there (`NotRun`, with the reason): the end
+  still comes with its event and its answer.
 - **An uncertain receipt** (a fault inside the game's change) is never refunded or retried. It ends the attempt
   `UncertainCommit` with that receipt, and the policy still applies to the receipts that are certain.
 - **Not promised:** crash atomicity across the inventory and the pet record. A committed receipt means the inventory

@@ -113,4 +113,41 @@ public sealed class TamingReviewTests
         Assert.Equal(1, f.Engine.Active);
         Assert.Single(f.Events.OfType<TamingStartedEvent>());
     }
+
+    // ---- finding: a refund the adapter refuses by throwing (its row went off) escaped the settlement --------------------
+    // Settlement called the adapter's Refund without a guard: its KilnUnavailableException left Cancel (the caller saw an
+    // exception for a cancel that had happened), skipped the end event and the cancel's answer, and in the tick it stopped
+    // every later attempt's expiry for that step.
+
+    [Fact]
+    public void A_refund_the_adapter_refuses_by_throwing_still_ends_the_attempt_and_says_so()
+    {
+        var f = new TamingFixture().With(FeedTwice() with { Refund = TamingRefundPolicy.Escrow });
+        var p = f.Advance(f.Begin().Progress!, f.Stack(Bait)).Progress!;
+        f.Costs.RefundThrow = new KilnUnavailableException("items.costs.exact", "stack costs are off");
+        var cancel = Done(f.Engine.Cancel(f.A, p.Id, Token(p)));
+        Assert.True(cancel.Ok, cancel.Reason);
+        var closed = f.Engine.Inspect(p.Id)!;
+        Assert.Equal(TamingState.Canceled, closed.State);
+        var refund = Assert.Single(closed.Refunds);
+        Assert.Same(p.Spent.Single(), refund.Paid);
+        Assert.NotNull(refund.Refund);
+        Assert.False(refund.Refund!.Committed);
+        Assert.Equal(CostRefusal.NotRun, refund.Refund.Refusal);
+        Assert.Contains("stack costs are off", refund.Refund.Reason);
+        Assert.Single(f.Events.OfType<TamingCanceledEvent>());
+    }
+
+    [Fact]
+    public void A_refund_that_throws_in_the_tick_does_not_stop_the_other_attempts_expiring()
+    {
+        var f = new TamingFixture().With(FeedTwice() with { Refund = TamingRefundPolicy.Escrow, InactivitySeconds = 10 });
+        var a = f.Advance(f.Begin().Progress!, f.Stack(Bait)).Progress!;
+        var b = f.Begin(target: f.Dog, who: f.B).Progress!;
+        f.Costs.RefundThrow = new InvalidOperationException("not on the tick thread");
+        f.Pass(11);
+        Assert.Equal(TamingState.Expired, f.Engine.Inspect(a.Id)!.State);
+        Assert.Equal(TamingState.Expired, f.Engine.Inspect(b.Id)!.State);
+        Assert.Equal(2, f.Events.OfType<TamingExpiredEvent>().Count());
+    }
 }

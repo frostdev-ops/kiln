@@ -757,9 +757,25 @@ internal sealed class TamingEngine
             done();
             return;
         }
-        a.RefundsPending = paid.Select(p => (p, _costs.Refund(p, RefundId(p.RequestId)))).ToList();
+        a.RefundsPending = paid.Select(p => (p, RefundOf(p))).ToList();
         a.AfterRefunds = done;
         PollRefunds(a);
+    }
+
+    // one refund through the adapter; one it refuses by throwing (its row went off, a shape it does not take) is a refused
+    // receipt, so the end still comes, with its event and its answer, and says what was not given back
+    private Task<CostReceipt> RefundOf(CostReceipt paid)
+    {
+        var id = RefundId(paid.RequestId);
+        try { return _costs.Refund(paid, id); }
+        catch (Exception e) when (e is NotSupportedException or InvalidOperationException or ArgumentException)
+        {
+            return Task.FromResult(new CostReceipt(paid.Item, paid.Taken, 0, false)
+            {
+                RequestId = id, Kind = paid.Kind == CostKind.GearWear ? CostKind.GearRestore : CostKind.StackRefund, Selection = paid.Selection,
+                Refusal = CostRefusal.NotRun, Reason = $"the refund could not be submitted: {e.Message}", RefundOf = paid.RequestId,
+            });
+        }
     }
 
     internal static Guid RefundId(Guid paid)
