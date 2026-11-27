@@ -1,2 +1,8 @@
 #nullable enable
 [KILNX031]Kiln.TestKit.HarnessRegistry.Reauthors.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.TestKit.HarnessNpcSpeech.PickOf(Kiln.EntityId npc, Kiln.NpcLineKind kind = Kiln.NpcLineKind.Greeting) -> string?
+Kiln.TestKit.HarnessNpcSpeech.FarewellsOf(Kiln.EntityId npc, string! language = "en-us") -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.TestKit.HarnessNpcSpeech.MenuLinesOf(Kiln.EntityId npc, string! language = "en-us") -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.TestKit.HarnessNpcSpeech.RepliesTo(Kiln.EntityId player, string! language = "en-us") -> System.Collections.Generic.IReadOnlyList<(Kiln.EntityId Npc, string! Text)>!
+Kiln.TestKit.HarnessNpcSpeech.PickTopic(Kiln.EntityId npc, string! topicId, Kiln.EntityId player) -> bool
+Kiln.TestKit.HarnessNpcSpeech.TopicsOf(Kiln.EntityId npc, string! language = "en-us") -> System.Collections.Generic.IReadOnlyList<string!>!

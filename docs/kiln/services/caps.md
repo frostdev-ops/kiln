@@ -634,3 +634,11 @@ The station screen's per-ingredient fill of the same release is `stations.fill_i
 Window docking (`UiWindowOptions.AcceptDock`, `Ui.FindWindow`, kiln.ui's `window_state`, GitHub issue 149) has no row of
 its own: next to a kiln-ui.dll without `window_state` the window the others dock to always leads, so dragging a docked
 window does not move its target ([ui.md](../ui.md#docking-windows-since-020-dev3116-mod-api-0223)).
+
+## Rows added in 0.2.0-dev.32 (NPC dialogue for mods)
+
+| Row | Kind | Reported by | Unconfirmed | What it says |
+|---|---|---|---|---|
+| `npcspeech.farewell` | sigdb feature (`client.d/npcdialog.json`), client only | core (sigdb); Kiln.Blocks reports it `wrong-side` on a dedicated server and `service-missing` on a client without kiln.npcspeech | not yet observed in a running client | this process shows a mod's farewells in the dialogue menu's speech box (`Npcs.Farewells`, [npc-speech.md](npc-speech.md#capabilities-and-when-something-is-off)); a server without it still sends them to its Kiln clients |
+| `npcspeech.menu_line` | sigdb feature (`client.d/npcdialog.json`), client only | as `npcspeech.farewell` | not yet observed in a running client | a mod's own line in the dialogue menu's speech box when it opens, and a host's reply to one player (`Npcs.MenuLine`, `NpcTopicContext.Reply`) |
+| `npcspeech.topics` | sigdb feature (`client.d/npcdialog.json`), client only | as `npcspeech.farewell` | not yet observed in a running client | a mod's topics on an NPC's talk page after the game's own, and their picks (`Npcs.Topics`): a villager without topics gets a page |

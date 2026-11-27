@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MIT
-// Who wants what an NPC says, and what it says because of that: the rule of Kiln.Npcs without the game. Per NPC, each
-// owner (a mod) has at most one override (Suppress or Replace, with a priority) and the NPC has at most one Say. The
-// effective override is the highest priority, on a tie the most recent; a Say shows over it until its time. Two layers:
-// Local (calls in this process) and Remote (what the server sent this joined client); Local wins over Remote, so a
-// player's own client-only mod has the last word on their own screen. docs/kiln/services/npc-speech.md.
+// Who wants what an NPC says, and what it says because of that: the rule of Kiln.Npcs without the game. Per NPC and
+// kind of line (the bubble's greeting, the menu's farewell, the menu's own line), each owner (a mod) has at most one
+// override (Suppress or Replace, with a priority and a pick) and the NPC has at most one Say. The effective override is
+// the highest priority, on a tie the most recent; a Say shows over the greeting until its time. Two layers: Local (calls
+// in this process) and Remote (what the server sent this joined client); Local wins over Remote, so a player's own
+// client-only mod has the last word on their own screen. docs/kiln/services/npc-speech.md.
 namespace Kiln;
 
 /// <summary>What an NPC's greeting bubble does now.</summary>
@@ -17,15 +18,103 @@ public enum SpeechMode : byte
     Replace = 2,
 }
 
-/// <summary>The effective speech of one NPC: its override and its running Say.</summary>
+/// <summary>Which line of an NPC an override is for (since 0.2.0-dev.32).</summary>
+public enum NpcLineKind : byte
+{
+    /// <summary>The greeting in the speech bubble over its head (<see cref="Npcs.Speech"/>).</summary>
+    Greeting = 0,
+    /// <summary>The farewell in the dialogue menu's speech box when the player leaves it (<see cref="Npcs.Farewells"/>).</summary>
+    Farewell = 1,
+    /// <summary>The NPC's own line in the dialogue menu's speech box when the menu opens (<see cref="Npcs.MenuLine"/>).</summary>
+    MenuLine = 2,
+}
+
+/// <summary>What a <see cref="SpeechPick.By"/> callback is asked: which of the lines this player sees next.</summary>
+/// <param name="Npc">The NPC.</param>
+/// <param name="Player">The player whose game shows the line (the host's own player in a hosted world).</param>
+/// <param name="Kind">The greeting, the farewell or the menu's line.</param>
+/// <param name="Opens">How many times this player has seen this kind of line of this NPC since the override began.</param>
+/// <param name="Last">The index this player saw last; -1 when none (or the game's own line).</param>
+/// <param name="Lines">How many lines the override has.</param>
+public sealed record NpcLineContext(EntityId Npc, EntityId Player, NpcLineKind Kind, int Opens, int Last, int Lines);
+
+/// <summary>How a <see cref="NpcSpeech.Replace(string[])"/> picks its line each time the NPC greets (says farewell, opens
+/// its menu). Since 0.2.0-dev.32.</summary>
+public sealed class SpeechPick
+{
+    private SpeechPick(byte code, uint seed, Func<NpcLineContext, int>? choose, string name)
+    {
+        Code = code;
+        Seed = seed;
+        Choose = choose;
+        _name = name;
+    }
+
+    private readonly string _name;
+    internal byte Code { get; }
+    internal uint Seed { get; }
+    internal Func<NpcLineContext, int>? Choose { get; }
+
+    /// <summary>A new line at random each time (never the same line twice in a row when there are two or more), picked
+    /// by each player's own game. The default.</summary>
+    public static SpeechPick Random { get; } = new(SpeechNative.PickRandom, 0, null, "Random");
+
+    /// <summary>The lines in turn, one per greeting, from the first, picked by each player's own game.</summary>
+    public static SpeechPick InOrder { get; } = new(SpeechNative.PickOrder, 0, null, "InOrder");
+
+    /// <summary>The same line for the same greeting everywhere: a mix of <paramref name="seed"/>, the NPC and how many
+    /// times the player has seen it, picked by each player's own game with no message per greeting.</summary>
+    public static SpeechPick Seeded(int seed) => new(SpeechNative.PickSeeded, unchecked((uint)seed), null, $"Seeded({seed})");
+
+    /// <summary>The host decides for each player: <paramref name="choose"/> runs on the host's tick thread and returns
+    /// the index of the line that player sees next, or -1 for the game's own line (the menu: no line). It runs one
+    /// greeting ahead: when the override is set, after each greeting of that player, and at
+    /// <see cref="NpcSpeech.Refresh"/>; the player's game shows what it was given last. A throwing callback or an index
+    /// out of range counts as -1.</summary>
+    /// <exception cref="ArgumentNullException"><paramref name="choose"/> is null.</exception>
+    public static SpeechPick By(Func<NpcLineContext, int> choose)
+    {
+        ArgumentNullException.ThrowIfNull(choose);
+        return new SpeechPick(SpeechNative.PickHost, 0, choose, "By");
+    }
+
+    /// <summary>A joined client's copy of a host's By: the host picks, this game shows and reports.</summary>
+    internal static SpeechPick Host { get; } = new(SpeechNative.PickHost, 0, null, "Host");
+
+    internal static SpeechPick FromWire(byte code, uint seed) => code switch
+    {
+        SpeechNative.PickRandom => Random,
+        SpeechNative.PickOrder => InOrder,
+        SpeechNative.PickSeeded => new SpeechPick(code, seed, null, $"Seeded({unchecked((int)seed)})"),
+        SpeechNative.PickHost => Host,
+        _ => throw new ArgumentOutOfRangeException(nameof(code)),
+    };
+
+    /// <summary>The same pick: the kind and seed, and the same callback.</summary>
+    internal bool SameAs(SpeechPick o) => Code == o.Code && Seed == o.Seed && ReferenceEquals(Choose, o.Choose);
+
+    /// <summary>Random, InOrder, Seeded(seed) or By.</summary>
+    public override string ToString() => _name;
+}
+
+/// <summary>The effective speech of one NPC's line of one kind: its override and (greetings) its running Say.</summary>
 internal sealed record SpeechEffect(SpeechMode Mode, IReadOnlyList<UiText> Lines, string? Owner, UiText? Say, long SayUntilMs, string? SayOwner)
 {
     public static readonly SpeechEffect None = new(SpeechMode.Game, [], null, null, 0, null);
 
-    /// <summary>Same override and Say (texts compared by their JSON).</summary>
+    /// <summary>How the override picks (Random when there is none).</summary>
+    public SpeechPick Pick { get; init; } = SpeechPick.Random;
+
+    /// <summary>Which layer the override came from (Local when there is none).</summary>
+    public SpeechLayer Layer { get; init; }
+
+    /// <summary>Same override and Say (texts compared by their JSON), pick aside.</summary>
     public bool SameAs(SpeechEffect o) =>
-        Mode == o.Mode && SayUntilMs == o.SayUntilMs && SpeechText.Json(Say) == SpeechText.Json(o.Say) &&
-        Lines.Count == o.Lines.Count && Lines.Select(SpeechText.Json).SequenceEqual(o.Lines.Select(SpeechText.Json));
+        Mode == o.Mode && SayUntilMs == o.SayUntilMs && SpeechText.Json(Say) == SpeechText.Json(o.Say) && SameLines(o);
+
+    /// <summary>The same mode and lines (texts compared by their JSON).</summary>
+    public bool SameLines(SpeechEffect o) =>
+        Mode == o.Mode && Lines.Count == o.Lines.Count && Lines.Select(SpeechText.Json).SequenceEqual(o.Lines.Select(SpeechText.Json));
 }
 
 internal enum SpeechLayer : byte { Local = 0, Remote = 1 }
@@ -33,14 +122,19 @@ internal enum SpeechLayer : byte { Local = 0, Remote = 1 }
 /// <summary>The rule, thread-safe (one lock). Times are ms of a clock the caller gives.</summary>
 internal sealed class SpeechBook
 {
-    private sealed record Entry(string Owner, SpeechMode Mode, UiText[] Lines, int Priority, long Seq);
+    private sealed record Entry(string Owner, NpcLineKind Kind, SpeechMode Mode, UiText[] Lines, int Priority, long Seq, SpeechPick Pick);
     private sealed record SayEntry(string Owner, UiText Text, long UntilMs);
+
+    /// <summary>One owner's topics of an NPC (Wire: the line id Kiln clients show it with); Seq keeps its place on the page.</summary>
+    internal sealed record TopicEntry(string Owner, NpcTopic Topic, uint Wire, long Seq, SpeechLayer Layer);
 
     private sealed class Npc
     {
         public readonly List<Entry>[] Overrides = [new(), new()];
         public readonly SayEntry?[] Says = new SayEntry?[2];
-        public bool Empty => Overrides[0].Count == 0 && Overrides[1].Count == 0 && Says[0] is null && Says[1] is null;
+        public readonly List<TopicEntry>[] Topics = [new(), new()];
+        public bool Empty => Overrides[0].Count == 0 && Overrides[1].Count == 0 && Says[0] is null && Says[1] is null &&
+                             Topics[0].Count == 0 && Topics[1].Count == 0;
     }
 
     private readonly object _gate = new();
@@ -52,14 +146,17 @@ internal sealed class SpeechBook
     /// <summary>The NPCs that have anything.</summary>
     public uint[] Npcs() { lock (_gate) return _npcs.Keys.ToArray(); }
 
-    public void Set(SpeechLayer layer, uint npc, string owner, SpeechMode mode, UiText[] lines, int priority)
+    public void Set(SpeechLayer layer, uint npc, string owner, SpeechMode mode, UiText[] lines, int priority) =>
+        Set(layer, npc, owner, NpcLineKind.Greeting, mode, lines, priority, SpeechPick.Random);
+
+    public void Set(SpeechLayer layer, uint npc, string owner, NpcLineKind kind, SpeechMode mode, UiText[] lines, int priority, SpeechPick pick)
     {
         lock (_gate)
         {
             var n = Get(npc);
             var list = n.Overrides[(int)layer];
-            list.RemoveAll(e => e.Owner == owner);
-            if (mode != SpeechMode.Game) list.Add(new Entry(owner, mode, lines, priority, ++_seq));
+            list.RemoveAll(e => e.Owner == owner && e.Kind == kind);
+            if (mode != SpeechMode.Game) list.Add(new Entry(owner, kind, mode, lines, priority, ++_seq, pick));
             Drop(npc, n);
         }
     }
@@ -102,8 +199,36 @@ internal sealed class SpeechBook
             {
                 var hit = false;
                 foreach (var list in n.Overrides) hit |= list.RemoveAll(e => e.Owner == owner) > 0;
+                foreach (var list in n.Topics) hit |= list.RemoveAll(e => e.Owner == owner) > 0;
                 for (var i = 0; i < n.Says.Length; i++)
                     if (n.Says[i]?.Owner == owner) { n.Says[i] = null; hit = true; }
+                if (hit) touched.Add(npc);
+                Drop(npc, n);
+            }
+            return touched.ToArray();
+        }
+    }
+
+    /// <summary>Drops a layer's overrides of some kinds (and, with <paramref name="says"/>, its Says; with
+    /// <paramref name="topics"/>, its topics): a v1 or a kiln:npcdialog Reset from the server; returns the NPCs touched.</summary>
+    public uint[] DropLayer(SpeechLayer layer, Func<NpcLineKind, bool> kinds, bool says, bool topics = false)
+    {
+        lock (_gate)
+        {
+            var touched = new List<uint>();
+            foreach (var (npc, n) in _npcs.ToArray())
+            {
+                var hit = n.Overrides[(int)layer].RemoveAll(e => kinds(e.Kind)) > 0;
+                if (says && n.Says[(int)layer] is not null)
+                {
+                    n.Says[(int)layer] = null;
+                    hit = true;
+                }
+                if (topics && n.Topics[(int)layer].Count > 0)
+                {
+                    n.Topics[(int)layer].Clear();
+                    hit = true;
+                }
                 if (hit) touched.Add(npc);
                 Drop(npc, n);
             }
@@ -119,9 +244,10 @@ internal sealed class SpeechBook
             var touched = new List<uint>();
             foreach (var (npc, n) in _npcs.ToArray())
             {
-                if (n.Overrides[(int)layer].Count > 0 || n.Says[(int)layer] is not null) touched.Add(npc);
+                if (n.Overrides[(int)layer].Count > 0 || n.Says[(int)layer] is not null || n.Topics[(int)layer].Count > 0) touched.Add(npc);
                 n.Overrides[(int)layer].Clear();
                 n.Says[(int)layer] = null;
+                n.Topics[(int)layer].Clear();
                 Drop(npc, n);
             }
             return touched.ToArray();
@@ -129,29 +255,85 @@ internal sealed class SpeechBook
     }
 
     /// <summary>The override one owner set on the NPC in a layer (Game when none).</summary>
-    public SpeechMode ModeOf(SpeechLayer layer, uint npc, string owner)
+    public SpeechMode ModeOf(SpeechLayer layer, uint npc, string owner, NpcLineKind kind = NpcLineKind.Greeting)
     {
         lock (_gate)
-            return _npcs.TryGetValue(npc, out var n) && n.Overrides[(int)layer].Find(e => e.Owner == owner) is { } e ? e.Mode : SpeechMode.Game;
+            return _npcs.TryGetValue(npc, out var n) && n.Overrides[(int)layer].Find(e => e.Owner == owner && e.Kind == kind) is { } e
+                ? e.Mode
+                : SpeechMode.Game;
     }
 
-    /// <summary>What the NPC shows now: Local over Remote; the highest priority, then the most recent; a Say until its time.</summary>
-    public SpeechEffect Effective(uint npc, long nowMs)
+    /// <summary>An owner's topics of the NPC become these (with their wire ids); its place on the page stays while it
+    /// has any.</summary>
+    public void SetTopics(SpeechLayer layer, uint npc, string owner, IReadOnlyList<(NpcTopic Topic, uint Wire)> topics)
+    {
+        lock (_gate)
+        {
+            var n = Get(npc);
+            var list = n.Topics[(int)layer];
+            var seq = list.Find(e => e.Owner == owner)?.Seq ?? ++_seq;
+            list.RemoveAll(e => e.Owner == owner);
+            list.AddRange(topics.Select(t => new TopicEntry(owner, t.Topic, t.Wire, seq, layer)));
+            Drop(npc, n);
+        }
+    }
+
+    /// <summary>One owner's topics of the NPC in a layer, in order.</summary>
+    public IReadOnlyList<TopicEntry> TopicsOf(SpeechLayer layer, uint npc, string owner)
+    {
+        lock (_gate)
+            return _npcs.TryGetValue(npc, out var n) ? n.Topics[(int)layer].Where(e => e.Owner == owner).ToArray() : [];
+    }
+
+    /// <summary>The NPC's page of Kiln topics: this process's own (Local) first, each owner's block where it began, then
+    /// the server's; each line id once (a mod on both sides that set the same topic here and on the host: this process's
+    /// own); at most <see cref="NpcTopics.MaxTopics"/>.</summary>
+    public IReadOnlyList<TopicEntry> EffectiveTopics(uint npc, SpeechLayer? only = null)
+    {
+        lock (_gate)
+        {
+            if (!_npcs.TryGetValue(npc, out var n)) return [];
+            var all = new List<TopicEntry>();
+            var ids = new HashSet<uint>();
+            foreach (var layer in new[] { 0, 1 })
+                if (only is null || (int)only == layer)
+                    foreach (var e in n.Topics[layer].Select((e, i) => (e, i)).OrderBy(x => x.e.Seq).ThenBy(x => x.i).Select(x => x.e))
+                        if (ids.Add(e.Wire)) all.Add(e);   // kiln.npcspeech refuses a page with one id twice
+            return all.Take(NpcTopics.MaxTopics).ToArray();
+        }
+    }
+
+    /// <summary>What the NPC's greeting shows now: Local over Remote; the highest priority, then the most recent; a Say
+    /// until its time.</summary>
+    public SpeechEffect Effective(uint npc, long nowMs) => Effective(npc, NpcLineKind.Greeting, nowMs);
+
+    /// <summary>What the NPC's line of <paramref name="kind"/> shows now (a Say only for the greeting).</summary>
+    public SpeechEffect Effective(uint npc, NpcLineKind kind, long nowMs)
     {
         lock (_gate)
         {
             if (!_npcs.TryGetValue(npc, out var n)) return SpeechEffect.None;
             Entry? best = null;
+            var from = SpeechLayer.Local;
             foreach (var layer in new[] { 0, 1 })
             {
                 foreach (var e in n.Overrides[layer])
-                    if (best is null || e.Priority > best.Priority || (e.Priority == best.Priority && e.Seq > best.Seq)) best = e;
-                if (best is not null) break;  // a Local override hides the Remote ones
+                    if (e.Kind == kind && (best is null || e.Priority > best.Priority || (e.Priority == best.Priority && e.Seq > best.Seq))) best = e;
+                if (best is not null)
+                {
+                    from = (SpeechLayer)layer;
+                    break;  // a Local override hides the Remote ones
+                }
             }
             SayEntry? say = null;
-            foreach (var layer in new[] { 0, 1 })
-                if (n.Says[layer] is { } s && s.UntilMs > nowMs) { say = s; break; }
-            return new SpeechEffect(best?.Mode ?? SpeechMode.Game, best?.Lines ?? [], best?.Owner, say?.Text, say?.UntilMs ?? 0, say?.Owner);
+            if (kind == NpcLineKind.Greeting)
+                foreach (var layer in new[] { 0, 1 })
+                    if (n.Says[layer] is { } s && s.UntilMs > nowMs) { say = s; break; }
+            return new SpeechEffect(best?.Mode ?? SpeechMode.Game, best?.Lines ?? [], best?.Owner, say?.Text, say?.UntilMs ?? 0, say?.Owner)
+            {
+                Pick = best?.Pick ?? SpeechPick.Random,
+                Layer = from,
+            };
         }
     }
 

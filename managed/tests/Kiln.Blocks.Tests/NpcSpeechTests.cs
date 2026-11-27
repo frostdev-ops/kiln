@@ -176,12 +176,12 @@ public sealed unsafe class NpcSpeechTests : IDisposable
         Assert.Equal(SpeechMode.Suppress, speech.Mode);
         Assert.Equal(SpeechMode.Suppress, Npcs.SpeechOf(Ramone));
         Assert.Contains($"set {Ramone.Value} 1 []", Snapshot());
-        var m = Assert.IsType<SpeechMsg>(Assert.Single(Wire));
+        var m = Assert.Single(Wire.OfType<SpeechMsg>());             // v1 (dev.32 clients also get kiln:npcdialog's Lines)
         Assert.Equal(SpeechMode.Suppress, m.Mode);
 
         Wire.Clear();
         speech.Replace("No food, no work.", "My stomach...");
-        var sent = Assert.IsType<SpeechMsg>(Assert.Single(Wire));
+        var sent = Assert.Single(Wire.OfType<SpeechMsg>());
         Assert.Equal(2, sent.Lines.Length);
         var t1 = SpeechText.Tag(SpeechText.Json(new UiText("No food, no work.")));
         var t2 = SpeechText.Tag(SpeechText.Json(new UiText("My stomach...")));
@@ -194,7 +194,7 @@ public sealed unsafe class NpcSpeechTests : IDisposable
         speech.Clear();
         Assert.Equal(SpeechMode.Game, Npcs.SpeechOf(Ramone));
         Assert.Contains($"set {Ramone.Value} 0 []", Snapshot());
-        Assert.Equal(SpeechMode.Game, Assert.IsType<SpeechMsg>(Assert.Single(Wire)).Mode);
+        Assert.Equal(SpeechMode.Game, Assert.Single(Wire.OfType<SpeechMsg>()).Mode);
     }
 
     [Fact]
@@ -259,7 +259,8 @@ public sealed unsafe class NpcSpeechTests : IDisposable
         Wire.Clear();
         NpcSpeechEngine.WorldEnded();
         Assert.Contains("clear", Snapshot());
-        Assert.IsType<SpeechResetMsg>(Assert.Single(Wire));
+        Assert.Single(Wire.OfType<SpeechResetMsg>());
+        Assert.Single(Wire.OfType<DialogResetMsg>());               // kiln:npcdialog's clients forget theirs too
         Assert.Equal(SpeechMode.Game, Npcs.SpeechOf(Ramone));
         Assert.Equal(0, NpcSpeechEngine.Book.Count);
     }
@@ -350,7 +351,8 @@ public sealed unsafe class NpcSpeechTests : IDisposable
         Npcs.Say(Balthazar, "Hungry!", TimeSpan.FromSeconds(3));
         Assert.Contains($"say {Balthazar.Value} 00000000 0", Snapshot());     // no empty bubble
         Assert.DoesNotContain(Snapshot(), c => c.StartsWith($"say {Balthazar.Value} ", StringComparison.Ordinal) && !c.EndsWith(" 0", StringComparison.Ordinal));
-        Assert.Equal(2, Wire.Count);                                         // the clients still get both
+        Assert.Equal(2, Wire.Count(m => m is SpeechMsg or SayMsg));         // the clients still get both (v1)
+        Assert.Single(Wire.OfType<LinesMsg>());                              // and dev.32 clients the Replace on kiln:npcdialog
 
         _textRc = 0;                                                         // kiln.content came: the same call shows
         Npcs.Speech(Ramone).Replace("No food, no work.");

@@ -6,5 +6,5 @@
   "entryAssembly": "HungryCrafter.dll",
   "side": "server",
   "clients": "none",
-  "description": "Villagers and craftspeople get hungry: the moment it starts they say so in the game's own speech bubble, while hungry they greet with complaints instead of their cheerful lines, and once fed they thank you and greet as before. /hunger starve|feed [all] for the nearest NPC (or all). The server decides; players whose game runs Kiln see the bubbles, vanilla players keep the game's lines. Sample for docs/kiln/services/npc-speech.md (Kiln.Npcs), after Marshall's (Ryrin's) request."
+  "description": "Villagers and craftspeople get hungry: the moment it starts they say so in the game's own speech bubble; while hungry they greet with complaints (a new one at each greeting), say farewell with a plea, open their dialogue menu with a plea of their own, and their talk page gets a topic \"Here, have some bread.\" that feeds them (a villager without a talk page gets one); once fed they thank you and are as before. /hunger starve|feed [all] for the nearest NPC (or all). The server decides; players whose game runs Kiln (0.2.0-dev.32 for the menu parts) see them, vanilla players keep the game's lines. Sample for docs/kiln/services/npc-speech.md (Kiln.Npcs), after Marshall's (Ryrin's) requests."
 }

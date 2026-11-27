@@ -6,6 +6,8 @@
 //   1 Speech  ToClient  u32 npc, u8 mode, u8 n, n x string (a line's text JSON)
 //   2 Say     ToClient  u32 npc, string (text JSON; "" ends it), u32 ms left
 //   3 Reset   ToClient  bool: forget everything the server sent (the snapshot's first message)
+// Since 0.2.0-dev.32 the greetings' picks, farewells, the menu's line and topics travel on kiln:npcdialog
+// (NpcDialogEngine.cs); this channel stays as 31.16-31.21 clients know it.
 namespace Kiln;
 
 internal sealed record SpeechMsg(uint Npc, SpeechMode Mode, string[] Lines);
@@ -18,7 +20,7 @@ internal static class NpcSpeechStartup
     static NpcSpeechStartup() => NpcSpeechEngine.Start();
 }
 
-internal static class NpcSpeechEngine
+internal static partial class NpcSpeechEngine
 {
     public const string ChannelName = "kiln:npcspeech";
     public const string ChannelVersion = "1";
@@ -34,7 +36,7 @@ internal static class NpcSpeechEngine
     // snapshot is not overtaken by an older change. Held while calling kiln.npcspeech, kiln.content and the channel,
     // none of which calls back into Kiln.Npcs.
     private static readonly object Order = new();
-    private static readonly Dictionary<uint, SpeechEffect> Applied = new();   // what this process's bubbles were told
+    private static readonly Dictionary<uint, SpeechEffect> Applied = new();   // what this process's bubbles were told (greetings)
     private static readonly Dictionary<uint, SpeechEffect> Sent = new();      // what the clients were sent (host)
     private static readonly HashSet<string> Watched = new(StringComparer.Ordinal);
     private static NetChannel? _channel;
@@ -69,7 +71,12 @@ internal static class NpcSpeechEngine
                     NetDirection.ToClient)
                 .Register<SpeechResetMsg>(MsgReset, static (m, w) => w.Bool(m.All), static (ref NetReader r) => new SpeechResetMsg(r.Bool()),
                     static (_, _) => ReceivedReset(), NetDirection.ToClient);
-            Events.On<NetPeerReadyEvent>(e => Snapshot(e.Peer), EventPriority.Monitor);
+            _dialog = RegisterDialog();
+            Events.On<NetPeerReadyEvent>(e =>
+            {
+                Snapshot(e.Peer);
+                if (e.Peer.HasChannel(DialogChannel)) DialogSnapshot(PeerOf(e.Peer));
+            }, EventPriority.Monitor);
             Network.Disconnected += _ => ServerGone();
         }
         catch (Exception e)
@@ -78,6 +85,7 @@ internal static class NpcSpeechEngine
         }
         finally
         {
+            StartTick();
             ModContext.CurrentMod = outer;
         }
     }
@@ -94,15 +102,19 @@ internal static class NpcSpeechEngine
                 mod.Retiring += () =>
                 {
                     lock (Gate) Watched.Remove(id);
-                    foreach (var npc in Book.DropOwner(id)) Changed(npc);
+                    foreach (var npc in Book.DropOwner(id)) ChangedAll(npc);
                 };
         return id;
     }
 
-    internal static SpeechResult Set(EntityId npc, string owner, SpeechMode mode, UiText[] lines, int priority)
+    internal static SpeechResult Set(EntityId npc, string owner, SpeechMode mode, UiText[] lines, int priority) =>
+        Set(npc, owner, NpcLineKind.Greeting, mode, lines, priority, SpeechPick.Random);
+
+    internal static SpeechResult Set(EntityId npc, string owner, NpcLineKind kind, SpeechMode mode, UiText[] lines, int priority, SpeechPick pick)
     {
-        Book.Set(SpeechLayer.Local, npc.Value, owner, mode, lines, priority);
-        return Changed(npc.Value);
+        Start();
+        Book.Set(SpeechLayer.Local, npc.Value, owner, kind, mode, lines, priority, pick);
+        return kind == NpcLineKind.Greeting ? Changed(npc.Value) : ChangedLines(npc.Value, kind);
     }
 
     internal static SpeechResult Say(EntityId npc, string owner, UiText text, TimeSpan duration, SayOptions options)
@@ -133,8 +145,13 @@ internal static class NpcSpeechEngine
             var now = Clock();
             var eff = Book.Effective(npc, now);
             var note = ApplyHere(npc, eff, now);
-            if (IsHost) Broadcast(npc, eff, now);
-            else if (!SpeechNative.Loaded) return SpeechResult.No(note ?? "kiln.npcspeech is not here: this game shows no Kiln speech");
+            if (IsHost)
+            {
+                Broadcast(npc, eff, now);
+                BroadcastLines(npc, NpcLineKind.Greeting, eff);
+            }
+            NotePick(npc, NpcLineKind.Greeting, eff);
+            if (!IsHost && !SpeechNative.Loaded) return SpeechResult.No(note ?? "kiln.npcspeech is not here: this game shows no Kiln speech");
             return note is null ? SpeechResult.Yes : new SpeechResult(true, note);
         }
     }
@@ -144,7 +161,7 @@ internal static class NpcSpeechEngine
     private static string? ApplyHere(uint npc, SpeechEffect eff, long now)
     {
         lock (Gate)
-            if (Applied.TryGetValue(npc, out var was) && was.SameAs(eff)) return null;
+            if (Applied.TryGetValue(npc, out var was) && was.SameAs(eff) && was.Pick.SameAs(eff.Pick)) return null;
         if (!SpeechNative.Loaded)  // a dedicated server has no bubbles: its clients show them, nothing to note
         {
             Remember(npc, eff);
@@ -168,7 +185,10 @@ internal static class NpcSpeechEngine
             if (tags.Count == 0) mode = SpeechMode.Game;
         }
         var whole = mode == eff.Mode;
-        if (SpeechNative.Set(npc, mode, tags.ToArray()) == SpeechNative.Unavailable)
+        var rc = SpeechNative.HasLines
+            ? SpeechNative.SetLines(npc, NpcLineKind.Greeting, mode, tags.ToArray(), eff.Pick.Code, eff.Pick.Seed)
+            : SpeechNative.Set(npc, mode, tags.ToArray());
+        if (rc == SpeechNative.Unavailable)
         {
             note = Capabilities.Why(SpeechNative.BubbleCapability);
             whole = false;
@@ -244,15 +264,16 @@ internal static class NpcSpeechEngine
     private static void Send(object m)
     {
         if (SendHook is { } hook) { hook(m); return; }
-        if (_channel is null) return;
+        if (_channel is null && _dialog is null) return;
         try
         {
             _ = m switch
             {
-                SpeechMsg s => _channel.SendToAll(s),
-                SayMsg s => _channel.SendToAll(s),
-                SpeechResetMsg s => _channel.SendToAll(s),
-                _ => 0,
+                SpeechMsg s when _channel is not null => _channel.SendToAll(s),
+                SayMsg s when _channel is not null => _channel.SendToAll(s),
+                SpeechResetMsg s when _channel is not null => _channel.SendToAll(s),
+                SpeechMsg or SayMsg or SpeechResetMsg => 0,
+                _ => SendDialog(m),
             };
         }
         catch (Exception e) when (e is InvalidOperationException or KilnUnavailableException or ArgumentException)
@@ -303,11 +324,12 @@ internal static class NpcSpeechEngine
     internal static void Received(SpeechMsg m)
     {
         if (IsHost) return;  // the host's own screen follows its book
+        if (ServerHasDialog) return;  // a dev.32 server: kiln:npcdialog's Lines carry the greeting with its pick
         UiText[] lines;
         try { lines = m.Lines.Select(SpeechText.FromJson).ToArray(); }
         catch (Exception e) when (e is FormatException or System.Text.Json.JsonException) { return; }
         if (m.Mode == SpeechMode.Replace && lines.Length == 0) return;
-        Book.Set(SpeechLayer.Remote, m.Npc, "server", m.Mode, lines, 0);
+        Book.Set(SpeechLayer.Remote, m.Npc, "server", NpcLineKind.Greeting, m.Mode, lines, 0, SpeechPick.Random);
         Changed(m.Npc);
     }
 
@@ -328,15 +350,17 @@ internal static class NpcSpeechEngine
     internal static void ReceivedReset()
     {
         if (IsHost) return;
-        foreach (var npc in Book.DropLayer(SpeechLayer.Remote)) Changed(npc);
+        // its Says, and the greetings when this server sends them here (not on kiln:npcdialog, whose Reset is its own)
+        var greetings = !ServerHasDialog;
+        foreach (var npc in Book.DropLayer(SpeechLayer.Remote, k => greetings && k == NpcLineKind.Greeting, says: true)) Changed(npc);
     }
 
     private static void ServerGone()
     {
         lock (Order)
         {
-            foreach (var npc in Book.DropLayer(SpeechLayer.Remote)) Changed(npc);
-            foreach (var npc in Book.DropLayer(SpeechLayer.Local)) Changed(npc);
+            foreach (var npc in Book.DropLayer(SpeechLayer.Remote)) ChangedAll(npc);
+            foreach (var npc in Book.DropLayer(SpeechLayer.Local)) ChangedAll(npc);
             Forget();
         }
     }
@@ -347,7 +371,11 @@ internal static class NpcSpeechEngine
         lock (Order)
         {
             var touched = Book.DropLayer(SpeechLayer.Local);
-            if (touched.Length > 0 && IsHost) Send(new SpeechResetMsg(true));
+            if (touched.Length > 0 && IsHost)
+            {
+                Send(new SpeechResetMsg(true));
+                Send(new DialogResetMsg(true));
+            }
             Forget();
         }
     }
@@ -359,6 +387,7 @@ internal static class NpcSpeechEngine
             Applied.Clear();
             Sent.Clear();
         }
+        ForgetDialog();
         SpeechNative.ClearAll();
         // the next world registers its texts again (kiln.content keeps the same text as it is): its own bound, and a
         // test kit's next harness, whose fake starts without texts, gets them
@@ -375,6 +404,7 @@ internal static class NpcSpeechEngine
             Applied.Clear();
             Sent.Clear();
         }
+        ForgetDialog();
         SpeechNative.ForgetTexts();
     }
 

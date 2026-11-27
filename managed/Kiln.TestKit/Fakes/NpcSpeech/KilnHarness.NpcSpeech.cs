@@ -49,6 +49,58 @@ public sealed class HarnessNpcSpeech
             return S.Says.TryGetValue(npc.Value, out var s) && s.Until > Environment.TickCount64 ? TextOf(s.Tag, language) : null;
     }
 
+    /// <summary>How the NPC's line of <paramref name="kind"/> picks among its lines: "Random", "InOrder",
+    /// "Seeded(seed)" or "By" (the host's callback), as a Kiln client would be told; null when Kiln leaves that line to
+    /// the game. Since 0.2.0-dev.32.</summary>
+    public string? PickOf(EntityId npc, NpcLineKind kind = NpcLineKind.Greeting)
+    {
+        lock (S.Lock)
+            return S.Picks.TryGetValue((npc.Value, (uint)kind), out var p)
+                ? p.Pick switch { 1 => "Random", 2 => "InOrder", 3 => $"Seeded({unchecked((int)p.Seed)})", 4 => "By", _ => "WhenTheGamePicks" }
+                : null;
+    }
+
+    /// <summary>The farewells (<c>Npcs.Farewells</c>) a Kiln client's dialogue menu shows for the NPC, in
+    /// <paramref name="language"/>; empty when it keeps the game's. Since 0.2.0-dev.32.</summary>
+    public IReadOnlyList<string> FarewellsOf(EntityId npc, string language = "en-us")
+    {
+        lock (S.Lock)
+            return S.Lines.TryGetValue((npc.Value, 1u), out var t) ? t.Select(x => TextOf(x, language)).ToArray() : [];
+    }
+
+    /// <summary>The menu's own lines (<c>Npcs.MenuLine</c>) a Kiln client's dialogue menu shows for the NPC when it
+    /// opens, in <paramref name="language"/>; empty when it keeps the game's. Since 0.2.0-dev.32.</summary>
+    public IReadOnlyList<string> MenuLinesOf(EntityId npc, string language = "en-us")
+    {
+        lock (S.Lock)
+            return S.Lines.TryGetValue((npc.Value, 2u), out var t) ? t.Select(x => TextOf(x, language)).ToArray() : [];
+    }
+
+    /// <summary>What <c>Npcs.MenuSay</c> (and a topic's reply) told <paramref name="player"/>'s menu, oldest first: the
+    /// NPC and the text in <paramref name="language"/>. Since 0.2.0-dev.32.</summary>
+    public IReadOnlyList<(EntityId Npc, string Text)> RepliesTo(EntityId player, string language = "en-us")
+    {
+        lock (S.Lock)
+            return S.Replies.Where(r => r.Player == player)
+                .Select(r => (new EntityId(r.Npc), System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(r.Json) is { } m
+                    ? new UiText(m).For(language)
+                    : r.Json))
+                .ToArray();
+    }
+
+    /// <summary>The labels of the Kiln topics a Kiln client's talk page of the NPC shows after the NPC's own
+    /// (<c>Npcs.Topics</c>, every mod's), in <paramref name="language"/>. Since 0.2.0-dev.32.</summary>
+    public IReadOnlyList<string> TopicsOf(EntityId npc, string language = "en-us")
+    {
+        lock (S.Lock)
+            return S.Topics.TryGetValue(npc.Value, out var t) ? t.Select(x => TextOf(x.Label, language)).ToArray() : [];
+    }
+
+    /// <summary>A pick of the topic <paramref name="topicId"/> (the id a mod gave it) by <paramref name="player"/>, as
+    /// the host runs it: the topic's OnPick, now, on this thread. False when no mod's topic of the NPC has that id. Since
+    /// 0.2.0-dev.32.</summary>
+    public bool PickTopic(EntityId npc, string topicId, EntityId player) => _harness.Run(() => NpcSpeechEngine.PickLocal(npc, topicId, player));
+
     /// <summary>How many set and say calls reached the fake (a test that expects nothing new compares it).</summary>
     public int Calls
     {

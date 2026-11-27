@@ -10,6 +10,13 @@
 //     greeting lists while an override or Say is on (puts them back after);
 //   - BubbleDraw's detour, inside a noted NPC's call only, swaps the tag, hides the bubble (Suppress) or shows it (Say).
 // Kiln's texts are loca tags that kiln.content's loca hooks answer (kc_nc_set_texts). Nothing here runs a managed callback.
+//
+// Since 0.2.0-dev.32 the dialogue menu too (docs/re/npc-speech.md section 6): DialogUpdate's detour lets the game update
+// the window, then puts a farewell of Kiln's in its speech box after a close request, and after an open request shows
+// the menu's own line of Kiln's (or a host's reply) with the game's SetLine and keeps the menu from going straight to
+// crafting. BuildTopics' detour adds Kiln's topics after the game's own (through the list's own grow callback), and
+// SayLine's notes a pick of one. The dialogue's NPC is the UI's play.target (ui/UiApp -> ui.data -> state ->
+// state.play -> play.target, as kiln.ui reads it).
 #include <windows.h>
 
 #include <atomic>
@@ -150,6 +157,227 @@ bool install() {
     return true;
 }
 
+// ------------------------------------------------------------------------------------------------ dialogue menu --
+// The dialogue window's parts (farewell, the menu's line, topics): docs/re/npc-speech.md section 6.
+struct UiChain {
+    uintptr_t ui_app = 0;  // ui/UiApp: the global holding the UI frame context
+    int64_t ui_data = 0, state_play = 0, play_target = 0;
+};
+UiChain g_ui;
+uintptr_t g_update_at = 0, g_set_line_at = 0;
+npcspeech::DialogLayout g_dlay;
+bool g_farewell_ok = false;  // npcspeech.farewell
+bool g_menu_ok = false;      // npcspeech.menu_line: SetLine too
+bool g_topics_ok = false;    // npcspeech.topics: BuildTopics, SayLine and the list's layout
+uintptr_t g_build_at = 0, g_say_at = 0;
+int64_t g_win_topics = 0, g_win_topics_count = 0;
+npcspeech::TopicLayout g_tlay;
+kiln::RawHook g_h_build, g_h_say;
+std::atomic<bool> g_topics_installed{false}, g_topics_failed{false};
+std::atomic<uint32_t> g_topic_faults{0};
+kiln::RawHook g_h_update;
+std::atomic<bool> g_dialog_installed{false}, g_dialog_failed{false};
+std::atomic<uint32_t> g_dialog_faults{0};
+
+void resolve_dialog() {
+    int64_t v = 0;
+    const bool chain = g_api->symbol(S("ui/UiApp"), &g_ui.ui_app) == KILN_OK && g_ui.ui_app && constant("ui/ui.data", &v) &&
+                       (g_ui.ui_data = v, true) && constant("ui/state.play", &v) && (g_ui.state_play = v, true) &&
+                       constant("ui/play.target", &v) && (g_ui.play_target = v, true);
+    const bool update = chain && g_api->symbol(S("npcdialog/DialogUpdate"), &g_update_at) == KILN_OK && g_update_at &&
+                        constant("npcdialog/win.line", &v) && (g_dlay.line = v, true) && constant("npcdialog/win.close", &v) &&
+                        (g_dlay.close = v, true) && constant("npcdialog/win.open", &v) && (g_dlay.open = v, true) &&
+                        constant("npcdialog/win.direct", &v) && (g_dlay.direct = v, true) && g_dlay.sane();
+    g_farewell_ok = update && g_api->feature(S("npcspeech.farewell"));
+    g_menu_ok = update && g_api->feature(S("npcspeech.menu_line")) && g_api->symbol(S("npcdialog/SetLine"), &g_set_line_at) == KILN_OK &&
+                g_set_line_at;
+    g_topics_ok = chain && g_api->feature(S("npcspeech.topics")) && g_api->symbol(S("npcdialog/BuildTopics"), &g_build_at) == KILN_OK &&
+                  g_build_at && g_api->symbol(S("npcdialog/SayLine"), &g_say_at) == KILN_OK && g_say_at &&
+                  constant("npcdialog/win.topics", &v) && (g_win_topics = v, true) && constant("npcdialog/list.count", &v) &&
+                  (g_tlay.count = v, true) && constant("npcdialog/list.cap", &v) && (g_tlay.cap = v, true) &&
+                  constant("npcdialog/list.grow", &v) && (g_tlay.grow = v, true) && constant("npcdialog/topic.stride", &v) &&
+                  (g_tlay.stride = v, true) && constant("npcdialog/topic.entry", &v) && (g_tlay.entry = v, true) &&
+                  constant("npcdialog/topic.ptr", &v) && (g_tlay.ptr = v, true) && constant("npcdialog/entry.line", &v) &&
+                  (g_tlay.line = v, true) && constant("npcdialog/entry.label", &v) && (g_tlay.label = v, true) &&
+                  constant("npcdialog/entry.texts", &v) && (g_tlay.texts = v, true) && constant("npcdialog/entry.texts_n", &v) &&
+                  (g_tlay.texts_n = v, true) && constant("npcdialog/entry.vo_n", &v) && (g_tlay.vo_n = v, true) &&
+                  constant("npcdialog/entry.hint", &v) && (g_tlay.hint = v, true) && constant("npcdialog/entry.end_action", &v) &&
+                  (g_tlay.end = v, true) && constant("npcdialog/win.topics_count", &v) && (g_win_topics_count = v, true);
+    if (g_topics_ok && !npcspeech::topics_place_ok(g_win_topics, g_win_topics_count, g_tlay)) {
+        g_topics_ok = false;
+        NS_W("npcspeech.topics: the topic list's captures disagree (win.topics 0x%llx + list.count 0x%llx, win.topics_count 0x%llx) "
+             "or its layout is not sane: talk pages stay the game's",
+             static_cast<unsigned long long>(g_win_topics), static_cast<unsigned long long>(g_tlay.count),
+             static_cast<unsigned long long>(g_win_topics_count));
+    } else if (!g_topics_ok) {
+        NS_W("npcspeech.topics did not resolve: talk pages stay the game's");
+    }
+    if (!g_farewell_ok) NS_W("npcspeech.farewell did not resolve: farewells stay the game's");
+    if (!g_menu_ok) NS_W("npcspeech.menu_line did not resolve: the dialogue menu's own line stays the game's");
+}
+
+// The dialogue's NPC (play.target) while a UI frame runs; 0 when none. No C++ objects in here (__try).
+uint32_t dialog_npc() {
+    __try {
+        const uintptr_t ctx = *reinterpret_cast<const uintptr_t*>(g_ui.ui_app);
+        if (ctx < 0x10000) return 0;
+        const uintptr_t data = *reinterpret_cast<const uintptr_t*>(ctx + g_ui.ui_data);
+        if (data < 0x10000) return 0;
+        const uintptr_t state = *reinterpret_cast<const uintptr_t*>(data);
+        if (state < 0x10000) return 0;
+        const uintptr_t play = *reinterpret_cast<const uintptr_t*>(state + g_ui.state_play);
+        if (play < 0x10000) return 0;
+        return *reinterpret_cast<const uint32_t*>(play + g_ui.play_target);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return 0;
+    }
+}
+
+bool seh_flags(const uint8_t* w, bool* open, bool* close) {
+    __try {
+        *open = w[g_dlay.open] != 0;
+        *close = w[g_dlay.close] != 0;
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+bool seh_dialog(npcspeech::Core* core, uint32_t npc, uint8_t* w, bool open, bool close, bool kept, npcspeech::DialogStep* out) {
+    __try {
+        *out = core->dialog(npc, w, g_dlay, open, close, kept, GetTickCount64());
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+using UpdateFn = uint8_t (*)(void*);
+using SetLineFn = void (*)(void*, uint32_t);
+
+// The game's own SetLine (the box's text, its reveal and sound) and no straight-to-crafting, under SEH.
+bool seh_show(uint8_t* w, const npcspeech::DialogStep& step) {
+    __try {
+        if (step.set_line && g_menu_ok) reinterpret_cast<SetLineFn>(g_set_line_at)(w, step.set_line);
+        if (step.clear_direct && g_menu_ok) w[g_dlay.direct] = 0;
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+uint8_t hk_update(void* window) {
+    auto* w = static_cast<uint8_t*>(window);
+    bool open = false, close = false;
+    if (!w || !g_core.dialog_active() || g_dialog_faults.load(std::memory_order_relaxed) >= 8 || !seh_flags(w, &open, &close))
+        return g_h_update.original<UpdateFn>()(window);
+    const uint8_t kept = g_h_update.original<UpdateFn>()(window);
+    if (!open && !close && !g_core.menu_say_pending()) return kept;
+    npcspeech::DialogStep step;
+    const bool ok = seh_dialog(&g_core, dialog_npc(), w, open, close, kept != 0, &step) && seh_show(w, step);
+    if (!ok && g_dialog_faults.fetch_add(1) == 7)
+        NS_W("the dialogue window faulted 8 times: farewells and menu lines are left to the game for this session");
+    return kept;
+}
+
+// ---- talk pages: Kiln's topics after the game's, and their picks ----
+uint32_t seh_append(uint32_t npc, uint8_t* list, bool* fault) {
+    __try {
+        return g_core.append(npc, list, g_tlay);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        *fault = true;
+        return 0;
+    }
+}
+
+bool seh_line_id(const uint8_t* entry, uint32_t* id) {
+    __try {
+        std::memcpy(id, entry + g_tlay.line, 4);
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+using BuildFn = void (*)(void*);
+using SayFn = void (*)(void*, const void*);
+
+void hk_build(void* window) {
+    g_h_build.original<BuildFn>()(window);
+    if (!window || !g_core.has_topics() || g_topic_faults.load(std::memory_order_relaxed) >= 8) return;
+    bool fault = false;
+    seh_append(dialog_npc(), static_cast<uint8_t*>(window) + g_win_topics, &fault);
+    if (fault && g_topic_faults.fetch_add(1) == 7) NS_W("the topic list faulted 8 times: talk pages are left to the game for this session");
+}
+
+void hk_say(void* window, const void* entry) {
+    uint32_t id = 0;
+    bool reply = true;
+    if (entry && g_core.has_topics() && seh_line_id(static_cast<const uint8_t*>(entry), &id) && g_core.picked(dialog_npc(), id, &reply) &&
+        !reply)
+        return;  // a topic of Kiln's without a reply: reported, and no empty speech box
+    g_h_say.original<SayFn>()(window, entry);
+}
+
+std::mutex g_topics_mu;
+
+bool install_topics() {
+    if (g_topics_installed.load()) return true;
+    if (g_topics_failed.load() || !g_topics_ok) return false;
+    std::lock_guard lock(g_topics_mu);
+    if (g_topics_installed.load()) return true;
+    if (!g_h_say.install(g_api, g_owner, g_say_at, reinterpret_cast<void*>(&hk_say), "npcdialog/SayLine") ||
+        !g_h_build.install(g_api, g_owner, g_build_at, reinterpret_cast<void*>(&hk_build), "npcdialog/BuildTopics")) {
+        NS_W("the topic list's hooks could not go in (%s %s): talk pages stay the game's for this session",
+             g_h_say.error() ? g_h_say.error() : "", g_h_build.error() ? g_h_build.error() : "");
+        g_h_build.revoke();
+        g_h_say.revoke();
+        g_topics_failed.store(true);
+        return false;
+    }
+    g_topics_installed.store(true);
+    NS_I("topic list hooks in (BuildTopics 0x%llx, SayLine 0x%llx)", static_cast<unsigned long long>(g_build_at),
+         static_cast<unsigned long long>(g_say_at));
+    return true;
+}
+
+KilnResult dialog_usable(uint32_t kind) {
+    if (g_dialog_failed.load()) return KILN_ERR_UNAVAILABLE;
+    if (kind == KILN_SPEECH_KIND_FAREWELL) return g_farewell_ok ? KILN_OK : KILN_ERR_UNAVAILABLE;
+    if (kind == KILN_SPEECH_KIND_MENU) return g_menu_ok ? KILN_OK : KILN_ERR_UNAVAILABLE;
+    return KILN_ERR_UNAVAILABLE;
+}
+
+std::mutex g_dialog_mu;
+
+bool install_dialog() {
+    if (g_dialog_installed.load()) return true;
+    if (g_dialog_failed.load() || !(g_farewell_ok || g_menu_ok)) return false;
+    std::lock_guard lock(g_dialog_mu);
+    if (g_dialog_installed.load()) return true;
+    if (!g_h_update.install(g_api, g_owner, g_update_at, reinterpret_cast<void*>(&hk_update), "npcdialog/DialogUpdate")) {
+        NS_W("the dialogue window's hook could not go in (%s): farewells stay the game's for this session",
+             g_h_update.error() ? g_h_update.error() : "");
+        g_h_update.revoke();
+        g_dialog_failed.store(true);
+        return false;
+    }
+    g_dialog_installed.store(true);
+    NS_I("dialogue window hook in (DialogUpdate 0x%llx)", static_cast<unsigned long long>(g_update_at));
+    return true;
+}
+
+uint32_t dialog_resolved() { return (g_farewell_ok ? 1u : 0u) | (g_menu_ok ? 2u : 0u) | (g_topics_ok ? 4u : 0u); }
+uint32_t dialog_installed() { return (g_dialog_installed.load() ? 1u : 0u) | (g_topics_installed.load() ? 6u : 0u); }
+void dialog_counts(KilnNpcDialogStatus* out) {
+    const auto c = g_core.counts();
+    out->farewells = c.farewells;
+    out->menu_lines = c.menu_lines;
+    out->topics = c.topics;
+    out->topic_rows = c.topic_rows;
+    out->picks = c.picks;
+}
+
 // ------------------------------------------------------------------------------------------------ table ----------
 KilnResult usable() {
     if (!g_bubble_ok || g_install_failed.load()) return KILN_ERR_UNAVAILABLE;
@@ -187,6 +415,65 @@ KilnResult KILN_CALL clear_all() {
     return KILN_OK;
 }
 
+// ---- since 0.2.0-dev.32 ----
+KilnResult KILN_CALL set_lines(KilnEntity npc, uint32_t kind, uint32_t mode, const uint32_t* tags, uint32_t n, uint32_t pick, uint32_t seed) {
+    if (!npcspeech::Core::valid_lines(npc, kind, mode, tags, n, pick)) return KILN_ERR_INVALID_ARGUMENT;
+    if (kind == KILN_SPEECH_KIND_GREETING) {
+        if (KilnResult rc = usable(); rc != KILN_OK) return rc;
+        if (mode == KILN_SPEECH_REPLACE && !texts_here()) return KILN_ERR_UNAVAILABLE;
+        if (mode != KILN_SPEECH_GAME && !install()) return KILN_ERR_UNAVAILABLE;
+    } else if (mode != KILN_SPEECH_GAME) {
+        if (KilnResult rc = dialog_usable(kind); rc != KILN_OK) return rc;
+        if (!texts_here() || !install_dialog()) return KILN_ERR_UNAVAILABLE;
+    }
+    g_core.set_lines(npc, kind, mode, tags, n, pick, seed);
+    return KILN_OK;
+}
+
+KilnResult KILN_CALL next(KilnEntity npc, uint32_t kind, int32_t line) {
+    return g_core.next(npc, kind, line) ? KILN_OK : KILN_ERR_INVALID_ARGUMENT;
+}
+
+KilnResult KILN_CALL events(KilnSpeechEvent* out, uint32_t max, uint32_t* n) {
+    if (!n || (max && !out)) return KILN_ERR_INVALID_ARGUMENT;
+    *n = g_core.drain(out, max);
+    return KILN_OK;
+}
+
+KilnResult KILN_CALL menu_say(KilnEntity npc, uint32_t tag) {
+    if (!npc) return KILN_ERR_INVALID_ARGUMENT;
+    if (tag) {
+        if (KilnResult rc = dialog_usable(KILN_SPEECH_KIND_MENU); rc != KILN_OK) return rc;
+        if (!texts_here() || !install_dialog()) return KILN_ERR_UNAVAILABLE;
+    }
+    g_core.menu_say(npc, tag, GetTickCount64());
+    return KILN_OK;
+}
+
+KilnResult KILN_CALL topics(KilnEntity npc, const KilnSpeechTopic* t, uint32_t n) {
+    if (!npcspeech::Core::valid_topics(npc, t, n)) return KILN_ERR_INVALID_ARGUMENT;
+    if (n) {
+        if (!g_topics_ok || g_topics_failed.load()) return KILN_ERR_UNAVAILABLE;
+        if (!texts_here() || !install_topics()) return KILN_ERR_UNAVAILABLE;
+    }
+    g_core.topics(npc, t, n);
+    return KILN_OK;
+}
+
+KilnResult KILN_CALL dialog_status(KilnNpcDialogStatus* out) {
+    if (!out || out->size < sizeof(KilnNpcDialogStatus)) return KILN_ERR_INVALID_ARGUMENT;
+    std::memset(reinterpret_cast<uint8_t*>(out) + sizeof(uint32_t), 0, sizeof(KilnNpcDialogStatus) - sizeof(uint32_t));
+    out->resolved = dialog_resolved();
+    out->installed = dialog_installed();
+    const auto c = g_core.counts();
+    out->lines = c.lines;
+    out->queued = c.queued;
+    out->opens = c.opens;
+    out->dropped = c.dropped;
+    dialog_counts(out);
+    return KILN_OK;
+}
+
 KilnResult KILN_CALL status(KilnNpcSpeechStatus* out) {
     if (!out || out->size < sizeof(KilnNpcSpeechStatus)) return KILN_ERR_INVALID_ARGUMENT;
     out->resolved = (g_bubble_at ? 1u : 0u) | (g_draw_at ? 2u : 0u) | (g_voice_ok ? 4u : 0u) | (texts_here() ? 8u : 0u);
@@ -202,7 +489,8 @@ KilnResult KILN_CALL status(KilnNpcSpeechStatus* out) {
     return KILN_OK;
 }
 
-const KilnNpcSpeechApi kTable = {{sizeof(KilnNpcSpeechApi), KILN_NPCSPEECH_VERSION}, &set, &say, &text, &clear_all, &status};
+const KilnNpcSpeechApi kTable = {{sizeof(KilnNpcSpeechApi), KILN_NPCSPEECH_VERSION}, &set, &say, &text, &clear_all, &status,
+                                  &set_lines, &next, &events, &dialog_status, &menu_say, &topics};
 
 void KILN_CALL on_ready(void*) {
     if (!texts_here()) NS_W("kiln.content's loca hooks (content.loca) are not here: Kiln's lines cannot be shown, only Suppress works");
@@ -212,7 +500,12 @@ void KILN_CALL on_unload(void*) {
     g_core.clear_all();
     g_h_bubble.revoke();
     g_h_draw.revoke();
+    g_h_update.revoke();
+    g_h_build.revoke();
+    g_h_say.revoke();
     g_installed.store(false);
+    g_dialog_installed.store(false);
+    g_topics_installed.store(false);
 }
 
 }  // namespace
@@ -232,6 +525,7 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
         return KILN_ERR_UNAVAILABLE;
     }
     resolve();
+    resolve_dialog();
     if (!g_bubble_ok) {
         NS_W("npcspeech.bubble's symbols or layout did not resolve: NPCs keep the game's lines");
         return KILN_ERR_UNAVAILABLE;

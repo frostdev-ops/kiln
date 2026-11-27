@@ -6,5 +6,5 @@
   "entryAssembly": "NpcSpeechTest.dll",
   "side": "server",
   "clients": "none",
-  "description": "Lab driver for Kiln.Npcs (docs/kiln/services/npc-speech.md): the console command npcspeech-test say|replace|suppress|clear|stop|status <entity> runs one call and replies with its result; tools/nettest/npcspeechtest.py checks what Kiln peers are sent on kiln:npcspeech and that a vanilla peer gets nothing."
+  "description": "Lab driver for Kiln.Npcs (docs/kiln/services/npc-speech.md): the console command npcspeech-test say|replace|suppress|clear|stop|status|pick|farewell|farewell-clear|menuline|menuline-clear|refresh|topics|topics-clear|reply|near <entity> [arg] runs one call and replies with its result; tools/nettest/npcspeechtest.py and npcdialogtest.py check what Kiln peers are sent on kiln:npcspeech and kiln:npcdialog and that a vanilla peer gets nothing."
 }

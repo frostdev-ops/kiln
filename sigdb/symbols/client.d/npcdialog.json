@@ -1,0 +1,265 @@
+{
+  "format": 1,
+  "side": "client",
+  "comment": "kiln.npcspeech's dialogue menu parts (dev.32 NPC dialogue for mods, Marshall/Ryrin's requests), client build 26430625 / svn 1287369. Evidence: docs/re/npc-speech.md section 6 (static only). The dialogue window state W (the NPC layer's UI element, also the pre-altar Flame speech window's) is driven each frame by DialogUpdate(W): its close request picks a random farewell from the dialogue record's farewell ids and shows it with SetLine(W, tag) (the window's speech box, 'flameSpeechBox'); its open request finds the record of play.target (ui/play.target, the dialogue partner), clears the box for a non-Flame NPC (a Flame NPC shows a random priority greeting through SayLine), builds the topic list (BuildTopics) and decides whether a craftsperson goes straight to crafting (win.direct). BuildTopics(W) copies the record's options into the topic list (win.topics: ptr, count, cap, grow callback; topics of topic.stride bytes: a kind byte, the line entry at +4, a pointer at topic.ptr); the list (doVerticalTopicListDialogMenu) is not drawn at all when it, the crafting entry and the special topics are empty: an NPC with no topic of its own has no talk page. A topic's click calls SayLine(W, entry copy), which shows a random body text of the entry in the speech box and sends the line's voice event. Kiln hooks DialogUpdate (farewell and the menu's own line), BuildTopics (a mod's topics after the game's) and SayLine (a mod topic's pick); SetLine is called, never hooked.",
+  "symbols": {
+    "npcdialog/DialogUpdate": {
+      "comment": "bool(DialogWindow*): the dialogue window's per-frame update (close request: the farewell; open request: the record, the speech box, the topics, straight to crafting). 0 = no record (or a Flame NPC without a priority greeting): the caller closes the dialogue. 3 callers: doNpcInteractionWindow (HUD 26) and the pre-altar Flame speech window (two)",
+      "find": [
+        {
+          "pattern": "48 89 5C 24 18 55 56 41 56 48 81 EC D0 02 00 00 48 8B 1D ?? ?? ?? ?? 33 ED 48 8B F1 44 8B F5 48 8B 83 ?? ?? ?? ?? 48 8B 08 48 85 C9 74 04 4C 8B 71 ?? 48 89 BC 24 ?? ?? ?? ?? 4C 89 BC 24 ?? ?? ?? ?? 40 38 6E ?? 0F 84"
+        }
+      ]
+    },
+    "npcdialog/SetLine": {
+      "comment": "void(DialogWindow*, LocaTagId): shows one text in the window's speech box (resets the reveal, plays the UI's line sound); no voice event. DialogUpdate's farewell is its only live caller on 26430625. Kiln calls it for a mod's menu line, never hooks it",
+      "find": [
+        {
+          "pattern": "40 53 48 83 EC 30 33 C0 89 91 {npcdialog/win.line:d32} 48 89 41 1C 48 8D 54 24 40 88 81 A4 00 00 00 48 8B D9 88 81 AC 02 00 00 48 8B 0D"
+        }
+      ]
+    },
+    "npcdialog/SayLine": {
+      "comment": "void(DialogWindow*, const LineEntry*): a random body text of the entry in the speech box, and the entry's voice event (play.target, line id, voice-over). Called for a topic's click (doVerticalTopicListDialogMenu, the crafting entry's handler) and a Flame NPC's priority greeting",
+      "find": [
+        {
+          "pattern": "48 89 5C 24 18 48 89 74 24 20 57 48 83 EC 30 48 89 6C 24 48 48 8B F2 48 8B 2D ?? ?? ?? ?? 48 8B D9 48 8B 85 ?? ?? ?? ?? 4C 8B 00 4D 85 C0 75 04 33 FF EB 04 49 8B 78 38 48 83 C1 1C E8"
+        }
+      ]
+    },
+    "npcdialog/BuildTopics": {
+      "comment": "void(DialogWindow*): rebuilds the topic list from the record's options (and the special topics). Called by DialogUpdate's open request, the dialogue window when knowledge changed, and doVerticalTopicListDialogMenu every frame it draws",
+      "find": [
+        {
+          "pattern": "40 55 57 41 54 41 55 41 56 41 57 48 8D AC 24 38 FE FF FF 48 81 EC C8 02 00 00 48 8B 05 ?? ?? ?? ?? 4C 8B E9 33 FF 48 8B 90 ?? ?? ?? ?? 48 8B 0A 48 85 C9 74 44 48 8B 49 38"
+        }
+      ]
+    },
+    "@npcdialog/DialogUpdate.fields": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "npcdialog/DialogUpdate",
+            "size": 260
+          },
+          "pattern": "40 38 6E {npcdialog/win.close:d8} 0F 84 ?? ?? ?? ?? 4C 8B FD 48 85 C9 74 04 4C 8B 79 ?? 48 8B 46 {npcdialog/win.record:d8} 48 85 C0 74 ?? 48 8B 90 {npcdialog/rec.farewell_count:d32} 48 85 D2 74"
+        },
+        {
+          "scope": {
+            "symbol": "npcdialog/DialogUpdate",
+            "size": 260
+          },
+          "pattern": "48 8B 46 08 48 8B 90 {npcdialog/rec.farewell_list:d32} 8B 14 3A E8 ?? ?? ?? ?? 48 8B 46 08"
+        },
+        {
+          "scope": {
+            "symbol": "npcdialog/DialogUpdate",
+            "size": 260
+          },
+          "pattern": "40 88 6E 16 40 38 6E {npcdialog/win.open:d8} 0F 84 ?? ?? ?? ?? 49 8D 96 ?? ?? ?? ?? 40 88 6E {npcdialog/win.direct:d8}"
+        }
+      ]
+    },
+    "@npcdialog/BuildTopics.fields": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "npcdialog/BuildTopics",
+            "size": 500
+          },
+          "pattern": "49 8B 45 08 4D 8D 75 08 4D 8D A5 ?? ?? ?? ?? 49 89 BD {npcdialog/win.topics_count:d32}"
+        },
+        {
+          "scope": {
+            "symbol": "npcdialog/BuildTopics",
+            "size": 500
+          },
+          "pattern": "48 39 B8 ?? ?? ?? ?? 0F 86 ?? ?? ?? ?? 49 8D 9D {npcdialog/win.topics:d32} 4C 8B E7"
+        },
+        {
+          "scope": {
+            "symbol": "npcdialog/BuildTopics",
+            "size": 500
+          },
+          "pattern": "0F B6 86 {npcdialog/entry.start_action:d32} 88 85 ?? ?? ?? ?? 0F B6 86 {npcdialog/entry.end_action:d32} 88 85 ?? ?? ?? ?? 40 88 BD ?? ?? ?? ?? 48 89 95 ?? ?? ?? ?? 48 3B 53 {npcdialog/list.cap:d8} 76 ?? 48 8B 43 {npcdialog/list.grow:d8} 48 85 C0 0F 84"
+        },
+        {
+          "scope": {
+            "symbol": "npcdialog/BuildTopics",
+            "size": 500
+          },
+          "pattern": "48 69 7B {npcdialog/list.count:d8} {npcdialog/topic.stride:d32} 0F B6 44 24 20 48 8D 54 24 24 48 03 3B 48 8D 4F {npcdialog/topic.entry:d8} 88 07 E8 ?? ?? ?? ?? 48 8B 85 ?? ?? ?? ?? 48 89 87 {npcdialog/topic.ptr:d32} 48 FF 43 08"
+        }
+      ]
+    },
+    "@npcdialog/SayLine.fields": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "npcdialog/SayLine",
+            "size": 200
+          },
+          "pattern": "C7 83 {npcdialog/win.line:d32} 00 00 00 00 0F B6 96 {npcdialog/entry.texts_n:d32} 84 D2 74"
+        }
+      ]
+    }
+  },
+  "constants": {
+    "npcdialog/win.line": {
+      "min_votes": 2,
+      "comment": "DialogWindow: the speech box's text (LocaTagId); 0x2b0 on 26430625"
+    },
+    "npcdialog/win.record": {
+      "min_votes": 1,
+      "comment": "DialogWindow: the dialogue record of play.target (pointer); 0x8"
+    },
+    "npcdialog/win.close": {
+      "min_votes": 1,
+      "comment": "DialogWindow: the close request (u8): DialogUpdate shows a farewell and clears it; 0x16"
+    },
+    "npcdialog/win.open": {
+      "min_votes": 1,
+      "comment": "DialogWindow: the open request (u8): DialogUpdate reads the record, the box, the topics and clears it; 0x15"
+    },
+    "npcdialog/win.direct": {
+      "min_votes": 1,
+      "comment": "DialogWindow: straight to the crafting screen (u8), decided at an open; 0x14"
+    },
+    "npcdialog/win.topics": {
+      "min_votes": 1,
+      "comment": "DialogWindow: the topic list {ptr +0, count +list.count (u64), cap +list.cap, grow +list.grow}; 0x12a8"
+    },
+    "npcdialog/win.topics_count": {
+      "min_votes": 1,
+      "comment": "DialogWindow: the topic list's count (u64): BuildTopics clears it first; win.topics + list.count, 0x12b0"
+    },
+    "npcdialog/list.count": {
+      "min_votes": 1,
+      "comment": "topic list: the count's offset in the list (the list starts at win.topics_count - list.count); 0x8"
+    },
+    "npcdialog/list.cap": {
+      "min_votes": 1,
+      "comment": "topic list: capacity (u64); 0x10"
+    },
+    "npcdialog/list.grow": {
+      "min_votes": 1,
+      "comment": "topic list: grow callback bool(list*, int64 -needed, u8 0); 0x18"
+    },
+    "npcdialog/topic.stride": {
+      "min_votes": 1,
+      "comment": "one topic: {u8 kind (0: say the entry), the line entry at topic.entry, a pointer at topic.ptr}; 0x2a0"
+    },
+    "npcdialog/topic.entry": {
+      "min_votes": 1,
+      "comment": "topic: the line entry's offset; 0x4"
+    },
+    "npcdialog/topic.ptr": {
+      "min_votes": 1,
+      "comment": "topic: a pointer the special topics use (0 for an option); 0x298"
+    },
+    "npcdialog/entry.texts_n": {
+      "min_votes": 1,
+      "comment": "line entry: the number of body texts (u8); 0x88"
+    },
+    "npcdialog/entry.start_action": {
+      "min_votes": 1,
+      "comment": "line entry: dialogStartAction (u8); 0x291"
+    },
+    "npcdialog/entry.end_action": {
+      "min_votes": 1,
+      "comment": "line entry: dialogEndAction (u8; 1 PlayOutro: the dialogue closes after the line); 0x292"
+    },
+    "npcdialog/rec.farewell_list": {
+      "min_votes": 1,
+      "comment": "dialogue record: the farewell body texts (u32 LocaTagIds, pointer); 0xf888"
+    },
+    "npcdialog/rec.farewell_count": {
+      "min_votes": 1,
+      "comment": "dialogue record: their count (u64); 0xf890"
+    },
+    "npcdialog/entry.line": {
+      "value": 0,
+      "comment": "line entry: its line id (u32): a topic's id is Kiln's"
+    },
+    "npcdialog/entry.label": {
+      "value": 4,
+      "comment": "line entry: an option's text (LocaTagId), the topic's label (doVerticalTopicListDialogMenu reads topic+entry+4)"
+    },
+    "npcdialog/entry.texts": {
+      "value": 8,
+      "comment": "line entry: body texts (u32 LocaTagIds, up to 32)"
+    },
+    "npcdialog/entry.vo_n": {
+      "value": 652,
+      "comment": "line entry: the number of voice-overs (u8), 0x28c"
+    },
+    "npcdialog/entry.hint": {
+      "value": 656,
+      "comment": "line entry: uiHintType (u8: 0 None, 1 Hint, 2 Attention, 3 MainQuest), 0x290; the list's style (topic + 0x294)"
+    }
+  },
+  "features": {
+    "npcspeech.farewell": {
+      "symbols": [
+        "npcdialog/DialogUpdate",
+        "@npcdialog/DialogUpdate.fields",
+        "ui/UiApp"
+      ],
+      "constants": [
+        "npcdialog/win.line",
+        "npcdialog/win.close",
+        "ui/ui.data",
+        "ui/state.play",
+        "ui/play.target"
+      ],
+      "comment": "A mod's farewell in the dialogue menu's speech box when the dialogue closes (Kiln.Npcs.Farewells)."
+    },
+    "npcspeech.menu_line": {
+      "symbols": [
+        "npcdialog/DialogUpdate",
+        "@npcdialog/DialogUpdate.fields",
+        "npcdialog/SetLine",
+        "ui/UiApp"
+      ],
+      "constants": [
+        "npcdialog/win.line",
+        "npcdialog/win.open",
+        "npcdialog/win.direct",
+        "ui/ui.data",
+        "ui/state.play",
+        "ui/play.target"
+      ],
+      "comment": "A mod's line in the dialogue menu's speech box when it opens, and a host's reply to one player (Kiln.Npcs.MenuLine, NpcTopicContext.Reply)."
+    },
+    "npcspeech.topics": {
+      "symbols": [
+        "npcdialog/BuildTopics",
+        "@npcdialog/BuildTopics.fields",
+        "npcdialog/SayLine",
+        "@npcdialog/SayLine.fields",
+        "ui/UiApp"
+      ],
+      "constants": [
+        "npcdialog/win.topics",
+        "npcdialog/win.topics_count",
+        "npcdialog/list.count",
+        "npcdialog/list.cap",
+        "npcdialog/list.grow",
+        "npcdialog/topic.stride",
+        "npcdialog/topic.entry",
+        "npcdialog/topic.ptr",
+        "npcdialog/entry.texts_n",
+        "npcdialog/entry.end_action",
+        "npcdialog/entry.line",
+        "npcdialog/entry.label",
+        "npcdialog/entry.texts",
+        "npcdialog/entry.vo_n",
+        "npcdialog/entry.hint",
+        "ui/ui.data",
+        "ui/state.play",
+        "ui/play.target"
+      ],
+      "comment": "A mod's topics on an NPC's talk page after the game's own (a villager with none gets a page), and their picks (Kiln.Npcs.Topics)."
+    }
+  }
+}

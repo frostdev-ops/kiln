@@ -13,6 +13,11 @@ internal sealed class NpcSpeechFakeState
     internal readonly Dictionary<uint, (SpeechMode Mode, uint[] Tags)> Overrides = new();
     internal readonly Dictionary<uint, (uint Tag, long Until)> Says = new();
     internal readonly Dictionary<uint, string> Texts = new();
+    // since 0.2.0-dev.32: the farewell and menu line overrides, and each override's pick (kind, seed)
+    internal readonly Dictionary<(uint Npc, uint Kind), uint[]> Lines = new();
+    internal readonly Dictionary<(uint Npc, uint Kind), (uint Pick, uint Seed)> Picks = new();
+    internal readonly List<(EntityId Player, uint Npc, string Json)> Replies = new();
+    internal readonly Dictionary<uint, N.Topic[]> Topics = new();
     internal int Calls;
 }
 
@@ -36,9 +41,21 @@ internal sealed unsafe class NpcSpeechFake : IKitFake
             _table->Text = &Text;
             _table->ClearAll = &ClearAll;
             _table->GetStatus = &Status;
+            _table->SetLines = &SetLines;
+            _table->Next = &Next;
+            _table->Events = &Events;
+            _table->DialogStatus = &DialogStatus;
+            _table->MenuSay = &MenuSay;
+            _table->Topics = &Topics;
         }
         KitBackend.Instance.RegisterTable(Service, (nint)_table);
-        FakeTables.Features([N.BubbleCapability, N.VoiceCapability]);
+        FakeTables.Features([N.BubbleCapability, N.VoiceCapability, N.FarewellCapability, N.MenuLineCapability, N.TopicsCapability]);
+        // Npcs.MenuSay: the kit is the host with no players' games; it records what each player would be told
+        NpcSpeechEngine.ReplyHook = static (npc, player, text) =>
+        {
+            if (StateOf() is not { } s) return;
+            lock (s.Lock) s.Replies.Add((player, npc, SpeechText.Json(text)));
+        };
     }
 
     public void Start(KilnHarness harness) { }
@@ -46,9 +63,10 @@ internal sealed unsafe class NpcSpeechFake : IKitFake
     public void End(KilnHarness harness) { }
 
     public void AddCoverage(List<CoverageRow> rows) => rows.Add(new("NPC speech (since 0.2.0-dev.31.16)", CoverageKind.RecordingFake,
-        [Service, N.BubbleCapability, N.VoiceCapability],
+        [Service, N.BubbleCapability, N.VoiceCapability, N.FarewellCapability, N.MenuLineCapability, N.TopicsCapability],
         "Kiln.Npcs on the kit's kiln.npcspeech: Npcs.Say, Npcs.Speech(...).Suppress / Replace / Clear with the owners' priorities, " +
-        "and what a Kiln client's bubble of each NPC would be told (KilnHarness.NpcSpeech: ModeOf, LinesOf, Saying in a language). " +
+        "and what a Kiln client's bubble of each NPC would be told (KilnHarness.NpcSpeech: ModeOf, LinesOf, Saying in a language, " +
+        "since 0.2.0-dev.32 PickOf, FarewellsOf, MenuLinesOf, RepliesTo, TopicsOf and PickTopic, which runs a topic's OnPick as a player's pick would on the host). " +
         "Not modelled: the game's bubble itself (which NPC is the player's target, the 5 m range, its random pick among the lines, " +
         "the voice-overs Kiln mutes) and the network: the kit is the host, nothing is sent."));
 
@@ -74,6 +92,73 @@ internal sealed unsafe class NpcSpeechFake : IKitFake
             return 0;
         }
         catch { return FakeTables.Internal; }
+    }
+
+    [UnmanagedCallersOnly]
+    private static int SetLines(uint npc, uint kind, uint mode, uint* tags, uint n, uint pick, uint seed)
+    {
+        try
+        {
+            if (StateOf() is not { } s) return FakeTables.Unavailable;
+            if (npc == 0 || kind > 2 || mode > 2 || pick > 4 || (kind != 0 && mode == 1) || (mode == 2 && (tags == null || n == 0 || n > 32)))
+                return FakeTables.InvalidArgument;
+            var t = mode == 2 ? new ReadOnlySpan<uint>(tags, (int)n).ToArray() : [];
+            lock (s.Lock)
+            {
+                s.Calls++;
+                if (kind == 0)
+                {
+                    if (mode == 0) s.Overrides.Remove(npc);
+                    else s.Overrides[npc] = ((SpeechMode)mode, t);
+                }
+                else if (mode == 0) s.Lines.Remove((npc, kind));
+                else s.Lines[(npc, kind)] = t;
+                if (mode == 0) s.Picks.Remove((npc, kind));
+                else s.Picks[(npc, kind)] = (pick, seed);
+            }
+            return 0;
+        }
+        catch { return FakeTables.Internal; }
+    }
+
+    // The kit is the host and has no bubbles: nothing reports an open, and a host's pick has nowhere to go.
+    [UnmanagedCallersOnly]
+    private static int Next(uint npc, uint kind, int line) => 0;
+
+    [UnmanagedCallersOnly]
+    private static int Events(N.Event* o, uint max, uint* n)
+    {
+        if (n != null) *n = 0;
+        return 0;
+    }
+
+    [UnmanagedCallersOnly]
+    private static int MenuSay(uint npc, uint tag) => 0;
+
+    [UnmanagedCallersOnly]
+    private static int Topics(uint npc, N.Topic* t, uint n)
+    {
+        try
+        {
+            if (StateOf() is not { } s) return FakeTables.Unavailable;
+            if (npc == 0 || n > 16 || (n > 0 && t == null)) return FakeTables.InvalidArgument;
+            lock (s.Lock)
+            {
+                s.Calls++;
+                if (n == 0) s.Topics.Remove(npc);
+                else s.Topics[npc] = new ReadOnlySpan<N.Topic>(t, (int)n).ToArray();
+            }
+            return 0;
+        }
+        catch { return FakeTables.Internal; }
+    }
+
+    [UnmanagedCallersOnly]
+    private static int DialogStatus(N.DialogStatus* o)
+    {
+        if (o == null || o->Size < (uint)sizeof(N.DialogStatus)) return FakeTables.InvalidArgument;
+        o->Resolved = 7;
+        return 0;
     }
 
     [UnmanagedCallersOnly]
@@ -117,6 +202,10 @@ internal sealed unsafe class NpcSpeechFake : IKitFake
             {
                 s.Overrides.Clear();
                 s.Says.Clear();
+                s.Lines.Clear();
+                s.Picks.Clear();
+                s.Replies.Clear();
+                s.Topics.Clear();
             }
             return 0;
         }

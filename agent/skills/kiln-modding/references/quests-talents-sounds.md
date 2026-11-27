@@ -124,8 +124,24 @@ s.Clear();                                                          // the game'
 - A mod on both sides decides on the host (`Lifecycle.IsServerRunning`); a joined client's own calls change only its screen.
 - Never guard the calls with `Npcs.Available` / `Capabilities.Is("npcspeech.bubble")`: both are false on a dedicated
   server (no bubbles of its own), which still sends; guarded, no player sees anything. The calls never throw for it.
-- Not changed: farewell lines, the talk gesture when a player presses E. Tests: `KilnHarness.NpcSpeech` (`ModeOf`,
-  `LinesOf`, `Saying`). Sample `HungryCrafter`. `services/npc-speech.md`.
+- Not changed: the talk gesture when a player presses E. Tests: `KilnHarness.NpcSpeech` (`ModeOf`, `LinesOf`,
+  `Saying`). Sample `HungryCrafter`. `services/npc-speech.md`.
+
+### NPC dialogue (dev.32: picks, farewells, the menu's line, talk pages)
+```csharp
+s.Pick = SpeechPick.InOrder;                                        // Random (default: new line each greeting), InOrder, Seeded(n), By(ctx => i)
+Npcs.Farewells(npc).Replace("Come back with food.");                // the menu's farewell (no Suppress)
+var m = Npcs.MenuLine(npc);                                         // the NPC's own line when its menu opens
+m.Pick = SpeechPick.By(ctx => Fed(ctx.Player) ? -1 : 0);            // per player on the host, one open ahead; -1 = none
+m.Replace("I can't work like this."); m.Refresh();                  // Refresh: ask again for every player now
+Npcs.MenuSay(npc, player, "Thanks!");                               // one line in that player's menu
+Npcs.Topics(npc).Set(new NpcTopic("feed", "Here, have some bread.") // rows after the NPC's own (Ramone gets a page)
+    { Reply = "Bless you.", Hint = NpcTopicHint.Attention, OnPick = ctx => { Feed(ctx.Npc); ctx.Reply("..."); } });
+```
+- `By` and `OnPick` run on the host's tick thread as your mod; Random/InOrder/Seeded are picked by each player's game.
+- Kiln 0.2.0-dev.32 on the player's game (channel `kiln:npcdialog`); 31.16-31.21 clients keep the v1 greetings only.
+- 16 topics per NPC (all mods); a topic's `Close` needs a `Reply`. Tests: `PickOf`, `FarewellsOf`, `MenuLinesOf`,
+  `TopicsOf`, `RepliesTo`, `PickTopic(npc, topicId, player)`.
 
 ## Sounds (`assets/cook.json`, service Audio)
 `"side": "both"` or `"client"`, `"clients": "mod"`. Ship your audio and the recipe. Plain JSON: no comments. Template: `kiln new sound`.

@@ -44,6 +44,85 @@ public sealed class NpcSpeechFakeTests
     }
 
     [Fact]
+    public void A_replace_says_how_it_picks_per_greeting()
+    {
+        using var h = new KilnHarness();
+        h.Step();
+        h.Run(() => Npcs.Speech(Npc).Replace("No food, no work.", "My stomach..."));
+        Assert.Equal("Random", h.NpcSpeech.PickOf(Npc));
+        h.Run(() =>
+        {
+            var s = Npcs.Speech(Npc);
+            s.Pick = SpeechPick.InOrder;
+            s.Replace("No food, no work.", "My stomach...");
+        });
+        Assert.Equal("InOrder", h.NpcSpeech.PickOf(Npc));
+        Assert.Equal(["No food, no work.", "My stomach..."], h.NpcSpeech.LinesOf(Npc));
+        h.Run(() =>
+        {
+            var s = Npcs.Speech(Npc);
+            s.Pick = SpeechPick.Seeded(7);
+            s.Replace("No food, no work.", "My stomach...");
+        });
+        Assert.Equal("Seeded(7)", h.NpcSpeech.PickOf(Npc));
+        h.Run(() => Npcs.Speech(Npc).Clear());
+        Assert.Null(h.NpcSpeech.PickOf(Npc));
+    }
+
+    [Fact]
+    public void A_farewell_is_recorded_per_language_apart_from_the_greeting()
+    {
+        using var h = new KilnHarness();
+        h.Step();
+        h.Run(() => Npcs.Farewells(Npc).Replace(new[] { UiText.Of(("en", "Eat well!"), ("de", "Guten Appetit!")) }));
+        Assert.Equal(["Eat well!"], h.NpcSpeech.FarewellsOf(Npc));
+        Assert.Equal(["Guten Appetit!"], h.NpcSpeech.FarewellsOf(Npc, "de-de"));
+        Assert.Equal("Random", h.NpcSpeech.PickOf(Npc, NpcLineKind.Farewell));
+        Assert.Equal(SpeechMode.Game, h.NpcSpeech.ModeOf(Npc));
+        h.Run(() => Npcs.Farewells(Npc).Clear());
+        Assert.Empty(h.NpcSpeech.FarewellsOf(Npc));
+    }
+
+    [Fact]
+    public void The_menu_line_and_replies_to_a_player_are_recorded()
+    {
+        using var h = new KilnHarness();
+        h.Step();
+        var player = new EntityId(501);
+        h.Run(() => Npcs.MenuLine(Npc).Replace("I can't work like this."));
+        Assert.Equal(["I can't work like this."], h.NpcSpeech.MenuLinesOf(Npc));
+        Assert.True(h.Run(() => Npcs.MenuSay(Npc, player, "Thank you!").Ok));
+        Assert.Equal([(Npc, "Thank you!")], h.NpcSpeech.RepliesTo(player));
+        h.Run(() => Npcs.MenuLine(Npc).Clear());
+        Assert.Empty(h.NpcSpeech.MenuLinesOf(Npc));
+    }
+
+    [Fact]
+    public void A_talk_page_of_a_mods_topics_and_a_pick_by_a_player()
+    {
+        using var h = new KilnHarness();
+        h.Step();
+        var player = new EntityId(501);
+        EntityId? fedBy = null;
+        h.Run(() => Npcs.Topics(Npc).Set(new NpcTopic("feed", "Here, have some bread.")
+        {
+            Reply = "Thank you!",
+            OnPick = ctx =>
+            {
+                fedBy = ctx.Player;
+                ctx.Reply("Now I can work again.");
+            },
+        }));
+        Assert.Equal(["Here, have some bread."], h.NpcSpeech.TopicsOf(Npc));
+        Assert.True(h.NpcSpeech.PickTopic(Npc, "feed", player));
+        Assert.Equal(player, fedBy);
+        Assert.Equal([(Npc, "Now I can work again.")], h.NpcSpeech.RepliesTo(player));
+        Assert.False(h.NpcSpeech.PickTopic(Npc, "nothing", player));
+        h.Run(() => Npcs.Topics(Npc).Clear());
+        Assert.Empty(h.NpcSpeech.TopicsOf(Npc));
+    }
+
+    [Fact]
     public void A_second_harness_shows_the_same_texts_and_starts_clear()
     {
         for (var round = 0; round < 2; round++)
