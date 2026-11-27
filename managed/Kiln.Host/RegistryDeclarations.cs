@@ -34,9 +34,11 @@ internal static class RegistryDeclarations
         return null; // private assemblies from the author's own folder remain ordinary dependencies
     }
 
-    // review4 recheck nit (NS1): a mod that only calls Registry.Change, Registry.Read or Registry.Ready (Kiln.Registry's
-    // static Registry type) never names RegistryContext, so MightOverride misses it, and its first use decoded the base on
-    // the tick thread. The order's "registry": true flag asks for either; GameStart authors stay MightOverride's.
+    // review4 recheck nit (NS1): a mod that only calls Registries.Change, Registries.Read or Registries.Ready (Kiln.Registry's
+    // static entry class) never names RegistryContext, so MightOverride misses it, and its first use decoded the base on
+    // the tick thread. The order's "registry": true flag asks for either; GameStart authors stay MightOverride's. The entry
+    // class has two names (review of api-shape): Registries since 0.2.0-dev.32, Registry (its forwarder) before.
+    private static readonly string[] EntryClasses = ["Registries", "Registry"];
     internal static bool UsesRegistry(string assembly, IEnumerable<string> directories)
     {
         try { if (!File.Exists(assembly)) return false; }  // no entry assembly: no code to use the API
@@ -44,19 +46,19 @@ internal static class RegistryDeclarations
         var dirs = directories as string[] ?? directories.ToArray();
         if (MightOverride(assembly, dirs)) return true;
         // the entry assembly, then the other DLLs of its own folder (a helper of the mod that makes the calls)
-        if (References(assembly, "Kiln.Registry", "Kiln.Registry", "Registry")) return true;
+        if (References(assembly, "Kiln.Registry", "Kiln.Registry", EntryClasses)) return true;
         try
         {
             var folder = Path.GetDirectoryName(Path.GetFullPath(assembly));
             if (folder is null) return false;
             foreach (var dll in Directory.EnumerateFiles(folder, "*.dll"))
                 if (!string.Equals(Path.GetFullPath(dll), Path.GetFullPath(assembly), StringComparison.OrdinalIgnoreCase) &&
-                    References(dll, "Kiln.Registry", "Kiln.Registry", "Registry")) return true;
+                    References(dll, "Kiln.Registry", "Kiln.Registry", EntryClasses)) return true;
         }
         catch (Exception) { /* an unreadable folder: the entry assembly decided */ }
         return false;
     }
-    private static bool References(string file, string assemblyName, string ns, string name)
+    private static bool References(string file, string assemblyName, string ns, string[] names)
     {
         try
         {
@@ -67,7 +69,7 @@ internal static class RegistryDeclarations
             foreach (var handle in md.TypeReferences)
             {
                 var type = md.GetTypeReference(handle);
-                if (md.GetString(type.Namespace) == ns && md.GetString(type.Name) == name &&
+                if (md.GetString(type.Namespace) == ns && Array.IndexOf(names, md.GetString(type.Name)) >= 0 &&
                     type.ResolutionScope.Kind == HandleKind.AssemblyReference &&
                     md.GetString(md.GetAssemblyReference((AssemblyReferenceHandle)type.ResolutionScope).Name) == assemblyName) return true;
             }

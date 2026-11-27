@@ -81,6 +81,18 @@ public sealed class RegistryDeclarationTests
             Reference(other, "Helper", "Kiln.Registry", "Kiln.Registry", "Registry");
             Assert.True(RegistryDeclarations.UsesRegistry(plain, new[] { other }), "a helper DLL of the mod's own folder that calls it counts");
             Assert.False(RegistryDeclarations.UsesRegistry(Path.Combine(directory, "missing.dll"), new[] { directory }));
+            // review of api-shape: since 0.2.0-dev.32 the entry class is Registries (Registry is its old name): a mod that only
+            // calls Registries.Change / Read / Ready names no Registry, and is a registry user all the same; a helper DLL too
+            var renamed = Path.Combine(directory, "renamed");
+            Directory.CreateDirectory(renamed);
+            var registries = Reference(renamed, "RegistriesOnly", "Kiln.Registry", "Kiln.Registry", "Registries");
+            Assert.True(RegistryDeclarations.UsesRegistry(registries, new[] { renamed }), "a mod on the new name Registries is one");
+            var helped = Path.Combine(directory, "helped");
+            Directory.CreateDirectory(helped);
+            var entry = Reference(helped, "Entry", "Kiln.Api", "Kiln", "Mod");
+            Assert.False(RegistryDeclarations.UsesRegistry(entry, new[] { helped }));
+            Reference(helped, "RegistriesHelper", "Kiln.Registry", "Kiln.Registry", "Registries");
+            Assert.True(RegistryDeclarations.UsesRegistry(entry, new[] { helped }), "a helper DLL on the new name counts");
         }
         finally { Directory.Delete(directory, recursive: true); }
     }

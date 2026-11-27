@@ -177,7 +177,8 @@ internal sealed partial class ModManager
         return Resolver.Resolve(input, env).Order.Where(c => c.Manifest is not null).Select(c => (c.Manifest!.Id, c.Manifest!.Version, c.Manifest!.Side)).ToList();
     }
 
-    /// <summary>The mods whose code references the registry API (OnRegistry, Registry.Change/Read), from metadata only: the
+    /// <summary>The mods whose code references the registry API (OnRegistry, Registries.Change/Read/Ready, or the older name
+    /// Registry's), from metadata only: the
     /// stage prepares the game's base for them at resources-ready instead of at first use (review4 NS1).</summary>
     internal HashSet<string> RegistryUsers()
     {
