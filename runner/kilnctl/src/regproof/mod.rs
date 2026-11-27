@@ -671,6 +671,7 @@ pub fn roots(map: &regmap::RegMap) -> Vec<String> {
             v.insert(ty.to_string());
         }
         if f.entries.resource_type == refl::TEMPLATE {
+            v.extend(f.entries.with_component.iter().map(|c| refl::component_type(c)));
             for row in f.rows.values() {
                 for p in &row.paths {
                     let first = p.split(['.', '[']).next().unwrap_or_default();

@@ -533,7 +533,8 @@ fn row_diff(old: &TypeDb, new: &TypeDb, f: &RegFile, field: &str, row: &Row, oro
     RowDiff::of(changes, notes, proposals)
 }
 
-/// The members a registry's entries are named and keyed by (and a drop table's naming component).
+/// The members a registry's entries are named and keyed by (and a drop table's naming component; a template registry's entry
+/// components, `entries.withComponent`).
 fn entries_diff(old: &TypeDb, new: &TypeDb, f: &RegFile, oroot: &Base, nroot: &Base) -> RowDiff {
     let (ob, nb) = match (oroot, nroot) {
         (Ok(o), Ok(n)) => (o, n),
@@ -551,6 +552,10 @@ fn entries_diff(old: &TypeDb, new: &TypeDb, f: &RegFile, oroot: &Base, nroot: &B
         .collect();
     if let Some((ty, member)) = f.entries.name_from.rsplit_once('.') {
         paths.push((ty.to_string(), ty.to_string(), member.to_string()));
+    }
+    // a template registry's entries are the templates holding one of these components: each must still be a component type
+    if f.entries.resource_type == TEMPLATE {
+        paths.extend(f.entries.with_component.iter().map(|c| (ob.clone(), nb.clone(), c.clone())));
     }
     let (mut changes, mut notes) = (Vec::new(), Vec::new());
     for (ot, nt, p) in &paths {
@@ -738,6 +743,32 @@ pub(crate) mod tests {
         // the closure kilnctl dumps names the components the rows start at
         let r = crate::regproof::roots(&m);
         assert!(r.contains(&"keen::ecs::Level".to_string()) && r.contains(&"keen::ecs::Sight".to_string()) && r.contains(&TEMPLATE.to_string()), "{r:?}");
+    }
+
+    /// dev.32 creatures: the components that make a template an entry (`entries.withComponent`) define the registry's entries
+    /// like a name or GUID member: a build without one of them changes the registry's entries (every row), and the closure
+    /// kilnctl dumps names them even when no row starts at them.
+    #[test]
+    fn entry_components_are_entry_members() {
+        let creatures = r#"{"regmap": 1, "registry": "beasts",
+            "entries": {"kind": "resource", "resourceType": "keen::ecs::TemplateResource", "name": "name", "key": "templates",
+                        "withComponent": ["Level", "Brain"]},
+            "rows": {"level": {"paths": ["Level.dataStorage[0]"], "conv": "int", "read": "now", "backend": "live"}}}"#;
+        let mut m = RegMap::new();
+        m.insert("beasts".into(), crate::regproof::regmap::parse(creatures, "beasts").unwrap());
+        let with_brain = || {
+            let mut v = creature_types(2);
+            v.push(st("keen::ecs::Brain", 8, 0xbbbb, &[("state", "demo::u32", 0)]));
+            v
+        };
+        let old = db(with_brain(), "a");
+        assert_eq!(status(&diff(&m, &old, &db(with_brain(), "b")), "beasts.(entries)"), Status::Same);
+        let gone = db(creature_types(2), "b");  // no Brain component type on the new build
+        let d = diff(&m, &old, &gone);
+        assert_eq!(status(&d, "beasts.(entries)"), Status::Changed, "{:?}", d.rows["beasts.(entries)"]);
+        assert_eq!(status(&d, "beasts.level"), Status::Changed, "{:?}", d.rows["beasts.level"]);
+        let r = crate::regproof::roots(&m);
+        assert!(r.contains(&"keen::ecs::Brain".to_string()), "{r:?}");
     }
 
     #[test]

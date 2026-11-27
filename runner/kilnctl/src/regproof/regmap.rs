@@ -28,6 +28,9 @@ pub struct Entries {
     /// drop tables: "<component type>.<member>" (the templates that use the entry name it)
     #[serde(default)]
     pub name_from: String,
+    /// creatures: the entries are the templates holding a component of one of these types (by type name without namespaces)
+    #[serde(default)]
+    pub with_component: Vec<String>,
 }
 
 /// One Kiln field's row.
