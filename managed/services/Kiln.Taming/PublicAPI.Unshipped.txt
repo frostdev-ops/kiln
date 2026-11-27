@@ -26,6 +26,7 @@ Kiln.NativeStepResult.Ok.get -> bool
 Kiln.NativeStepResult.Ok.init -> void
 Kiln.NativeStepResult.Reason.get -> string?
 Kiln.NativeStepResult.Reason.init -> void
+Kiln.NativeStepResult.Refusal.get -> Kiln.TamingRefusal
 Kiln.NativeTamedEvent
 Kiln.NativeTamedEvent.Creature.get -> Kiln.EntityId
 Kiln.NativeTamedEvent.Steps.get -> int

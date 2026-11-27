@@ -109,6 +109,7 @@ Kiln.PetDefinitionResult.Ok.init -> void
 Kiln.PetDefinitionResult.PetDefinitionResult(bool Ok, string? Reason, Kiln.PetDefinition? Definition) -> void
 Kiln.PetDefinitionResult.Reason.get -> string?
 Kiln.PetDefinitionResult.Reason.init -> void
+Kiln.PetDefinitionResult.Refusal.get -> Kiln.PetRefusal
 Kiln.PetDismissedEvent
 Kiln.PetDownedEvent
 Kiln.PetDownedOutcome
