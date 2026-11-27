@@ -8,6 +8,7 @@
 #include <type_traits>
 
 #include "assets.h"
+#include "blob_hash.h"
 #include "bootpack_internal.h"
 #include "contained.h"
 #include "kiln_boot_collector.hpp"
@@ -433,12 +434,20 @@ KilnResult load_manifest(KilnOwner owner, const std::string& mod_dir, std::strin
                 ++tex;  // counted as accepted; a flush failure is logged then
             }
         } else if (kind == "blob") {
+            // "hash": the key the game reads the bytes by. One that is not <decimal size>-<h0>-<h1>-<h2> refuses the entry; it
+            // never falls back to a key kiln.assets derives, which the game would not ask for (blob_hash.h, host-tested)
+            HashK fixed{};
+            bool has_hash = false;
+            if (const std::string bad = blob_entry_hash(e, file, &has_hash, &fixed); !bad.empty()) { fail(bad); continue; }
             std::vector<uint8_t> bytes;
             if (!read(fp, &bytes, &why)) { fail("blob " + file + ": " + why); continue; }
             if (!made_here(fp, bytes)) continue;
-            HashK fixed;
+            if (const std::string bad = has_hash ? blob_size_refusal(file, fixed, bytes.size()) : std::string(); !bad.empty()) {
+                fail(bad);
+                continue;
+            }
             KilnResult r;
-            if (e.contains("hash") && parse_hash(e["hash"].get<std::string>(), &fixed)) {
+            if (has_hash) {
                 KilnContentHash ch{fixed.size, fixed.h0, fixed.h1, fixed.h2};
                 r = op_blob_override(owner, &ch, bytes.data(), bytes.size());
             } else {
@@ -556,7 +565,10 @@ KilnResult dump(const std::string& spec, std::string* report) {
     };
     if (spec.rfind("blob:", 0) == 0) {
         HashK hk;
-        if (!parse_hash(spec.substr(5), &hk)) { *report = "bad blob spec"; return KILN_ERR_INVALID_ARGUMENT; }
+        if (!parse_hash(spec.substr(5), &hk)) {
+            *report = "bad blob spec (want blob:<decimal size>-<h0>-<h1>-<h2>, the words in hex)";
+            return KILN_ERR_INVALID_ARGUMENT;
+        }
         std::vector<uint8_t> buf(hk.size);
         size_t n = 0;
         KilnContentHash ch{hk.size, hk.h0, hk.h1, hk.h2};

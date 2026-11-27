@@ -66,8 +66,26 @@ pub struct SnapshotEntry {
     pub min: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max: Option<f64>,
+    /// `[Range(..., SoftMin = true)]` (mod API 0.2.26): `min` is where a slider starts, not a limit.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub soft_min: bool,
+    /// `[Range(..., SoftMax = true)]`: `max` is where a slider ends, not a limit (kiln#155).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub soft_max: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub options: Vec<String>,
+}
+
+impl SnapshotEntry {
+    /// The low bound values are checked against (ConfigNode.HardMin): `min` unless it is soft.
+    pub fn hard_min(&self) -> Option<f64> {
+        if self.soft_min { None } else { self.min }
+    }
+
+    /// The high bound values are checked against (ConfigNode.HardMax): `max` unless it is soft.
+    pub fn hard_max(&self) -> Option<f64> {
+        if self.soft_max { None } else { self.max }
+    }
 }
 
 /// `<configDir>/.schema/<file>.json`
@@ -821,8 +839,8 @@ fn check_number(e: &SnapshotEntry, kind: ValueKind, d: f64, path: &str, clamp: b
         return Err(format!("\"{path}\" must be a finite number"));
     }
     let (lo, hi) = if kind == ValueKind::Int { (i32::MIN as f64, i32::MAX as f64) } else { (f64::MIN, f64::MAX) };
-    let mut min = e.min.unwrap_or(f64::NEG_INFINITY).max(lo);
-    let mut max = e.max.unwrap_or(f64::INFINITY).min(hi);
+    let mut min = e.hard_min().unwrap_or(f64::NEG_INFINITY).max(lo);
+    let mut max = e.hard_max().unwrap_or(f64::INFINITY).min(hi);
     let mut d = d;
     let mut warning = None;
     if kind == ValueKind::Int {
@@ -837,7 +855,7 @@ fn check_number(e: &SnapshotEntry, kind: ValueKind, d: f64, path: &str, clamp: b
         max = max.floor();
     }
     if d < min || d > max {
-        let range = format!("{}..{}", num(e.min.unwrap_or(lo)), num(e.max.unwrap_or(hi)));
+        let range = format!("{}..{}", num(e.hard_min().unwrap_or(lo)), num(e.hard_max().unwrap_or(hi)));
         if !clamp {
             return Err(format!("\"{path}\" must be in {range} (got {})", num(d)));
         }
@@ -863,10 +881,11 @@ fn check_duration(e: &SnapshotEntry, ticks: Option<i64>, path: &str, clamp: bool
     let s = ts as f64 / durations::TICKS_PER_SECOND as f64;
     let mut out = ts;
     let mut warning = None;
-    if e.min.is_some_and(|m| s < m) || e.max.is_some_and(|m| s > m) {
-        let lo = e.min.and_then(durations::ticks_from_seconds).unwrap_or(0);
-        let hi = e.max.and_then(durations::ticks_from_seconds).unwrap_or(i64::MAX);
-        let range = format!("{}..{}", durations::format(lo), if e.max.is_none() { String::new() } else { durations::format(hi) });
+    let (min, max) = (e.hard_min(), e.hard_max());
+    if min.is_some_and(|m| s < m) || max.is_some_and(|m| s > m) {
+        let lo = min.and_then(durations::ticks_from_seconds).unwrap_or(0);
+        let hi = max.and_then(durations::ticks_from_seconds).unwrap_or(i64::MAX);
+        let range = format!("{}..{}", durations::format(lo), if max.is_none() { String::new() } else { durations::format(hi) });
         if !clamp {
             return Err(format!("\"{path}\" must be in {range} (got {})", durations::format(ts)));
         }

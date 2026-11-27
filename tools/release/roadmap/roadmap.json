@@ -1,6 +1,26 @@
 {
   "released": [
     {
+      "version": "0.2.0-dev.31.22",
+      "date": "2026-11-27",
+      "title": "Settings past the slider and exact asset hashes",
+      "summary": "A mod's setting can go past the end of its slider when the mod allows it, and a mod asset whose hash Kiln cannot read is now an error that names the file instead of content the game never finds.",
+      "patch": true,
+      "features": [
+        {
+          "title": "Settings past the slider's end",
+          "text": "A mod can make one end of a setting's range soft: the number field beside its slider, on the Kiln menu's config page and in the launcher, then takes a value past that end, and the config file keeps it instead of clamping it back (thanks fafawanji).",
+          "area": "api"
+        },
+        {
+          "title": "Mod assets with a hash Kiln cannot read",
+          "text": "A mod asset whose hash is not written the way Kiln reads it is now an error in kiln.log that names the file, instead of loading under another hash the game never asks for, and one whose hash names another size than its file says so. kiln lint flags such a hash, and kiln-vfxcook writes the hash the way Kiln reads it.",
+          "area": "tools",
+          "kind": "fix"
+        }
+      ]
+    },
+    {
       "version": "0.2.0-dev.31.21",
       "date": "2026-11-27",
       "title": "Building tools, spell lists and ShroudForge in multiplayer",

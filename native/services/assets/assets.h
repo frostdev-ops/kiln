@@ -72,8 +72,12 @@ std::string type_name(uint32_t hash);                           // known names, 
 bool parse_guid(const std::string& s, uint8_t out[16]);         // .NET Guid.Parse + ToByteArray order
 std::string guid_str(const uint8_t g[16]);
 std::string key_str(const Key& k);
-std::string hash_str(const HashK& h);  // "size-h0-h1-h2" hex
-bool parse_hash(const std::string& s, HashK* out);
+std::string hash_str(const HashK& h);  // "size-h0-h1-h2": the size in decimal, the words in hex (8 digits)
+bool parse_hash(const std::string& s, HashK* out);  // exactly <decimal size>-<h0>-<h1>-<h2>; *out only when it reads
+// assets.json's "hash" of a blob entry (`text`: the value, nullptr when it is not a string; `shown`: the value as JSON, for the
+// message): "" with *out for a hash that reads, else the reason to refuse the entry. Never a derived key instead: the game
+// asks for the hash the mod named, and a blob under another key leaves it with nothing ("Could not find content").
+std::string blob_hash_refusal(const std::string& file, const std::string* text, const std::string& shown, HashK* out);
 HashK content_hash_of(const void* data, size_t len);  // SHA-256 rule (kiln_assets.h / docs)
 
 // What of an assets.json only a game client uses, by what the entry is: a dedicated server skips it, whether or not its file is there

@@ -294,7 +294,8 @@ typedef struct KilnAssetsApi {
 
     /* ---- part 2: tools ----
      * dump: write resources / blobs to <game>/kiln/data/assets/dump/. spec: "<guid>[:<type>[:<part>]]",
-     *   "type:<hash or qualified name>", "blob:<size>-<h0>-<h1>-<h2>" (hex), or "list". report: JSON summary.
+     *   "type:<hash or qualified name>", "blob:<size>-<h0>-<h1>-<h2>" (the size in decimal, the words in hex), or "list".
+     *   report: JSON summary.
      * status: JSON (hooks, counts, owners, problems).
      * load_manifest: registers the entries of <mod_dir>/assets/assets.json for `owner` (the native boot path does
      *   this for every mod in the load order; managed mods may call it for a folder of their own). */

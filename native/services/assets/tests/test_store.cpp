@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "assets.h"
+#include "blob_hash.h"
 #include "services/kiln_hooks.h"
 
 #ifdef KILN_ASSETS_OMISSION_REPORT_TEST
@@ -869,6 +870,75 @@ void game_blob_range() {
     check(closed, "every container opened is closed again");
 }
 
+// assets.json's blob "hash" and the dump's "blob:" spec: <size>-<h0>-<h1>-<h2>, the size in decimal and the three words in hex
+// (ContentHash.ToString, hash_str). A blob whose hash cannot be read is refused, never served under a key kiln.assets
+// derives: the game then asks for the named hash and finds nothing ("Could not find content ... in kfc!", GT's first lab).
+void hash_text() {
+    HashK h{};
+    check(parse_hash("7170-f308b489-d7bff57f-264db8de", &h) && h == HashK{7170, 0xf308b489u, 0xd7bff57fu, 0x264db8deu},
+          "parse_hash reads <decimal size>-<h0>-<h1>-<h2>");
+    check(parse_hash("4294967295-1-a-FFFFFFFF", &h) && h == HashK{0xffffffffu, 1, 10, 0xffffffffu},
+          "parse_hash: the largest size, 1 to 8 hex digits per word, either case");
+    check(parse_hash(hash_str(HashK{760390, 1, 2, 3}), &h) && h == HashK{760390, 1, 2, 3}, "parse_hash reads hash_str back");
+    for (const char* bad : {"1c02-f308b489-d7bff57f-264db8de", "7170-f308b489-d7bff57f-264db8dex", "7170-f308b489-d7bff57f-264db8de ",
+                            " 7170-1-2-3", "+7170-1-2-3", "-7170-1-2-3", "7170-0x1-2-3", "7170-+1-2-3", "7170--1-2", "7170-1-2",
+                            "7170-1-2-3-4", "4294967296-1-2-3", "99999999999-1-2-3", "7170-100000000-2-3", "7170-1-2-", "", "-",
+                            "7170-1-2-3\n"}) {
+        HashK keep{9, 9, 9, 9};
+        check(!parse_hash(bad, &keep) && keep == HashK{9, 9, 9, 9}, std::string("parse_hash refuses \"") + bad + "\" and leaves its output");
+    }
+    // the manifest's rule for a blob entry's "hash"
+    std::string text = "7170-f308b489-d7bff57f-264db8de";
+    check(blob_hash_refusal("terrain/l6.bin", &text, "\"" + text + "\"", &h).empty() && h.size == 7170, "a blob's hash that reads is served under");
+    text = "1c02-f308b489-d7bff57f-264db8de";  // kfc before afa1bece: the size in hex
+    const std::string why = blob_hash_refusal("terrain/l6.bin", &text, "\"" + text + "\"", &h);
+    check(why == "blob terrain/l6.bin: bad hash \"1c02-f308b489-d7bff57f-264db8de\" (want <decimal size>-<h0>-<h1>-<h2>)",
+          "a blob's hash with a hex size is refused, naming the file and the form (" + why + ")");
+    check(blob_hash_refusal("a.bin", nullptr, "7170", &h) == "blob a.bin: bad hash 7170 (want <decimal size>-<h0>-<h1>-<h2>)",
+          "a blob's hash that is not a string is refused");
+    const std::string longer(500, '7');
+    check(blob_hash_refusal("a.bin", &longer, "\"" + longer + "\"", &h).size() < 200, "a long bad hash is shortened in the message");
+    // shortened between two characters, never inside one: the message goes to kiln.log, the manifest's report and boot's issue as
+    // UTF-8. Three-byte characters after the quote put byte 77 inside one.
+    std::string euros;
+    for (int i = 0; i < 40; ++i) euros += "\xE2\x82\xAC";
+    const std::string cut = blob_hash_refusal("a.bin", &euros, "\"" + euros + "\"", &h);
+    check(cut.find("\xE2\x82\xAC...") != std::string::npos && cut.find("\xE2\x82...") == std::string::npos &&
+              cut.find("\xE2...") == std::string::npos,
+          "a long bad hash is shortened at a character boundary");
+
+    // load_manifest's rule for a blob entry, on the parsed entry (blob_hash.h): no "hash" is a new blob, a "hash" that reads is
+    // that key, and any other "hash" (not a string, or not the text) refuses the entry
+    using nlohmann::json;
+    auto entry = [&](const char* text, bool* named, HashK* out) { return blob_entry_hash(json::parse(text), "a.bin", named, out); };
+    const std::string want = " (want <decimal size>-<h0>-<h1>-<h2>)";
+    bool named = true;
+    h = HashK{9, 9, 9, 9};
+    check(entry(R"({"kind": "blob", "file": "a.bin"})", &named, &h).empty() && !named && h == HashK{9, 9, 9, 9},
+          "a blob entry without a hash is a new blob");
+    check(entry(R"({"kind": "blob", "hash": "7170-f308b489-d7bff57f-264db8de", "file": "a.bin"})", &named, &h).empty() && named &&
+              h == HashK{7170, 0xf308b489u, 0xd7bff57fu, 0x264db8deu},
+          "a blob entry's hash that reads is its key");
+    named = false;
+    check(entry(R"({"hash": "1c02-f308b489-d7bff57f-264db8de"})", &named, &h) == "blob a.bin: bad hash \"1c02-f308b489-d7bff57f-264db8de\"" + want &&
+              named,
+          "a blob entry's hash with a hex size refuses the entry");
+    check(entry(R"({"hash": "7170-1-2-3 "})", &named, &h) == "blob a.bin: bad hash \"7170-1-2-3 \"" + want, "a hash with a trailing space refuses the entry");
+    check(entry(R"({"hash": ""})", &named, &h) == "blob a.bin: bad hash \"\"" + want && named, "an empty hash refuses the entry");
+    check(entry(R"({"hash": 7170})", &named, &h) == "blob a.bin: bad hash 7170" + want && named, "a number refuses the entry");
+    check(entry(R"({"hash": null})", &named, &h) == "blob a.bin: bad hash null" + want && named, "null refuses the entry, as any value but the text");
+    check(entry(R"({"hash": true})", &named, &h) == "blob a.bin: bad hash true" + want, "true refuses the entry");
+    check(entry(R"({"hash": [7170, 1, 2, 3]})", &named, &h) == "blob a.bin: bad hash [...]" + want, "an array refuses the entry, shown by its kind");
+    check(entry(R"({"hash": {"size": 7170}})", &named, &h) == "blob a.bin: bad hash {...}" + want, "an object refuses the entry, shown by its kind");
+    check(entry(R"({"hash": "été"})", &named, &h) == "blob a.bin: bad hash \"\xC3\xA9t\xC3\xA9\"" + want, "a non-ASCII hash is shown as UTF-8");
+    // a hash that reads but names another size than the file's: the entry is refused naming both, not as "failed" (kiln-vfxcook
+    // up to 31.21 wrote the size in hex, and 0x2820 written as 2820 reads)
+    check(blob_size_refusal("a.bin", HashK{10272, 1, 2, 3}, 10272).empty(), "a blob as long as its hash says is served");
+    check(blob_size_refusal("cooked/blob.bin", HashK{2820, 1, 2, 3}, 10272) ==
+              "blob cooked/blob.bin: its hash says 2820 bytes, the file has 10272 (the size is decimal)",
+          "a blob of another length than its hash says is refused naming both");
+}
+
 int main() {
     KilnApi api{};
     api.log = log_line;
@@ -1076,6 +1146,10 @@ int main() {
     // 14. The game's own blob is read from its container alone (inbox 18e, 0.2.0-dev.29.2).
     std::puts("-- 14: a game blob reads its own bytes, not its container");
     game_blob_range();
+
+    // 15. The hash text of assets.json's blob "hash" and the dump's "blob:" spec (dev.32 GT's lab; 31.x patch).
+    std::puts("-- 15: the hash text: decimal size, hex words, nothing else");
+    hash_text();
 
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;

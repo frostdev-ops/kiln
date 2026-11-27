@@ -11,7 +11,8 @@ public sealed partial class KilnHarness
 }
 
 /// <summary>A content blob a mod registered with the kit's kiln.assets (<c>Assets.AddBlob</c>, <c>OverrideBlob</c>).</summary>
-/// <param name="Hash">Its content hash as <c>ContentHash.ToString()</c> writes it (<c>size-h0-h1-h2</c>, hex).</param>
+/// <param name="Hash">Its content hash as <c>ContentHash.ToString()</c> writes it (<c>size-h0-h1-h2</c>: the size in decimal, the
+/// words in hex).</param>
 /// <param name="Owner">The native owner it was registered under (the mod's).</param>
 /// <param name="Override">True for an override of a hash, false for an added blob.</param>
 public readonly record struct FakeBlobRegistration(string Hash, ulong Owner, bool Override);

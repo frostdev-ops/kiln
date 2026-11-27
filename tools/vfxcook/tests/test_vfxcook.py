@@ -294,6 +294,9 @@ class SampleBytes(Base):
             if e["kind"] == "resource":
                 self.assertEqual(e["mode"], "new")
                 self.assertIn(e["type"], TYPES)
+            if e["kind"] == "blob":  # kiln.assets' spelling (parse_hash, ContentHash.ToString): the size in decimal, 8 hex digits per word
+                size, h0, h1, h2 = content_hash((self.c.out / e["file"]).read_bytes())
+                self.assertEqual(e["hash"], f"{size}-{h0:08x}-{h1:08x}-{h2:08x}", e["file"])
         self.assertEqual(kinds, {"blob": 6, "resource": 6})
 
     def test_same_input_same_bytes(self):

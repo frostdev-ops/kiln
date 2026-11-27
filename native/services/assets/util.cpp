@@ -141,8 +141,48 @@ std::string hash_str(const HashK& h) {
     return b;
 }
 
+// "<size>-<h0>-<h1>-<h2>" as hash_str and ContentHash.ToString write it: the size in decimal (digits only, at most
+// 4294967295), each word 1 to 8 hex digits, and nothing before, between or after. sscanf("%u-%x-%x-%x") read a hex size
+// such as "1c02" as 1 and took trailing junk, signs, spaces and "0x"; anything but the exact form is refused now, and
+// *out is only written for a hash that reads.
 bool parse_hash(const std::string& s, HashK* out) {
-    return std::sscanf(s.c_str(), "%u-%x-%x-%x", &out->size, &out->h0, &out->h1, &out->h2) == 4;
+    size_t at = 0;
+    auto number = [&](bool hex, uint32_t* v) {
+        uint64_t n = 0;
+        const size_t from = at;
+        for (; at < s.size() && at - from < (hex ? 8u : 10u); ++at) {
+            const char c = s[at];
+            int d;
+            if (c >= '0' && c <= '9') d = c - '0';
+            else if (hex && c >= 'a' && c <= 'f') d = c - 'a' + 10;
+            else if (hex && c >= 'A' && c <= 'F') d = c - 'A' + 10;
+            else break;
+            n = n * (hex ? 16 : 10) + static_cast<uint64_t>(d);
+        }
+        if (at == from || n > 0xffffffffull) return false;
+        *v = static_cast<uint32_t>(n);
+        return true;
+    };
+    auto dash = [&] { return at < s.size() && s[at++] == '-'; };
+    HashK h;
+    if (!number(false, &h.size) || !dash() || !number(true, &h.h0) || !dash() || !number(true, &h.h1) || !dash() ||
+        !number(true, &h.h2) || at != s.size())
+        return false;
+    *out = h;
+    return true;
+}
+
+std::string blob_hash_refusal(const std::string& file, const std::string* text, const std::string& shown, HashK* out) {
+    if (text && parse_hash(*text, out)) return {};
+    // a long value: its first 77 bytes and "...", cut between two characters (the text is UTF-8 in kiln.log, the report and
+    // boot's issue), never after the lead byte of one
+    size_t keep = shown.size();
+    if (keep > 80) {
+        keep = 77;
+        while (keep > 0 && (static_cast<unsigned char>(shown[keep]) & 0xC0) == 0x80) --keep;
+    }
+    return "blob " + file + ": bad hash " + shown.substr(0, keep) + (keep < shown.size() ? "..." : "") +
+           " (want <decimal size>-<h0>-<h1>-<h2>)";
 }
 
 std::wstring widen(const std::string& s) {

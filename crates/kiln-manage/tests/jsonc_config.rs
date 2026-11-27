@@ -269,3 +269,48 @@ fn config_doc_keeps_everything_but_the_edited_tokens() {
     assert_eq!(tree.get("limits").unwrap().get("mode").unwrap().raw(KILN_FILE), "\"all\"");
     assert_eq!(jsonc::parse(KILN_FILE).unwrap()["autosave"], "5m");
 }
+
+/// kiln#155: [Range(0, 1, 0.1, SoftMax = true)] ends the slider at 1 but lets a typed 2 or 3 through (and the file's
+/// value is kept, no clamp, no warning); the hard side is refused and clamped as before. Messages as Kiln.Api's.
+#[test]
+fn soft_range_sides_bound_nothing_and_the_hard_side_stays() {
+    let s: SchemaSnapshot = serde_json::from_value(json!({
+        "format": 1, "source": "kiln", "file": "x.json", "id": "x", "mod": "x",
+        "entries": [
+            {"path": "cost", "type": "float", "default": 1, "min": 0, "max": 1, "step": 0.1, "softMax": true},
+            {"path": "offset", "type": "int", "default": 2, "min": 0, "max": 10, "softMin": true},
+            {"path": "wait", "type": "duration", "default": "5s", "min": 1, "max": 60, "softMax": true},
+            {"path": "factors", "type": "list<float>", "default": [0.5], "min": 0, "max": 1, "softMax": true},
+            {"path": "hard", "type": "float", "default": 0.5, "min": 0, "max": 1}
+        ]
+    }))
+    .unwrap();
+    assert!(s.entries[0].soft_max && !s.entries[0].soft_min);
+    assert!(s.entries[1].soft_min && !s.entries[1].soft_max);
+    assert!(!s.entries[4].soft_min && !s.entries[4].soft_max);
+    assert_eq!(config::check_value(&s.entries[0], &json!(3)).unwrap(), json!(3));
+    assert_eq!(config::check_text(&s.entries[0], "2.5").unwrap(), json!(2.5));
+    assert_eq!(config::check_value(&s.entries[0], &json!(-1)).unwrap_err(), "\"cost\" must be in 0..max (got -1)");
+    assert_eq!(config::check_value(&s.entries[1], &json!(-40)).unwrap(), json!(-40));
+    assert_eq!(config::check_value(&s.entries[1], &json!(11)).unwrap_err(), "\"offset\" must be in -2147483648..10 (got 11)");
+    assert_eq!(config::check_value(&s.entries[1], &json!(3e9)).unwrap_err(), "\"offset\" must be in -2147483648..10 (got 3000000000)");
+    assert_eq!(config::check_value(&s.entries[2], &json!("10m")).unwrap(), json!("10m"));
+    assert!(config::check_value(&s.entries[2], &json!("0s")).is_err());
+    assert_eq!(config::check_value(&s.entries[3], &json!([0.5, 4])).unwrap(), json!([0.5, 4]));
+    assert_eq!(config::check_value(&s.entries[3], &json!([-1])).unwrap_err(), "\"factors[0]\" = -1 is outside 0..max; using 0");
+    assert_eq!(config::check_value(&s.entries[4], &json!(2)).unwrap_err(), "\"hard\" must be in 0..1 (got 2)");
+    // the file's values: kept past a soft side, reported on a hard one
+    let errs = config::validate(&s, &json!({"cost": 3, "offset": -4, "wait": "10m", "factors": [2.5], "hard": 0.5}));
+    assert!(errs.is_empty(), "{errs:?}");
+    let errs = config::validate(&s, &json!({"cost": -2, "offset": 12, "hard": 2}));
+    let msgs: Vec<&str> = errs.iter().map(|e| e.message.as_str()).collect();
+    assert_eq!(msgs, [
+        "\"cost\" must be in 0..max (got -2)",
+        "\"offset\" must be in -2147483648..10 (got 12)",
+        "\"hard\" must be in 0..1 (got 2)",
+    ]);
+    // written back only when true, so a snapshot without soft sides reads and writes as before
+    let back = serde_json::to_value(&s.entries[4]).unwrap();
+    assert!(back.get("softMin").is_none() && back.get("softMax").is_none());
+    assert_eq!(serde_json::to_value(&s.entries[0]).unwrap()["softMax"], json!(true));
+}

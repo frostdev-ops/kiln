@@ -47,6 +47,14 @@ void spit(const fs::path& p, const void* d, size_t n) {
     std::ofstream f(p, std::ios::binary);
     f.write(static_cast<const char*>(d), static_cast<std::streamsize>(n));
 }
+// kiln.assets' spelling of a hash, for assets.json "hash": the size in decimal, each word in 8 hex digits (its parse_hash,
+// ContentHash.ToString). content_hash_text is the cook's own all-hex spelling (file names, the report); kiln.assets reads that
+// size as decimal, so a blob under it was served under another key, or refused.
+std::string assets_hash_text(const ContentHash& h) {
+    char b[48];
+    std::snprintf(b, sizeof b, "%u-%08x-%08x-%08x", h.size, h.h0, h.h1, h.h2);
+    return b;
+}
 std::string u8(const fs::path& p) {
     const auto s = p.u8string();
     return std::string(reinterpret_cast<const char*>(s.data()), s.size());
@@ -204,7 +212,7 @@ int cmd_cook(const Args& a, bool write) {
             spit(out / rel, b.data.data(), b.data.size());
             ojson e = ojson::object();
             e["kind"] = "blob";
-            e["hash"] = text;
+            e["hash"] = assets_hash_text(b.hash);
             e["file"] = rel;
             e["side"] = "client";
             entries.push_back(e);

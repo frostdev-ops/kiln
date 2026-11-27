@@ -344,13 +344,20 @@
     "default_tip": "Predefinito: {value}",
     "type_here": "Scrivi qui il valore.",
     "range": "un numero da {min} a {max}",
+    "range_min": "un numero da {min} in su",
+    "range_max": "un numero fino a {max}",
+    "range_any": "un numero",
     "describe": {
       "entry": "{path}: {type}, predefinito {default}",
       "entry_range": "{path}: {type}, predefinito {default}, intervallo {min}..{max}",
       "options": "opzioni: {options}",
       "synced": "Sincronizzata: un server invia il suo valore ai client.",
       "restart": "Richiede un riavvio: la modifica vale quando la mod si ricarica.",
-      "from_server": "Ha il valore del server mentre sei connesso."
+      "from_server": "Ha il valore del server mentre sei connesso.",
+      "soft_min": "Il cursore parte da {min}; puoi scrivere un valore più basso.",
+      "soft_max": "Il cursore arriva a {max}; puoi scrivere un valore più alto.",
+      "soft_min_any": "Sono ammessi anche valori inferiori a {min}.",
+      "soft_max_any": "Sono ammessi anche valori superiori a {max}."
     },
     "apply": "Applica ({count})",
     "undo": "Annulla",

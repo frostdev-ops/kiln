@@ -1,6 +1,6 @@
 {
   "catalog": true,
-  "description": "files: missing files (KL501), cooked files not made yet (KL502), a fake PNG (KL503), blob hash size (KL504), patch offset (KL505), cook bases and inputs (KL510, KL511), unlisted outputs (KL512), stems and names used twice (KL513), native hashes and argc (KL514), native names (KL208)",
+  "description": "files: missing files (KL501), cooked files not made yet (KL502), a fake PNG (KL503), blob hash size (KL504), a blob hash kiln.assets cannot read (KL106), patch offset (KL505), cook bases and inputs (KL510, KL511), unlisted outputs (KL512), stems and names used twice (KL513), native hashes and argc (KL514), native names (KL208)",
   "diagnostics": [
     {
       "code": "KL401",
@@ -57,6 +57,14 @@
       "line": 6,
       "message": "built/two.bin is made by the cook and is not there yet: run the mod's cook recipe (tools/modelcook, tools/impact, or the launcher at install)",
       "severity": "info"
+    },
+    {
+      "code": "KL106",
+      "col": 29,
+      "file": "assets/assets.json",
+      "line": 7,
+      "message": "\"00000000010-1-2-3\": want <decimal size>-<h0>-<h1>-<h2> as ContentHash.ToString writes it (a size up to 4294967295, 1 to 8 hex digits per word, nothing else): kiln.assets refuses the entry otherwise",
+      "severity": "error"
     },
     {
       "code": "KL501",

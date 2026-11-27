@@ -95,7 +95,7 @@ A field for the other kind (`position` on a screen, `dim` on a window) is an err
 | `text` | a line of text, a template | `text`, `color`, `wrap` (not both: the overlay's wrapped text has no colour) |
 | `value` | `Label: value`, not editable | `label`, `bind`, `format` |
 | `toggle` | a checkbox on a true/false config entry | `label`, `bind` |
-| `slider` | a slider on a whole-number or decimal config entry | `label`, `bind`, `min`, `max` (default: the entry's `[Range]`; without one, give both) |
+| `slider` | a slider on a whole-number or decimal config entry | `label`, `bind`, `min`, `max` (default: the entry's `[Range]`; without one, give both; not wider than the range, except past a soft side, `SoftMin` / `SoftMax = true`) |
 | `choice` | a drop-down on an enum config entry | `label`, `bind` |
 | `separator` | a line, with a heading when it has `text` | `text` |
 | `button` | a button | `label`, `does` |
@@ -116,7 +116,7 @@ A button's `does` and a key's `does` are the same record: **exactly one** of the
 |---|---|---|
 | `command` | runs a command line of this game's command registry, as the console folder would: as the host's own character when this game hosts the world, else as the console | the tick, in this game |
 | `toggle` | flips a true/false config entry: `"config.clock.show"` | the tick |
-| `set` | `{ "bind": "config.audio.volume", "to": 50 }`: a value the entry takes (a number in its range, an option of an enum, true/false). Checked when the block compiles | the tick |
+| `set` | `{ "bind": "config.audio.volume", "to": 50 }`: a value the entry takes (a number in its range or past a soft side of it, an option of an enum, true/false). Checked when the block compiles | the tick |
 | `castAbility` | asks the **server** to cast an ability block of this mod (`"other-mod:name"` for another's), as its key would: its costs and cooldown apply, and a refusal is a toast | a message to the server |
 | `applyEffect` | applies an effect block, or an effect written in place, to the player, through a hidden ability `ui-apply.<name>` Kiln makes for it (one per effect) | a message to the server |
 | `openWindow`, `closeWindow` | opens or closes a window block of this mod (or `"other-mod:name"`'s) | this game |

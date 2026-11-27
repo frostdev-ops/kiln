@@ -18,7 +18,7 @@ function toSnapshot(c: ConfigFile): SchemaSnapshot {
   return {
     format: 1, source: "kiln", file: c.file, valueFormat: "jsonc", id: c.id, mod: c.mod, modVersion: null, kind: c.kind, written: c.loadedAt ?? null, kiln: null,
     sections: c.sections.map((s) => ({ path: s.path, comment: s.comment ?? null, synced: !!s.synced })),
-    entries: c.entries.map((e) => ({ path: e.path, type: e.type, comment: e.comment ?? null, default: e.default as Json, requiresRestart: !!e.requiresRestart, synced: !!e.synced, min: e.min, max: e.max, step: e.step, options: e.options })),
+    entries: c.entries.map((e) => ({ path: e.path, type: e.type, comment: e.comment ?? null, default: e.default as Json, requiresRestart: !!e.requiresRestart, synced: !!e.synced, min: e.min, max: e.max, step: e.step, softMin: e.softMin, softMax: e.softMax, options: e.options })),
   };
 }
 

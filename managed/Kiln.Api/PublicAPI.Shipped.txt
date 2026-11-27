@@ -242,6 +242,10 @@ Kiln.ConfigEntry.Path.init -> void
 Kiln.ConfigEntry.PendingRestart.get -> bool
 Kiln.ConfigEntry.RequiresRestart.get -> bool
 Kiln.ConfigEntry.RequiresRestart.init -> void
+Kiln.ConfigEntry.SoftMax.get -> bool
+Kiln.ConfigEntry.SoftMax.init -> void
+Kiln.ConfigEntry.SoftMin.get -> bool
+Kiln.ConfigEntry.SoftMin.init -> void
 Kiln.ConfigEntry.Step.get -> double?
 Kiln.ConfigEntry.Step.init -> void
 Kiln.ConfigEntry.Synced.get -> bool
@@ -1221,6 +1225,10 @@ Kiln.RangeAttribute.Max.get -> double
 Kiln.RangeAttribute.Min.get -> double
 Kiln.RangeAttribute.RangeAttribute(double min, double max) -> void
 Kiln.RangeAttribute.RangeAttribute(double min, double max, double step) -> void
+Kiln.RangeAttribute.SoftMax.get -> bool
+Kiln.RangeAttribute.SoftMax.set -> void
+Kiln.RangeAttribute.SoftMin.get -> bool
+Kiln.RangeAttribute.SoftMin.set -> void
 Kiln.RangeAttribute.Step.get -> double?
 Kiln.Reflected
 Kiln.ReflectedResource
@@ -1409,7 +1417,7 @@ const Kiln.Events.MaxDepth = 32 -> int
 const Kiln.Events.MaxFaults = 5 -> int
 const Kiln.ModLocale.Fallback = "en" -> string!
 const Kiln.ModLocale.MaxFileBytes = 1048576 -> int
-const Kiln.Mods.ApiVersion = "0.2.25" -> string!
+const Kiln.Mods.ApiVersion = "0.2.26" -> string!
 const Kiln.Pacing.ServerIdleWaitNs = 40000000 -> long
 const Kiln.Pacing.ServerMaxWaitNs = 1000000000 -> long
 const Kiln.Pacing.ServerMinWaitNs = 100000 -> long

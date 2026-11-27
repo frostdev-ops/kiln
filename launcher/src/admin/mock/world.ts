@@ -535,7 +535,7 @@ export class MockWorld {
     if (t === "int" || t === "float") {
       if (typeof v !== "number") throw new OpError(`${e.path}: a number`);
       if (t === "int" && !Number.isInteger(v)) throw new OpError(`${e.path}: a whole number`);
-      if ((e.min != null && v < e.min) || (e.max != null && v > e.max)) throw new OpError(`${e.path}: ${e.min ?? "…"} to ${e.max ?? "…"}`);
+      if ((e.min != null && !e.softMin && v < e.min) || (e.max != null && !e.softMax && v > e.max)) throw new OpError(`${e.path}: ${e.min ?? "…"} to ${e.max ?? "…"}`);
     }
     if (t === "enum" && !(e.options ?? []).includes(v)) throw new OpError(`${e.path}: one of ${(e.options ?? []).join(", ")}`);
     if (t === "string" && typeof v !== "string") throw new OpError(`${e.path}: text`);

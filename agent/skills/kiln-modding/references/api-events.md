@@ -34,6 +34,8 @@ _cfg = Config.Register<MyConfig>();            // ConfigKind.Common -> <configDi
 _cfg.Changed += e => { };                      // or [Subscribe] ConfigChangedEvent
 var n = _cfg.Value.MaxHomes;                   // always current
 ```
+`[Range(0, 1, 0.1, SoftMax = true)]` (API 0.2.26): slider 0..1 in 0.1 steps, a typed or file value above 1 is kept
+(`SoftMin` likewise); the step is the third argument (`Step = 0.1` does not compile).
 Commented JSONC, validated, clamped, hot-reloaded on edit. Never build the config path yourself: `Config.Directory`.
 dev.28+: `ConfigFile.TrySet` returns false with the reason when the file cannot be written (`ConfigFile.LastWriteError`);
 before, it returned true. `Config.Register<T>()` and `.Value` also work in `OnBoot`.

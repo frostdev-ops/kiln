@@ -45,6 +45,8 @@
           "min": { "type": "number" },
           "max": { "type": "number" },
           "step": { "type": "number", "exclusiveMinimum": 0, "description": "[Range(min, max, step)]: editors move a slider from min in steps of this size. Editor metadata only (values are not rounded to it); an editor ignores a step that does not suit the entry (not int/float, larger than max - min, not whole for int)." },
+          "softMin": { "type": "boolean", "default": false, "description": "[Range(..., SoftMin = true)] (mod API 0.2.26): min is where the slider starts, not a limit; lower values (typed, in the file) are kept. Absent or false: min is enforced. Readers that do not know it enforce min." },
+          "softMax": { "type": "boolean", "default": false, "description": "[Range(..., SoftMax = true)] (mod API 0.2.26): max is where the slider ends, not a limit; higher values (typed, in the file) are kept. Absent or false: max is enforced. Readers that do not know it enforce max." },
           "options": { "type": "array", "items": { "type": "string" }, "description": "enum values." }
         }
       }

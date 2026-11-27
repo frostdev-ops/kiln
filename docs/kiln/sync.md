@@ -174,6 +174,8 @@ Every mod with a registered config gets a **Config** button. The page is generat
 - bool: a checkbox;
 - whole number or float with a `[Range]`: a slider (whole numbers with a span over 100000 get a text field); with
   `[Range(min, max, step)]` the slider moves from min in steps of step (docs/kiln/config.md), the number field does not;
+  a soft side (`SoftMin` / `SoftMax = true`) ends the slider only: the number field takes a value past it, and the
+  slider sits at its end for such a value;
 - enum: `<` / `>` with the options in the tooltip;
 - string, duration (`30s`, `5m`), list (`[1, 2]`): a text field.
 
