@@ -959,7 +959,7 @@
         },
         {
           "name": "pets.records",
-          "members": 5
+          "members": 8
         },
         {
           "name": "pets.summon",
@@ -1454,6 +1454,10 @@
         },
         {
           "name": "taming.native_bait",
+          "members": 1
+        },
+        {
+          "name": "taming.native_observe",
           "members": 1
         },
         {

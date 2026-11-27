@@ -9,43 +9,44 @@ public static partial class Pets
     // KilnUnavailableException.Capability name them. A row a later Kiln adds is a constant more here (additive).
 
     /// <summary>The capability: Kiln.Pets is loaded (definitions, records and the facade).</summary>
-    public const string ServiceCapability = "kiln.pets";
+    public const string ServiceCapability = Caps.Service;
     /// <summary>The capability: definitions register (<see cref="Define"/>, a <c>PetBlock</c>).</summary>
-    public const string DefinitionsCapability = "pets.definitions";
+    public const string DefinitionsCapability = Caps.Definitions;
     /// <summary>The capability: owned records are kept per character in the world's save, with exact save receipts (a server
     /// world runs here).</summary>
-    public const string RecordsCapability = "pets.records";
+    public const string RecordsCapability = Caps.Records;
     /// <summary>The capability: bodies are made and retired (<see cref="Summon"/>, <see cref="Dismiss"/>): kiln.spawn on a
     /// running server world.</summary>
-    public const string SummonCapability = "pets.summon";
+    public const string SummonCapability = Caps.Summon;
     /// <summary>The capability: the broker takes pets' leases (creature_control).</summary>
-    public const string ControlCapability = "pets.control";
+    public const string ControlCapability = Caps.Control;
     /// <summary>The capability: pets follow and stay (walk-only routes through kiln.queries, or the game's guard).</summary>
-    public const string FollowCapability = "pets.follow";
+    public const string FollowCapability = Caps.Follow;
     /// <summary>The capability: pets fight (attack orders, <see cref="SetHostile"/>): the hostile rule and the outgoing
     /// provenance gate of the native safety module.</summary>
-    public const string FightCapability = "pets.fight";
+    public const string FightCapability = Caps.Fight;
     /// <summary>The capability: a pet goes down instead of dying (the native death guard and retirement), and is revived
     /// (<see cref="Revive"/>).</summary>
-    public const string DownedCapability = "pets.downed";
+    public const string DownedCapability = Caps.Downed;
     /// <summary>The capability: the server sends owners their pets' view (channel kiln:pets).</summary>
-    public const string HudServerCapability = "pets.hud.server";
+    public const string HudServerCapability = Caps.HudServer;
     /// <summary>The capability: this game shows its owner's pets (the channel and the renderer: <see cref="PetsClient"/>).</summary>
-    public const string HudClientCapability = "pets.hud.client";
+    public const string HudClientCapability = Caps.HudClient;
 
-    /// <summary>The rows Kiln.Pets reports, by their short names (internal: the public names are the constants above).</summary>
+    /// <summary>The rows Kiln.Pets reports, by their short names (internal: the public names are the constants above; the
+    /// literals stay here, where [RequiresCapability] and the docs' generators read them).</summary>
     internal static class Caps
     {
-        public const string Service = ServiceCapability;
-        public const string Definitions = DefinitionsCapability;
-        public const string Records = RecordsCapability;
-        public const string Summon = SummonCapability;
-        public const string Control = ControlCapability;
-        public const string Follow = FollowCapability;
-        public const string Fight = FightCapability;
-        public const string Downed = DownedCapability;
-        public const string HudServer = HudServerCapability;
-        public const string HudClient = HudClientCapability;
+        public const string Service = "kiln.pets";
+        public const string Definitions = "pets.definitions";
+        public const string Records = "pets.records";
+        public const string Summon = "pets.summon";
+        public const string Control = "pets.control";
+        public const string Follow = "pets.follow";
+        public const string Fight = "pets.fight";
+        public const string Downed = "pets.downed";
+        public const string HudServer = "pets.hud.server";
+        public const string HudClient = "pets.hud.client";
 
         internal static readonly ServiceCapRows Rows = new(Service, Report, everySteps: 60);
 
