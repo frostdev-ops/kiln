@@ -2053,6 +2053,11 @@
       },
       "webPanelShared": "This system can't give each server its own address, so panels of different servers share their sign-in cookies.",
       "webPanelFingerprint": "Certificate {fingerprint}",
+      "webPanelHosted": "Web panel open at {origin}, your panel's own address",
+      "webPanelHostedNote": "Opened in your browser and signed in with a one-time login.",
+      "webPanelFallbackUnreachable": "Your panel's own address didn't answer in time, so it opened on this computer.",
+      "webPanelFallbackRefused": "Your panel's own address isn't ready for the launcher's sign-in, so it opened on this computer.",
+      "openWebPanelHere": "Open on this computer instead",
       "closeWebPanel": "Close web panel",
       "noKiln": "Kiln isn't installed",
       "stopToInstall": "Stop the server to install it.",
@@ -4176,6 +4181,7 @@
       "sfStepSave": "saving the result"
     },
     "appShell": {
+      "thanksgiving": "Happy Thanksgiving",
       "headStart": "{progress} · {step}",
       "pct": "{pct}%",
       "labelTime": "{label} {time}",

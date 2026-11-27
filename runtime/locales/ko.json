@@ -396,6 +396,10 @@
       "waits": "기다리는 것",
       "settings": "스위치와 설정"
     },
+    "news": {
+      "label": "이 모드의 소식",
+      "keys_after_menu": "이 모드의 키는 이 메뉴를 닫으면({key} 또는 Esc) 게임에서 작동합니다. ShroudForge 자체 창과 같습니다."
+    },
     "waits": {
       "restart": "다음 게임 실행: ShroudForge는 게임이 다시 시작될 때만 이 모드의 바뀐 구성을 불러옵니다.",
       "dependency": "필요한 모드: 그 모드가 실행되면 ShroudForge가 이 모드를 시작합니다 (위의 이유에 이름이 나옴).",

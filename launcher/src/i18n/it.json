@@ -3666,6 +3666,7 @@
       "sfStepSave": "salvataggio del risultato"
     },
     "appShell": {
+      "thanksgiving": "Buon Thanksgiving",
       "headStart": "{progress} · {step}",
       "pct": "{pct}%",
       "labelTime": "{label} {time}",

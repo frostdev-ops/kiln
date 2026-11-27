@@ -1,6 +1,43 @@
 {
   "released": [
     {
+      "version": "0.2.0-dev.31.19",
+      "date": "2026-11-26",
+      "title": "Thanksgiving turkey, smoother registry, ShroudForge news",
+      "summary": "A turkey roasts over the launcher's fire over Thanksgiving weekend, big registry packs hitch less after the world loads, ShroudForge mods' messages show in game, and the server Map page and Open web panel get fixes.",
+      "patch": true,
+      "features": [
+        {
+          "title": "Happy Thanksgiving",
+          "text": "Over Thanksgiving weekend, a turkey roasts over the launcher's fire.",
+          "area": "launcher"
+        },
+        {
+          "title": "Less hitching from big registry packs",
+          "text": "After the world loads, Kiln writes registry.json on a thread of its own instead of the game's tick, and a start with registry content no longer fills kiln.log with tens of thousands of lines.",
+          "area": "servers",
+          "kind": "improved"
+        },
+        {
+          "title": "ShroudForge mod news in game",
+          "text": "What a ShroudForge mod tells you now pops up over the game as a Kiln message and stays in that mod's details on Kiln's ShroudForge page.",
+          "area": "compat"
+        },
+        {
+          "title": "The server Map page fits the window",
+          "text": "The server Map page fills the window at every size, including the Steam Deck's, and dialogs and menus opened over the map take clicks again.",
+          "area": "servers",
+          "kind": "fix"
+        },
+        {
+          "title": "Open web panel at your panel's own address",
+          "text": "With Kilnwarden 0.1.4 and hosted access on, Open web panel opens the panel at its own address after a quick check, or on this computer when the check fails.",
+          "area": "servers",
+          "kind": "improved"
+        }
+      ]
+    },
+    {
       "version": "0.2.0-dev.31.18",
       "date": "2026-11-26",
       "title": "Respec from linked chests, ShroudForge block writes",

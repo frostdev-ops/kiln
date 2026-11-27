@@ -1327,6 +1327,11 @@ KilnResult KILN_CALL prepare_boot(void*, const KilnBootPrepareInputV1* in, KilnB
          plan->cloned);
     return kiln::boot::prepared(out, plan, &destroy_boot);
 }
+#if KC_GAMEDATA
+// Kiln's own exit step (KilnPluginInfo.on_unload): a live registry report its writer thread has not written yet reaches
+// state/registry.json before the process ends (the thread is never joined; Windows ends it at exit).
+void KILN_CALL registry_exit_step(void*) { registry::stage::flush_reports(); }
+#endif
 }  // namespace
 
 extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api, KilnOwner owner, KilnPluginInfo* info) {
@@ -1354,6 +1359,7 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
 #if KC_GAMEDATA
     gd_boot_patches_bind();  // the seventh collector: fields of game resources, written when the resource service is up
     registry::stage::bind_service();  // kiln.registry and kiln.internal.registry; the stage runs in the patches' resources-ready apply
+    if (info->size >= offsetof(KilnPluginInfo, on_unload) + sizeof(info->on_unload)) info->on_unload = &registry_exit_step;
 #endif
     if (!E.items || !E.reflection) {
         set_detail("the item registry or the game's reflection is not available on this build");

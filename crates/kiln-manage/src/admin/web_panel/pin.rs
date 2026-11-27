@@ -17,6 +17,19 @@ pub fn verify(addr: SocketAddr, pin: &str) -> Result<()> {
     let mut socket = TcpStream::connect_timeout(&addr, TIMEOUT).map_err(|_| Error::new(ErrorCode::AdminUnavailable, "The web panel did not answer"))?;
     socket.set_read_timeout(Some(TIMEOUT))?;
     socket.set_write_timeout(Some(TIMEOUT))?;
+    let mut tls = ClientConnection::new(pinned_config(pin)?, ServerName::IpAddress(addr.ip().into()))
+        .map_err(|_| Error::new(ErrorCode::Internal, "could not start the web panel's TLS"))?;
+    while tls.is_handshaking() {
+        tls.complete_io(&mut socket)
+            .map_err(|e| Error::new(ErrorCode::Network, format!("the web panel's TLS could not verify the server certificate: {e}")))?;
+    }
+    Ok(())
+}
+
+/// (0.2.0-dev.31.19) A TLS client configuration that accepts exactly the leaf certificate whose SHA-256 is `pin`
+/// (lower-case hex), whatever name it is for: the gateway's check above, and the check of the panel's public address
+/// ([`super::public`]).
+pub(super) fn pinned_config(pin: &str) -> Result<Arc<ClientConfig>> {
     let provider = Arc::new(rustls::crypto::ring::default_provider());
     let verifier = Arc::new(PinnedLeaf { pin: pin.to_string(), algorithms: provider.signature_verification_algorithms });
     let config = ClientConfig::builder_with_provider(provider)
@@ -25,13 +38,7 @@ pub fn verify(addr: SocketAddr, pin: &str) -> Result<()> {
         .dangerous()
         .with_custom_certificate_verifier(verifier)
         .with_no_client_auth();
-    let mut tls = ClientConnection::new(Arc::new(config), ServerName::IpAddress(addr.ip().into()))
-        .map_err(|_| Error::new(ErrorCode::Internal, "could not start the web panel's TLS"))?;
-    while tls.is_handshaking() {
-        tls.complete_io(&mut socket)
-            .map_err(|e| Error::new(ErrorCode::Network, format!("the web panel's TLS could not verify the server certificate: {e}")))?;
-    }
-    Ok(())
+    Ok(Arc::new(config))
 }
 
 #[derive(Debug)]

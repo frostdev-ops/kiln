@@ -213,5 +213,16 @@ describe("KAP ops and launcher actions stay apart", () => {
     expect(adminHost().crashReportsFromDisk).toBeUndefined();
     expect(adminHost().assetsRoot).toBeUndefined();
     expect(adminHost().useArtStatus()).toBeUndefined();
+    // the Map page without art keeps the launcher's words
+    expect(adminHost().useMapNoArt({ canExtract: false })).toBeUndefined();
+  });
+
+  test("a host's words for a map without art reach the pages; a later host without them gets the launcher's back", () => {
+    const words = { title: "This server has no map art yet", markers: "Copy it from the Kiln Launcher." };
+    configureAdmin({ transport: fake, host: { useMapNoArt: (art) => (art?.canExtract === false ? words : undefined) } });
+    expect(adminHost().useMapNoArt({ canExtract: false })).toEqual(words);
+    expect(adminHost().useMapNoArt(undefined)).toBeUndefined();
+    configureAdmin({ transport: fake, host: {} });
+    expect(adminHost().useMapNoArt({ canExtract: false })).toBeUndefined();
   });
 });

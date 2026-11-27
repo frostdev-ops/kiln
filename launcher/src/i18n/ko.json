@@ -3591,6 +3591,7 @@
       "sfStepSave": "결과 저장 중"
     },
     "appShell": {
+      "thanksgiving": "해피 땡스기빙",
       "headStart": "{progress} · {step}",
       "pct": "{pct}%",
       "labelTime": "{label} {time}",

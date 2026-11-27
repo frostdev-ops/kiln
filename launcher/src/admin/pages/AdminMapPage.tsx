@@ -8,6 +8,8 @@ import { MapView } from "../map/MapView";
 function MapPage() {
   const t = useT();
   const ref = useRef<HTMLDivElement>(null);
+  // the window's height under the page: the map's height where the page sits in no flex column (map.css); in one, as
+  // in the launcher, the page fills the column and the map the page
   const [h, setH] = useState(480);
   useLayoutEffect(() => {
     const fit = () => {

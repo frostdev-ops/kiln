@@ -400,6 +400,10 @@
       "waits": "O QUE ELE ESPERA",
       "settings": "CHAVE E CONFIGURAÇÕES"
     },
+    "news": {
+      "label": "NOVIDADES DESTE MOD",
+      "keys_after_menu": "As teclas dele funcionam no jogo quando este menu está fechado ({key} ou Esc), como na janela do próprio ShroudForge."
+    },
     "waits": {
       "restart": "O próximo início do jogo: o ShroudForge só carrega a configuração alterada deste mod quando o jogo inicia de novo.",
       "dependency": "Um mod de que ele precisa: o ShroudForge o inicia quando esse mod rodar (o motivo acima diz qual é).",

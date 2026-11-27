@@ -203,6 +203,21 @@ export interface AdminArtStatus {
   canExtract?: boolean;
 }
 
+/** What the Map page says while it has no map art, in the host's words (AdminHost.useMapNoArt). The launcher's own
+ *  (admin.map.artPreparing / artNeedsClient over the map, admin.map.noMapData in the Markers tab) speak of its Game art;
+ *  a host that gets the art another way (Kilnwarden: copied from the launcher) says how instead. */
+export interface AdminMapNoArt {
+  /** The banner over the map: its title; null: no banner (the host says it elsewhere, such as its own notice). */
+  title: string | null;
+  /** Under the banner's title: a sentence, or the host's own elements (steps, a fix with its progress); taller than the
+   *  map, the banner scrolls inside it. */
+  body?: ReactNode;
+  /** One button in the banner. */
+  action?: { label: string; onClick: () => void; busy?: boolean };
+  /** The Markers tab's line (in a paragraph: inline content); default: the banner's title, else the launcher's line. */
+  markers?: ReactNode;
+}
+
 /** A crash report file the host found itself (logs_crash_reports). */
 export interface AdminCrashFile {
   name: string;
@@ -217,6 +232,9 @@ export interface AdminHost {
   assetsRoot?: () => string | undefined;
   /** A hook: the map art's state, to probe again when the host made it. */
   useArtStatus: () => AdminArtStatus | undefined;
+  /** A hook: what the Map page says while it has no map art, given the art's state (useArtStatus); undefined: the
+   *  launcher's words. Called on every render of the map, art or not. */
+  useMapNoArt: (art: AdminArtStatus | undefined) => AdminMapNoArt | undefined;
   /** The launcher reads a stopped server's crash reports from its folder. */
   crashReportsFromDisk?: (serverId: ServerId) => Promise<AdminCrashFile[]>;
   /** The launcher restarts a server it manages (its own server_restart command, not Kiln.Admin's op). */
@@ -224,8 +242,9 @@ export interface AdminHost {
 }
 
 const noArtStatus = (): AdminArtStatus | undefined => undefined;
+const launcherNoArtWords = (): AdminMapNoArt | undefined => undefined;
 let transportNow: AdminTransport | null = null;
-let hostNow: AdminHost = { useArtStatus: noArtStatus };
+let hostNow: AdminHost = { useArtStatus: noArtStatus, useMapNoArt: launcherNoArtWords };
 
 /** Sets what the hub talks through and the app around the pages. Sessions of a previous transport are dropped (their
  * timers stopped; nothing is sent to it). The launcher calls this once (./adminTauri.ts); a web page before it renders
@@ -243,7 +262,7 @@ export function configureAdmin(c: { transport: AdminTransport | null; host?: Par
     was?.then((un) => un()).catch(() => undefined);
     transportNow = c.transport;
   }
-  hostNow = { ...c.host, useArtStatus: c.host?.useArtStatus ?? noArtStatus };
+  hostNow = { ...c.host, useArtStatus: c.host?.useArtStatus ?? noArtStatus, useMapNoArt: c.host?.useMapNoArt ?? launcherNoArtWords };
 }
 
 /** The configured transport; rejects (admin_unavailable) when there is none. */

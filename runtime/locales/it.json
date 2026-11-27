@@ -400,6 +400,10 @@
       "waits": "COSA ASPETTA",
       "settings": "INTERRUTTORE E IMPOSTAZIONI"
     },
+    "news": {
+      "label": "NOVITÀ DI QUESTA MOD",
+      "keys_after_menu": "I suoi tasti funzionano nel gioco una volta chiuso questo menu ({key} o Esc), come con la finestra di ShroudForge."
+    },
     "waits": {
       "restart": "Il prossimo avvio del gioco: ShroudForge carica la configurazione modificata di questa mod solo quando il gioco riparte.",
       "dependency": "Una mod che le serve: ShroudForge la avvia quando quella mod è in esecuzione (il motivo qui sopra la nomina).",

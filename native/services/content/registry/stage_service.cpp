@@ -26,6 +26,7 @@
 #include "pristine.h"
 #include "archive_base.h"
 #include "archive_journal.h"
+#include "report_writer.h"
 #include "drift.h"
 #include "entry_compat.h"
 #include "visibility.h"
@@ -115,6 +116,12 @@ std::optional<std::string> read_whole(const fs::path& p) {
     return std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
 }
 fs::path data_root() { return u8(data_dir()) / u8"content" / u8"registry"; }
+// The thread that makes live registry reports' JSON and state/registry.json (Env.post_report). Never destroyed, as the
+// runner: a DLL detach at process exit never waits for a thread; kiln.content's exit step flushes it (flush_reports).
+ReportWriter& report_writer() {
+    static ReportWriter& writer = *new ReportWriter([](const char* what) { LOGW("registry: state/registry.json was not written: %s", what); });
+    return writer;
+}
 
 // Install-wide compatibility, deliberately outside the per-build cache tree and every save directory.
 bool pin_definition(const EntryRef& ref, const json& body, std::string* why) {
@@ -313,6 +320,8 @@ Env make_env() {
         return out;
     };
     e.write_report = [](const std::string& text) { return write_whole(u8(api_path(KILN_PATH_STATE)) / u8"registry.json", text); };
+    // a live report's JSON and file on a thread of its own, never on the world tick (owner 11-26)
+    e.post_report = [](std::function<void()> fn) { report_writer().post(std::move(fn)); };
     e.write_data = [](const std::string& rel, const std::string& text) { return write_whole(data_root() / u8(rel), text); };
     e.read_data = [](const std::string& rel) { return read_whole(data_root() / u8(rel)); };
     e.data_exists = [](const std::string& rel) {
@@ -342,6 +351,7 @@ Env make_env() {
     e.log = [](int level, const std::string& line) {
         if (level >= 2) LOGE("%s", line.c_str());
         else if (level == 1) LOGW("%s", line.c_str());
+        else if (level < 0) LOGD("%s", line.c_str());
         else LOGI("%s", line.c_str());
     };
     return e;
@@ -563,6 +573,11 @@ Runner& runner() {
     return r;
 }
 
+void flush_reports() {
+    if (!report_writer().flush(std::chrono::milliseconds(2000)))
+        LOGW("registry: the newest report was still being written to state/registry.json at exit (gave up after 2 s)");
+}
+
 void bind_service() {
     if (!g_api) return;
     const auto* owner_hooks = static_cast<const KilnHooksApi*>(g_api->service(
@@ -645,9 +660,9 @@ void bind_service() {
         in.suspects = &drift_suspects_now;
         in.owner_name = &owner_text;
         if (!in.result.definitions.empty()) registry_entries_prepare(&in);
-        const Result reconciled = in.result;
+        Result reconciled = in.result;
         registry_live_install(std::move(in));
-        if (h.report) h.report(reconciled, false); // same start generation; failed definitions must never stay reported as added
+        if (h.report) h.report(std::move(reconciled), false); // same start generation; failed definitions must never stay reported as added
     });
     const KilnResult a = g_api->register_service(g_owner, KilnStr{KILN_REGISTRY_SERVICE, sizeof(KILN_REGISTRY_SERVICE) - 1}, &kTable);
     const KilnResult b = g_api->register_service(g_owner, KilnStr{KILN_REGISTRY_HOST_SERVICE, sizeof(KILN_REGISTRY_HOST_SERVICE) - 1}, &kHostTable);

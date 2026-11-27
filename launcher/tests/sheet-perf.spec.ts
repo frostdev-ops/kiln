@@ -58,8 +58,8 @@ type Counts = { __moves: number; __motion: number; __frames: number };
 const counts = (page: Page) => page.evaluate(() => { const w = window as unknown as Counts; return { moves: w.__moves, motion: w.__motion, frames: w.__frames }; });
 const rimFire = (page: Page) => page.locator(".k-sheet-rim").evaluate((el) => (el as HTMLElement).style.getPropertyValue("--fire"));
 
-async function open(page: Page, route: string) {
-  await page.goto(`/#${route}`);
+async function open(page: Page, route: string, query = "") {
+  await page.goto(`/${query}#${route}`);
   await page.locator(".k-splash").waitFor({ state: "detached" });
 }
 
@@ -71,9 +71,10 @@ async function wander(page: Page) {
 
 const hasGl = (page: Page) => page.evaluate(() => !!document.createElement("canvas").getContext("webgl"));
 
-test("the flicker and the torch write only onto leaves, never onto an element with the page under it", async ({ page }) => {
+// both fires: every day's, and Thanksgiving weekend's (shell/thanksgiving.ts), whose greeting over the mouth flickers too
+for (const turkey of [false, true]) test(`the flicker and the torch write only onto leaves, never onto an element with the page under it${turkey ? " (Thanksgiving)" : ""}`, async ({ page }) => {
   await countWrites(page);
-  await open(page, "/settings/game");
+  await open(page, "/settings/game", turkey ? "?turkey=1" : "?turkey=0");
   test.skip(!(await hasGl(page)), "no WebGL in this browser: the fire, the flicker and the torch never start");
   await expect(page.locator(".k-app")).toHaveAttribute("data-gl", "1");
   await wander(page);
@@ -95,7 +96,7 @@ test("the flicker and the torch write only onto leaves, never onto an element wi
   // and only onto their leaves
   const onParents = all.filter((w) => w.name !== "--k" && w.kids !== 0);
   expect(onParents).toEqual([]);
-  expect([...new Set(by("--fire").map((w) => w.cls.split(" ")[0]))].sort()).toEqual(["k-sheet-rim", "k-title"]);
+  expect([...new Set(by("--fire").map((w) => w.cls.split(" ")[0]))].sort()).toEqual(turkey ? ["k-sheet-rim", "k-thanks", "k-title"] : ["k-sheet-rim", "k-title"]);
   expect([...new Set([...by("--mx"), ...by("--my")].map((w) => w.cls))]).toEqual(["k-torch"]);
   // the mouth's spring fades the label, not the whole window
   expect([...new Set(by("--k").map((w) => w.cls))]).toEqual(["k-door-lab"]);

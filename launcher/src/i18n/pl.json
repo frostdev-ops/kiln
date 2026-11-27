@@ -3816,6 +3816,7 @@
       "sfStepSave": "zapisywanie wyniku"
     },
     "appShell": {
+      "thanksgiving": "Szczęśliwego Święta Dziękczynienia",
       "headStart": "{progress} · {step}",
       "pct": "{pct}%",
       "labelTime": "{label} {time}",
