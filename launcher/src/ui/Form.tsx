@@ -92,6 +92,10 @@ export interface SliderProps {
   min: number;
   max: number;
   step?: number;
+  /** The range's min only starts the slider: the number box takes lower values ([Range(..., SoftMin = true)]). */
+  softMin?: boolean;
+  /** The range's max only ends the slider: the number box takes higher values ([Range(..., SoftMax = true)]). */
+  softMax?: boolean;
   integer?: boolean;
   onCommit: (value: number) => void;
   disabled?: boolean;
@@ -99,14 +103,15 @@ export interface SliderProps {
   "aria-label"?: string;
 }
 
-/** Range + number box. The range commits on release; the box on blur/Enter. */
-export function Slider({ value, min, max, step, integer, onCommit, disabled, id, ...rest }: SliderProps) {
+/** Range + number box. The range commits on release; the box on blur/Enter. A value past a soft end shows as it is in
+ *  the box while the range sits at that end. */
+export function Slider({ value, min, max, step, softMin, softMax, integer, onCommit, disabled, id, ...rest }: SliderProps) {
   const [live, setLive] = useState(value);
   // the last value sent: keyUp and blur both end a keyboard change, before the new `value` comes back
   const sent = useRef(value);
   useEffect(() => { setLive(value); sent.current = value; }, [value]);
   const s = step ?? (integer ? Math.max(1, Math.round((max - min) / 100)) : (max - min) / 100);
-  const pct = max > min ? ((live - min) / (max - min)) * 100 : 0;
+  const pct = max > min ? Math.min(100, Math.max(0, ((live - min) / (max - min)) * 100)) : 0;
   const done = () => {
     const v = integer ? Math.round(live) : live;
     if (v !== value && v !== sent.current) { sent.current = v; onCommit(v); }
@@ -115,7 +120,7 @@ export function Slider({ value, min, max, step, integer, onCommit, disabled, id,
     <div className="k-slider-row">
       <input id={id} type="range" className="k-range" min={min} max={max} step={s} value={live} disabled={disabled} aria-label={rest["aria-label"]}
         style={{ backgroundSize: `${pct}% 100%` }} onChange={(e) => setLive(Number(e.target.value))} onPointerUp={done} onKeyUp={done} onBlur={done} />
-      <NumberInput value={value} onCommit={onCommit} integer={integer} min={min} max={max} disabled={disabled} aria-label={rest["aria-label"]} />
+      <NumberInput value={value} onCommit={onCommit} integer={integer} min={softMin ? undefined : min} max={softMax ? undefined : max} disabled={disabled} aria-label={rest["aria-label"]} />
     </div>
   );
 }

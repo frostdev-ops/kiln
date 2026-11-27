@@ -169,6 +169,8 @@ enum: File, Api, Server, World
 - `Path { get; init; } -> string` — The dotted key path ("pvp.enabled").
 - `PendingRestart { get; } -> bool` — True when the file's value differs from the running one, so the change waits for a reload or restart.
 - `RequiresRestart { get; init; } -> bool` — The entry has `RequiresRestartAttribute`.
+- `SoftMax { get; init; } -> bool` `0.2.26` — The high end of the entry's `RangeAttribute` is soft (`RangeAttribute.SoftMax`): `ConfigEntry.Max` is where a slider...
+- `SoftMin { get; init; } -> bool` `0.2.26` — The low end of the entry's `RangeAttribute` is soft (`RangeAttribute.SoftMin`): `ConfigEntry.Min` is where a slider...
 - `Step { get; init; } -> double?` `0.2.17` — The slider step of the entry's `RangeAttribute` (`[Range(min, max, step)]`): editors move a slider from...
 - `Synced { get; init; } -> bool` — The entry is marked `SyncedAttribute` (or sits in a section that is).
 - `Type { get; init; } -> string` — "bool", "int", "float", "string", "enum", "duration" or "list\<...>".
@@ -790,7 +792,7 @@ enum: Handles, Messages
 
 ## Mods — The mod list, per-mod state and inter-mod messages.
 - `static All { get; } -> IReadOnlyList<ModEntry>` — Every mod Kiln found, in load order (loaded first), then the ones that did not load.
-- `const ApiVersion = "0.2.25" -> string` — The Kiln mod API version this Kiln implements; a manifest's `apiVersion` is checked against it.
+- `const ApiVersion = "0.2.26" -> string` — The Kiln mod API version this Kiln implements; a manifest's `apiVersion` is checked against it.
 - `static BootState(string modId) -> BootModReport` `0.2.3` — A mod's part in this process's boot generation (Mod.OnBoot, chapter 08): its state, its committed definitions...
 - `static Current { get; } -> ModEntry?` — The mod whose code is running on this thread (null outside mod code).
 - `static Get(string id) -> ModEntry?` — The mod with `id`, loaded or not; null when Kiln never saw it.
@@ -956,6 +958,8 @@ enum: Pass, Set, Refuse
 - `RangeAttribute(double min, double max, double step)` `0.2.17` — A range whose config slider moves in steps of `step` from `min` (`min`, `min + step`, `min + 2 * step`, ... up to...
 - `Max { get; } -> double` — The highest allowed value (for a `TimeSpan`, in seconds).
 - `Min { get; } -> double` — The lowest allowed value (for a `TimeSpan`, in seconds).
+- `SoftMax { get; set; } -> bool` `0.2.26` — The high end is soft (mod API 0.2.26): the config slider stops at `RangeAttribute.Max`, but a value above it is kept...
+- `SoftMin { get; set; } -> bool` `0.2.26` — The low end is soft (mod API 0.2.26): the config slider stops at `RangeAttribute.Min`, but a value below it, typed...
 - `Step { get; } -> double?` `0.2.17` — The slider step given to the three-argument constructor, as given; null for `[Range(min, max)]`.
 
 ## Reflected — Components by name with the game's own field layout, and checked writes (kiln.world + kiln.types).

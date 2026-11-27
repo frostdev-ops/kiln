@@ -71,8 +71,9 @@ public sealed class ConfigChangedEvent : KilnEvent
 /// <param name="FileValue">The value in the file; it differs from <paramref name="Value"/> while a restart is
 /// pending.</param>
 /// <param name="Min">The lowest allowed value of a number or duration (its <see cref="RangeAttribute"/>); null when
-/// there is none.</param>
-/// <param name="Max">The highest allowed value; null when there is none.</param>
+/// there is none. With <see cref="SoftMin"/> only where a slider starts: lower values are allowed.</param>
+/// <param name="Max">The highest allowed value; null when there is none. With <see cref="SoftMax"/> only where a
+/// slider ends: higher values are allowed.</param>
 /// <param name="Options">The names an enum entry (or a list of enums) accepts; empty for any other entry.</param>
 /// <param name="RequiresRestart">The entry has <see cref="RequiresRestartAttribute"/>.</param>
 /// <param name="Synced">The entry is marked <see cref="SyncedAttribute"/> (or sits in a section that is).</param>
@@ -89,6 +90,14 @@ public sealed record ConfigEntry(string Path, string Type, string? Comment, obje
     /// not whole for an "int" entry or one whose <see cref="Min"/> is not whole; only "int" and "float" entries have
     /// one). Editor metadata only: values typed, read from the file or set in code are not rounded to it.</summary>
     public double? Step { get; init; }
+
+    /// <summary>The low end of the entry's <see cref="RangeAttribute"/> is soft (<see cref="RangeAttribute.SoftMin"/>):
+    /// <see cref="Min"/> is where a slider stops, not a limit; values below it are allowed. Mod API 0.2.26.</summary>
+    public bool SoftMin { get; init; }
+
+    /// <summary>The high end of the entry's <see cref="RangeAttribute"/> is soft (<see cref="RangeAttribute.SoftMax"/>):
+    /// <see cref="Max"/> is where a slider stops, not a limit; values above it are allowed. Mod API 0.2.26.</summary>
+    public bool SoftMax { get; init; }
 
     /// <summary>True when the file's value differs from the running one, so the change waits for a reload or restart.
     /// Never true for a value that came from the server.</summary>
@@ -377,6 +386,8 @@ public abstract class ConfigFile
             if (e.Min is { } min) o["min"] = min;
             if (e.Max is { } max) o["max"] = max;
             if (e.Step is { } step) o["step"] = step;
+            if (e.SoftMin) o["softMin"] = true;
+            if (e.SoftMax) o["softMax"] = true;
             if (e.Options.Count > 0) o["options"] = new JsonArray([.. e.Options.Select(x => (JsonNode)x)]);
             entries.Add(o);
         }
@@ -421,6 +432,8 @@ public abstract class ConfigFile
             if (node.Min is { } min) o["min"] = min;
             if (node.Max is { } max) o["max"] = max;
             if (node.Step is { } step) o["step"] = step;
+            if (node.SoftMin) o["softMin"] = true;
+            if (node.SoftMax) o["softMax"] = true;
             if (node.Options.Length > 0) o["options"] = new JsonArray([.. node.Options.Select(x => (JsonNode)x)]);
             entries.Add(o);
         }
@@ -519,7 +532,7 @@ public abstract class ConfigFile
         var running = node.Get(Holder(chain));
         var file = _file.TryGetValue(node.Path, out var f) ? f : running;
         return new ConfigEntry(node.Path, node.TypeName, node.Comment, node.Default, running, file, node.Min, node.Max,
-            node.Options, node.RequiresRestart, node.Synced) { FromServer = IsFromServer(node.Path), Step = node.Step };
+            node.Options, node.RequiresRestart, node.Synced) { FromServer = IsFromServer(node.Path), Step = node.Step, SoftMin = node.SoftMin, SoftMax = node.SoftMax };
     }
 
     /// <summary>The object holding a value: the config object or one of its sections (created when null).</summary>

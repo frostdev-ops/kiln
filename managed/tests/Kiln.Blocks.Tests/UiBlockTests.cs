@@ -342,6 +342,27 @@ public sealed class UiBlockTests : IDisposable
     }
 
     [Fact]
+    public void A_soft_side_of_the_entry_range_bounds_neither_a_set_value_nor_a_slider_and_the_hard_side_stays()
+    {
+        // kiln#155: [Range(0, 1, SoftMax = true)] / [Range(8, 32, SoftMin = true)]: the config keeps any value past a soft
+        // side (ConfigFile.TrySet takes it), so a window may set one, and its slider may run past that end
+        Install(new FakeConfig("ui-test-client", false,
+            Entry("cost", "float", 1.0, 0, 1) with { SoftMax = true }, Entry("size", "int", 14, 8, 32) with { SoftMin = true }));
+        var (_, low) = Lower(NewMod(), "settings", Window(
+            new SliderRow { Label = "Cost", Bind = "config.cost" },
+            new SliderRow { Label = "Wide", Bind = "config.cost", Max = 3 },
+            new SliderRow { Label = "Low", Bind = "config.size", Min = -10 },
+            Button("Triple", new UiAction { Set = new UiSet { Bind = "config.cost", To = 3 } }),
+            Button("Below", new UiAction { Set = new UiSet { Bind = "config.size", To = -4 } })));
+        var rows = low.Json["window"]!["rows"]!.AsArray();
+        Assert.Equal(["0..1", "0..3", "-10..32"], rows.Take(3).Select(r => string.Join("..", r!["range"]!.AsArray().Select(x => (double)x!))));
+        Says(Refused(Window(Button("B", new UiAction { Set = new UiSet { Bind = "config.cost", To = -1 } }))), "rows[0].does.set.to", "outside");
+        Says(Refused(Window(Button("B", new UiAction { Set = new UiSet { Bind = "config.size", To = 40 } }))), "rows[0].does.set.to", "outside");
+        Says(Refused(Window(new SliderRow { Label = "S", Bind = "config.cost", Min = -1, Max = 1 })), "rows[0].min", "wider");
+        Says(Refused(Window(new SliderRow { Label = "S", Bind = "config.size", Min = 8, Max = 33 })), "rows[0].max", "wider");
+    }
+
+    [Fact]
     public void A_HUD_line_and_a_key_lower_with_derived_ids()
     {
         var mod = NewMod();

@@ -22,7 +22,7 @@ g++ -std=c++20 -O1 -g -Wall -Wextra -I"$here/platform" -I"$here/.." \
 "$out/test_catalog_index"
 
 g++ -std=c++20 -O1 -g -Wall -Wextra -DKILN_ASSETS_CATALOG_TEST -fsanitize=address,undefined -fno-sanitize-recover=undefined \
-  -I"$here/platform" -I"$here/.." -I"$here/../../../core/abi" \
+  -I"$here/platform" -I"$here/.." -I"$here/../../../core/abi" -I"$here/../../../third_party" \
   "$here/test_store.cpp" "$here/../store.cpp" "$here/../catalog.cpp" "$here/../util.cpp" -o "$out/test_store" -pthread
 # Resource bytes are never freed by design (the game keeps pointers into them): no leak check.
 ASAN_OPTIONS=detect_leaks=0 "$out/test_store"

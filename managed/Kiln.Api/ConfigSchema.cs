@@ -37,6 +37,14 @@ internal sealed class ConfigNode
     public double? Max { get; init; }
     /// <summary>The slider step of [Range(min, max, step)], only when it suits the entry (<see cref="ConfigSchema.SliderStep"/>).</summary>
     public double? Step { get; init; }
+    /// <summary>[Range(..., SoftMin = true)]: <see cref="Min"/> ends the slider only, it does not bound values.</summary>
+    public bool SoftMin { get; init; }
+    /// <summary>[Range(..., SoftMax = true)]: <see cref="Max"/> ends the slider only, it does not bound values.</summary>
+    public bool SoftMax { get; init; }
+    /// <summary>The low bound values are checked against: <see cref="Min"/> unless it is soft.</summary>
+    public double? HardMin => SoftMin ? null : Min;
+    /// <summary>The high bound values are checked against: <see cref="Max"/> unless it is soft.</summary>
+    public double? HardMax => SoftMax ? null : Max;
     public bool RequiresRestart { get; init; }
     public bool Synced { get; init; }
     public string[] Options { get; init; } = [];
@@ -129,6 +137,7 @@ internal static class ConfigSchema
             if ((min is not null || max is not null) && kind is not (ConfigValueKind.Int or ConfigValueKind.Float or ConfigValueKind.Duration) &&
                 !(kind == ConfigValueKind.List && elementKind is ConfigValueKind.Int or ConfigValueKind.Float))
                 throw new ArgumentException($"[Range] on '{path}' needs a number or duration");
+            var (softMin, softMax) = SoftOf(m.GetCustomAttributes());
             var options = kind == ConfigValueKind.Enum ? Enum.GetNames(memberType)
                 : kind == ConfigValueKind.List && elementKind == ConfigValueKind.Enum ? Enum.GetNames(elementType!) : [];
             var value = new ConfigNode
@@ -136,6 +145,7 @@ internal static class ConfigSchema
                 Key = key, Path = path, ClrType = memberType, Kind = kind, ElementKind = elementKind, ElementType = elementType,
                 Comment = comment, Min = min, Max = max, Options = options, Synced = isSynced,
                 Step = SliderStep(KindName(kind), min, max, StepOf(m.GetCustomAttributes())),
+                SoftMin = softMin && min is not null, SoftMax = softMax && max is not null,
                 RequiresRestart = m.GetCustomAttribute<RequiresRestartAttribute>() is not null,
                 Get = get, Set = set,
             };
@@ -167,6 +177,15 @@ internal static class ConfigSchema
         foreach (var a in attributes)
             if (a is RangeAttribute r) return r.Step;
         return null;
+    }
+
+    /// <summary>The soft sides of Kiln's [Range(..., SoftMin = true, SoftMax = true)]; none for any other range
+    /// attribute (DataAnnotations' bounds are always enforced).</summary>
+    internal static (bool SoftMin, bool SoftMax) SoftOf(IEnumerable<Attribute> attributes)
+    {
+        foreach (var a in attributes)
+            if (a is RangeAttribute r) return (r.SoftMin, r.SoftMax);
+        return (false, false);
     }
 
     /// <summary>A slider step that suits an entry, else null (the editor then moves as without one): an "int" or
@@ -508,8 +527,8 @@ internal static class ConfigSchema
             return false;
         }
         var (lo, hi) = TypeRange(type);
-        var min = Math.Max(node.Min ?? double.NegativeInfinity, lo);
-        var max = Math.Min(node.Max ?? double.PositiveInfinity, hi);
+        var min = Math.Max(node.HardMin ?? double.NegativeInfinity, lo);
+        var max = Math.Min(node.HardMax ?? double.PositiveInfinity, hi);
         if (kind == ConfigValueKind.Int)
         {
             if (Math.Abs(d - Math.Round(d)) > 1e-9)
@@ -527,7 +546,7 @@ internal static class ConfigSchema
         }
         if (d < min || d > max)
         {
-            var range = $"{Num(node.Min ?? lo)}..{Num(node.Max ?? hi)}";
+            var range = $"{Num(node.HardMin ?? lo)}..{Num(node.HardMax ?? hi)}";
             if (!clamp)
             {
                 error = $"\"{path}\" must be in {range} (got {Num(d)})";
@@ -550,11 +569,11 @@ internal static class ConfigSchema
         error = "";
         value = ts;
         var s = ts.TotalSeconds;
-        if (node.Min is { } min && s < min || node.Max is { } max && s > max)
+        if (node.HardMin is { } min && s < min || node.HardMax is { } max && s > max)
         {
-            var lo = node.Min is { } a ? TimeSpan.FromSeconds(a) : TimeSpan.Zero;
-            var hi = node.Max is { } b ? TimeSpan.FromSeconds(b) : TimeSpan.MaxValue;
-            var range = $"{Durations.Format(lo)}..{(node.Max is null ? "" : Durations.Format(hi))}";
+            var lo = node.HardMin is { } a ? TimeSpan.FromSeconds(a) : TimeSpan.Zero;
+            var hi = node.HardMax is { } b ? TimeSpan.FromSeconds(b) : TimeSpan.MaxValue;
+            var range = $"{Durations.Format(lo)}..{(node.HardMax is null ? "" : Durations.Format(hi))}";
             if (!clamp)
             {
                 error = $"\"{path}\" must be in {range} (got {Durations.Format(ts)})";
@@ -578,6 +597,8 @@ internal static class ConfigSchema
         : t == typeof(uint) ? (0, uint.MaxValue)
         : t == typeof(ulong) ? (0, 1.8e19)
         : t == typeof(float) ? (float.MinValue, float.MaxValue)
+        // decimal.MaxValue is 7.92e28: past a soft side (or with no range) a larger double must not reach the cast
+        : t == typeof(decimal) ? (-7.9e28, 7.9e28)
         : (double.MinValue, double.MaxValue);
 
     private static object MakeList(ConfigNode node, List<object?> items)
@@ -660,10 +681,15 @@ internal static class ConfigSchema
             yield break;
         }
         var meta = new List<string> { $"Default: {Format(node, node.Default)}" };
+        // a soft side: the range is where a slider runs (int and float entries; a duration or a list has a text field)
+        var slider = node.Kind is ConfigValueKind.Int or ConfigValueKind.Float ? "slider; " : "";
         if (node.Min is not null || node.Max is not null)
-            meta.Add(node.Kind == ConfigValueKind.Duration
+            meta.Add((node.Kind == ConfigValueKind.Duration
                 ? $"Range: {(node.Min is { } a ? Durations.Format(TimeSpan.FromSeconds(a)) : "0s")} .. {(node.Max is { } b ? Durations.Format(TimeSpan.FromSeconds(b)) : "any")}"
-                : $"Range: {(node.Min is { } lo ? Num(lo) : "any")} .. {(node.Max is { } hi ? Num(hi) : "any")}");
+                : $"Range: {(node.Min is { } lo ? Num(lo) : "any")} .. {(node.Max is { } hi ? Num(hi) : "any")}")
+                + (node.SoftMin && node.SoftMax ? $" ({slider}lower and higher values allowed)"
+                    : node.SoftMin ? $" ({slider}lower values allowed)"
+                    : node.SoftMax ? $" ({slider}higher values allowed)" : ""));
         if (node.Options.Length > 0) meta.Add($"One of: {string.Join(", ", node.Options)}");
         if (node.Kind == ConfigValueKind.Duration) meta.Add("e.g. \"90s\", \"5m\", \"1h30m\"");
         if (node.RequiresRestart) meta.Add("Requires a restart");

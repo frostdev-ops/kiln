@@ -44,6 +44,10 @@ export interface SnapshotEntry {
   max?: number;
   /** [Range(min, max, step)]: the slider moves from min in steps of this size (editor metadata only). */
   step?: number;
+  /** [Range(..., SoftMin = true)] (mod API 0.2.26): min is where the slider starts, not a limit. */
+  softMin?: boolean;
+  /** [Range(..., SoftMax = true)]: max is where the slider ends, not a limit; higher values are kept (kiln#155). */
+  softMax?: boolean;
   options?: string[];
 }
 export interface SchemaSnapshot {

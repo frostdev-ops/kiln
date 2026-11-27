@@ -545,7 +545,7 @@
           "size": 336
         }
       },
-      "sha256": "d75574fdf7d8ea93cd9c39aeb07713f865012b97f88477cf316b04cbf4ec8ddd"
+      "sha256": "419f7ded04299c98212689cdde88b99cbd64c2793687ecfef3c82e700beb230d"
     },
     "native/core/abi/services/kiln_assets_vfx.h": {
       "function_macros": [],

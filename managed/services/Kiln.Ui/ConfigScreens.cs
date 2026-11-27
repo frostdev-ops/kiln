@@ -198,13 +198,17 @@ internal static class ConfigScreens
             }
             case "int" when e.Min is { } lo && e.Max is { } hi && hi - lo <= 100_000:
             {
-                var i = shown is int v ? v : Convert.ToInt32(shown, CultureInfo.InvariantCulture);
+                // past a soft side a long (or uint, ulong) entry may hold a value no int holds: the int slider gets the
+                // nearest one, the number field the value itself
+                var real = Convert.ToDecimal(shown, CultureInfo.InvariantCulture);
+                var i = (int)Math.Clamp(real, int.MinValue, int.MaxValue);
                 if (ui.Slider("##v", ref i, (int)Math.Ceiling(lo), (int)Math.Floor(hi)))
                 {
                     i = (int)SliderValue(e, i);
                     Stage(f, e.Path, i);
+                    real = i;
                 }
-                NumberField(ui, f, e, typed, i.ToString(CultureInfo.InvariantCulture));
+                NumberField(ui, f, e, typed, real.ToString(CultureInfo.InvariantCulture));
                 break;
             }
             case "float" when e.Min is { } lo && e.Max is { } hi:
@@ -280,8 +284,22 @@ internal static class ConfigScreens
             lock (Lock) Typed.Remove(key);
         }
         ui.Tooltip(KilnText.T("config.type_here"));
-        if (typed is not null)
-            ui.TextDisabled(KilnText.T("config.range", ("min", e.Min?.ToString(CultureInfo.InvariantCulture)), ("max", e.Max?.ToString(CultureInfo.InvariantCulture))));
+        if (typed is not null) ui.TextDisabled(RangeHint(e));
+    }
+
+    /// <summary>What a slider row's number field takes, shown under a text it refused: the hard sides of the range only
+    /// (<see cref="ConfigEntry.SoftMin"/> / <see cref="ConfigEntry.SoftMax"/> end the slider, not the field).</summary>
+    internal static string RangeHint(ConfigEntry e)
+    {
+        var min = e.SoftMin ? null : e.Min?.ToString(CultureInfo.InvariantCulture);
+        var max = e.SoftMax ? null : e.Max?.ToString(CultureInfo.InvariantCulture);
+        return (min, max) switch
+        {
+            (not null, not null) => KilnText.T("config.range", ("min", min), ("max", max)),
+            (not null, null) => KilnText.T("config.range_min", ("min", min)),
+            (null, not null) => KilnText.T("config.range_max", ("max", max)),
+            _ => KilnText.T("config.range_any"),
+        };
     }
 
     /// <summary>The value a slider row's slider sets when dragged to <paramref name="value"/>. With a
@@ -315,12 +333,15 @@ internal static class ConfigScreens
 
     /// <summary>What a text typed into a slider row's number field means: the value to stage (an int for an "int" entry,
     /// a double for a "float" one). False while it is no number of the entry's range: half typed, or outside it (the
-    /// config refuses a value outside its range, it does not clamp). A comma counts as the decimal point when the text
-    /// has no point ("2,5").</summary>
+    /// config refuses a value outside its range, it does not clamp). A soft side of the range (<see cref="ConfigEntry.SoftMin"/>,
+    /// <see cref="ConfigEntry.SoftMax"/>) does not bound the field: only the slider stops there. A comma counts as the
+    /// decimal point when the text has no point ("2,5").</summary>
     internal static bool TryNumber(ConfigEntry e, string text, out object value)
     {
         value = 0;
-        if (e.Min is not { } lo || e.Max is not { } hi) return false;
+        if (e.Min is not { } min || e.Max is not { } max) return false;
+        var lo = e.SoftMin ? double.NegativeInfinity : min;
+        var hi = e.SoftMax ? double.PositiveInfinity : max;
         var t = text.Trim();
         if (e.Type == "int")
         {
@@ -334,7 +355,7 @@ internal static class ConfigScreens
         return true;
     }
 
-    private static string Describe(ConfigEntry e)
+    internal static string Describe(ConfigEntry e)
     {
         var lines = new List<string>();
         if (e.Comment is { Length: > 0 } c) lines.Add(c);
@@ -342,6 +363,13 @@ internal static class ConfigScreens
             ? KilnText.T("config.describe.entry_range", ("path", e.Path), ("type", e.Type), ("default", Show(e, e.Default)),
                 ("min", e.Min?.ToString(CultureInfo.InvariantCulture) ?? "-inf"), ("max", e.Max?.ToString(CultureInfo.InvariantCulture) ?? "inf"))
             : KilnText.T("config.describe.entry", ("path", e.Path), ("type", e.Type), ("default", Show(e, e.Default))));
+        // a soft side: on a slider row it is where the slider stops; a text field row (a duration, a list, a whole number
+        // over a wide span) has no slider, so the line only says that values past it are allowed
+        var slider = SliderRow(e);
+        if (e.SoftMin && e.Min is { } softMin)
+            lines.Add(KilnText.T(slider ? "config.describe.soft_min" : "config.describe.soft_min_any", ("min", Bound(e, softMin))));
+        if (e.SoftMax && e.Max is { } softMax)
+            lines.Add(KilnText.T(slider ? "config.describe.soft_max" : "config.describe.soft_max_any", ("max", Bound(e, softMax))));
         if (e.Options.Count > 0) lines.Add(KilnText.T("config.describe.options", ("options", string.Join(", ", e.Options))));
         if (e.Synced) lines.Add(KilnText.T("config.describe.synced"));
         if (e.RequiresRestart) lines.Add(KilnText.T("config.describe.restart"));
@@ -349,15 +377,28 @@ internal static class ConfigScreens
         return string.Join("\n", lines);
     }
 
+    /// <summary>The entry's row is a slider with a number field (the cases of <see cref="Entry"/>).</summary>
+    private static bool SliderRow(ConfigEntry e) =>
+        e.Min is { } lo && e.Max is { } hi && (e.Type == "float" || e.Type == "int" && hi - lo <= 100_000);
+
+    /// <summary>A range bound as the row shows its values: a duration's as a duration (seconds in the schema).</summary>
+    private static string Bound(ConfigEntry e, double v) =>
+        e.Type == "duration" && v >= 0 && v < TimeSpan.MaxValue.TotalSeconds
+            ? FormatDuration(TimeSpan.FromSeconds(v)) : v.ToString(CultureInfo.InvariantCulture);
+
     /// <summary>What a widget edits for a value: bool, int, double, enum name, or text (durations, lists, strings).</summary>
     private static object Display(ConfigEntry e, object? v) => e.Type switch
     {
         "bool" => v is true,
-        "int" when e.Min is not null && e.Max is not null && e.Max - e.Min <= 100_000 => Convert.ToInt32(v ?? 0, CultureInfo.InvariantCulture),
+        "int" when e.Min is not null && e.Max is not null && e.Max - e.Min <= 100_000 => IntValue(v),
         "float" when e.Min is not null && e.Max is not null => Convert.ToDouble(v ?? 0.0, CultureInfo.InvariantCulture),
         "enum" => v?.ToString() ?? "",
         _ => Show(e, v),
     };
+
+    /// <summary>An "int" slider row's value as an int, or as it is when no int holds it (a long entry past a soft side).</summary>
+    private static object IntValue(object? v) =>
+        Convert.ToDecimal(v ?? 0, CultureInfo.InvariantCulture) is var d && d >= int.MinValue && d <= int.MaxValue ? (int)d : v!;
 
     private static string Show(ConfigEntry e, object? v) => v switch
     {

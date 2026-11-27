@@ -151,6 +151,26 @@
       }
     },
     {
+      "code": "KL106",
+      "col": 29,
+      "docs": "docs/kiln/services/assets.md#mod-layout-assetsassetsjson",
+      "endCol": 48,
+      "endLine": 7,
+      "file": "<repo>/schema/fixtures/lint/cases/files/assets/assets.json",
+      "fixes": [],
+      "line": 7,
+      "message": "\"00000000010-1-2-3\": want <decimal size>-<h0>-<h1>-<h2> as ContentHash.ToString writes it (a size up to 4294967295, 1 to 8 hex digits per word, nothing else): kiln.assets refuses the entry otherwise",
+      "pointer": "/entries/5/hash",
+      "related": [],
+      "rule": "pattern",
+      "schema": "assets.schema.json",
+      "severity": "error",
+      "span": {
+        "end": 645,
+        "start": 626
+      }
+    },
+    {
       "code": "KL501",
       "col": 30,
       "docs": "docs/kiln/modding/lint.md#kl501-file-missing",
@@ -633,7 +653,7 @@
   "format": 1,
   "ok": false,
   "summary": {
-    "errors": 23,
+    "errors": 24,
     "hints": 0,
     "infos": 1,
     "warnings": 5

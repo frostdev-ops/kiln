@@ -70,6 +70,12 @@ export function sliderStep(e: SnapshotEntry): number | undefined {
   return s;
 }
 
+/** The bounds a value is checked against: min and max unless that side is soft ([Range(..., SoftMin/SoftMax = true)]:
+ * the side only ends the slider). Mirrors Kiln.Api ConfigNode.HardMin / HardMax. */
+export function hardRange(e: SnapshotEntry): { min?: number; max?: number } {
+  return { min: e.softMin === true ? undefined : e.min, max: e.softMax === true ? undefined : e.max };
+}
+
 /** Client-side check mirroring Kiln.Api's rules (the backend validates again). */
 export function checkValue(e: SnapshotEntry, v: Json): string | null {
   const ty = e.type;
@@ -77,8 +83,9 @@ export function checkValue(e: SnapshotEntry, v: Json): string | null {
   if (ty === "int" || ty === "float") {
     if (typeof v !== "number" || Number.isNaN(v)) return tr("ui.schemaForm.notNumber");
     if (ty === "int" && !Number.isInteger(v)) return tr("ui.schemaForm.wholeOnly");
-    if (e.min !== undefined && v < e.min) return tr("ui.schemaForm.min", { min: e.min });
-    if (e.max !== undefined && v > e.max) return tr("ui.schemaForm.max", { max: e.max });
+    const { min, max } = hardRange(e);
+    if (min !== undefined && v < min) return tr("ui.schemaForm.min", { min });
+    if (max !== undefined && v > max) return tr("ui.schemaForm.max", { max });
     return null;
   }
   if (ty === "enum") return typeof v === "string" && (!e.options || e.options.includes(v)) ? null : tr("ui.schemaForm.notOption");
@@ -280,8 +287,9 @@ function Control({ id, entry: e, value, set, disabled, invalid }: { id: string; 
   if (ty === "int" || ty === "float") {
     const n = typeof value === "number" ? value : Number(value);
     if (e.min !== undefined && e.max !== undefined && e.max > e.min && e.max - e.min <= 100000)
-      return <Slider id={id} value={n} min={e.min} max={e.max} step={sliderStep(e)} integer={ty === "int"} onCommit={set} disabled={disabled} aria-label={e.path} />;
-    return <NumberInput id={id} value={Number.isNaN(n) ? null : n} integer={ty === "int"} min={e.min} max={e.max} onCommit={set} disabled={disabled} invalid={invalid} />;
+      return <Slider id={id} value={n} min={e.min} max={e.max} step={sliderStep(e)} softMin={e.softMin === true} softMax={e.softMax === true} integer={ty === "int"} onCommit={set} disabled={disabled} aria-label={e.path} />;
+    const hard = hardRange(e);
+    return <NumberInput id={id} value={Number.isNaN(n) ? null : n} integer={ty === "int"} min={hard.min} max={hard.max} onCommit={set} disabled={disabled} invalid={invalid} />;
   }
   if (ty === "enum") {
     const opts = e.options ?? [];

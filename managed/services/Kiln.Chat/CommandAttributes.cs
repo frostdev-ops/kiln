@@ -17,7 +17,7 @@ namespace Kiln;
 /// player), <c>IReadOnlyList&lt;Player&gt;</c> / <c>Player[]</c> (also <c>@a</c>), <see cref="EntityId"/>,
 /// <c>IReadOnlyList&lt;EntityId&gt;</c> / <c>EntityId[]</c> (selectors such as <c>@e[type=creature,distance=..30]</c>),
 /// <see cref="WorldPosition"/>, <see cref="ItemInfo"/>, <see cref="TimeSpan"/>, and double with
-/// <see cref="TimeOfDayAttribute"/>. <see cref="RangeAttribute"/> limits numbers (durations: seconds). Parameters with
+/// <see cref="TimeOfDayAttribute"/>. <see cref="RangeAttribute"/> limits numbers (durations: seconds; a soft side does not limit). Parameters with
 /// a default value are optional.</para>
 /// <para>Return void, a string (sent back as a reply) or a Task (its failure is reported to the source).</para>
 /// </remarks>
@@ -173,6 +173,9 @@ internal static class CommandMethods
     {
         var t = p.ParameterType;
         var (min, max) = ConfigSchema.RangeOf(p.GetCustomAttributes());
+        var (softMin, softMax) = ConfigSchema.SoftOf(p.GetCustomAttributes());
+        if (softMin) min = null;  // a soft side only ends a config slider; an argument has none, so no bound there
+        if (softMax) max = null;
         string Where() => $"{m.Info.DeclaringType?.Name}.{m.Info.Name}({p.Name})";
         if (t == typeof(string))
         {

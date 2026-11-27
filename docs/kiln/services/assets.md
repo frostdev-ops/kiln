@@ -47,7 +47,7 @@ subfolders are allowed; absolute paths and `..` are rejected.
     { "kind": "resource", "guid": "<GUID>", "type": "keen::RenderModel", "part": 0, "mode": "override",
       "file": "cooked/sword.bin", "patch": [ { "offset": 272, "blob": "cooked/sword.blob" } ] },
     { "kind": "blob", "file": "cooked/sword.blob" },
-    { "kind": "blob", "hash": "<size>-<h0>-<h1>-<h2>", "file": "retex/pixels.bin" }
+    { "kind": "blob", "hash": "<decimal size>-<h0>-<h1>-<h2>", "file": "retex/pixels.bin" }
   ]
 }
 ```
@@ -84,7 +84,13 @@ subfolders are allowed; absolute paths and `..` are rejected.
   serving — so a cooker need not precompute the hash; it emits the offset of the `ResourceContentReference.hash` field.
 - **`blob`** with a `file` only: a new blob (hash derived from the bytes). With a `hash`: the file is served under that hash, whether or
   not the game has it: an override of a game blob, or a new blob under a hash you chose (shader code must use the game's own `ContentHash`,
-  [docs/re/vfx.md](../../re/vfx.md) §6). The file length must equal the hash's size.
+  [docs/re/vfx.md](../../re/vfx.md) §6). The file length must equal the hash's size, else the entry is an error
+  (`blob <file>: its hash says <n> bytes, the file has <m> (the size is decimal)`). The text is the one `ContentHash.ToString()`
+  writes: **the size in decimal**, then the three hash words in hex (1 to 8 digits each), with nothing before, between or after
+  (`7170-f308b489-d7bff57f-264db8de`). A `hash` that is not a string or not that text makes the entry an error
+  (`blob <file>: bad hash … (want <decimal size>-<h0>-<h1>-<h2>)`); the other entries still load. Up to 0.2.0-dev.31.21 a
+  hash kiln.assets could not read (a size in hex, say) was served under the hash derived from the bytes, with no error, and
+  the game then found nothing under the hash the mod named.
 - Files no entry names are ignored (e.g. sources, a cook recipe).
 
 ## C# (mods)

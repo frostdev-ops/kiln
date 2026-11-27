@@ -341,13 +341,20 @@
     "default_tip": "기본값: {value}",
     "type_here": "여기에 값을 입력하세요.",
     "range": "{min}~{max} 사이의 숫자",
+    "range_min": "{min} 이상의 숫자",
+    "range_max": "{max} 이하의 숫자",
+    "range_any": "숫자",
     "describe": {
       "entry": "{path}: {type}, 기본값 {default}",
       "entry_range": "{path}: {type}, 기본값 {default}, 범위 {min}..{max}",
       "options": "선택지: {options}",
       "synced": "동기화됨: 서버가 자기 값을 클라이언트에 보냅니다.",
       "restart": "재시작 필요: 모드가 다시 로드될 때 변경이 적용됩니다.",
-      "from_server": "연결된 동안 서버의 값을 씁니다."
+      "from_server": "연결된 동안 서버의 값을 씁니다.",
+      "soft_min": "슬라이더는 {min}부터지만 더 작은 값도 입력할 수 있습니다.",
+      "soft_max": "슬라이더는 {max}까지지만 더 큰 값도 입력할 수 있습니다.",
+      "soft_min_any": "{min}보다 작은 값도 쓸 수 있습니다.",
+      "soft_max_any": "{max}보다 큰 값도 쓸 수 있습니다."
     },
     "apply": "적용 ({count})",
     "undo": "실행 취소",

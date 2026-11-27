@@ -346,13 +346,20 @@
     "default_tip": "Standard: {value}",
     "type_here": "Gib den Wert hier ein.",
     "range": "eine Zahl von {min} bis {max}",
+    "range_min": "eine Zahl ab {min}",
+    "range_max": "eine Zahl bis {max}",
+    "range_any": "eine Zahl",
     "describe": {
       "entry": "{path}: {type}, Standard {default}",
       "entry_range": "{path}: {type}, Standard {default}, Bereich {min}..{max}",
       "options": "Optionen: {options}",
       "synced": "Synchronisiert: Ein Server schickt seinen Wert an die Clients.",
       "restart": "Braucht einen Neustart: Eine Änderung gilt, wenn die Mod neu lädt.",
-      "from_server": "Hat während der Verbindung den Wert des Servers."
+      "from_server": "Hat während der Verbindung den Wert des Servers.",
+      "soft_min": "Der Regler beginnt bei {min}; einen niedrigeren Wert kannst du eintippen.",
+      "soft_max": "Der Regler endet bei {max}; einen höheren Wert kannst du eintippen.",
+      "soft_min_any": "Auch Werte unter {min} sind erlaubt.",
+      "soft_max_any": "Auch Werte über {max} sind erlaubt."
     },
     "apply": "Anwenden ({count})",
     "undo": "Rückgängig",

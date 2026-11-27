@@ -350,13 +350,20 @@
     "default_tip": "Domyślnie: {value}",
     "type_here": "Wpisz tu wartość.",
     "range": "liczba od {min} do {max}",
+    "range_min": "liczba od {min}",
+    "range_max": "liczba do {max}",
+    "range_any": "liczba",
     "describe": {
       "entry": "{path}: {type}, domyślnie {default}",
       "entry_range": "{path}: {type}, domyślnie {default}, zakres {min}..{max}",
       "options": "opcje: {options}",
       "synced": "Synchronizowane: serwer wysyła swoją wartość do klientów.",
       "restart": "Wymaga restartu: zmiana działa, gdy mod wczyta się ponownie.",
-      "from_server": "Podczas połączenia ma wartość serwera."
+      "from_server": "Podczas połączenia ma wartość serwera.",
+      "soft_min": "Suwak zaczyna się od {min}; niższą wartość możesz wpisać.",
+      "soft_max": "Suwak kończy się na {max}; wyższą wartość możesz wpisać.",
+      "soft_min_any": "Dozwolone są też wartości poniżej {min}.",
+      "soft_max_any": "Dozwolone są też wartości powyżej {max}."
     },
     "apply": "Zastosuj ({count})",
     "undo": "Cofnij",

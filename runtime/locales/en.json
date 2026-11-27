@@ -346,13 +346,20 @@
     "default_tip": "Default: {value}",
     "type_here": "Type the value here.",
     "range": "a number from {min} to {max}",
+    "range_min": "a number of {min} or more",
+    "range_max": "a number of {max} or less",
+    "range_any": "a number",
     "describe": {
       "entry": "{path}: {type}, default {default}",
       "entry_range": "{path}: {type}, default {default}, range {min}..{max}",
       "options": "options: {options}",
       "synced": "Synced: a server sends its value to clients.",
       "restart": "Requires a restart: a change applies when the mod loads again.",
-      "from_server": "Holds the server's value while connected."
+      "from_server": "Holds the server's value while connected.",
+      "soft_min": "The slider starts at {min}; a lower value can be typed.",
+      "soft_max": "The slider stops at {max}; a higher value can be typed.",
+      "soft_min_any": "Lower values than {min} are allowed too.",
+      "soft_max_any": "Higher values than {max} are allowed too."
     },
     "apply": "Apply ({count})",
     "undo": "Undo",

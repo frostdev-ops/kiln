@@ -924,8 +924,8 @@ function validate(schema: SchemaSnapshot | null, values: Json) {
     const v = get(e.path);
     if (v === undefined) continue;
     if ((e.type === "int" || e.type === "float") && typeof v === "number") {
-      if (e.min !== undefined && v < e.min) errors.push({ path: e.path, message: `below the minimum ${e.min}` });
-      if (e.max !== undefined && v > e.max) errors.push({ path: e.path, message: `above the maximum ${e.max}` });
+      if (e.min !== undefined && !e.softMin && v < e.min) errors.push({ path: e.path, message: `below the minimum ${e.min}` });
+      if (e.max !== undefined && !e.softMax && v > e.max) errors.push({ path: e.path, message: `above the maximum ${e.max}` });
     }
     if (e.type === "enum" && e.options && !e.options.includes(String(v))) errors.push({ path: e.path, message: `not one of ${e.options.join(", ")}` });
   }

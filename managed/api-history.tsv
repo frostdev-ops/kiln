@@ -1506,6 +1506,10 @@ managed	Kiln.Api	Kiln.ConfigEntry.Path.init -> void	<=0.2.0-dev.26	<=0.2.1
 managed	Kiln.Api	Kiln.ConfigEntry.PendingRestart.get -> bool	<=0.2.0-dev.26	<=0.2.1
 managed	Kiln.Api	Kiln.ConfigEntry.RequiresRestart.get -> bool	<=0.2.0-dev.26	<=0.2.1
 managed	Kiln.Api	Kiln.ConfigEntry.RequiresRestart.init -> void	<=0.2.0-dev.26	<=0.2.1
+managed	Kiln.Api	Kiln.ConfigEntry.SoftMax.get -> bool	0.2.0-dev.31.22	0.2.26
+managed	Kiln.Api	Kiln.ConfigEntry.SoftMax.init -> void	0.2.0-dev.31.22	0.2.26
+managed	Kiln.Api	Kiln.ConfigEntry.SoftMin.get -> bool	0.2.0-dev.31.22	0.2.26
+managed	Kiln.Api	Kiln.ConfigEntry.SoftMin.init -> void	0.2.0-dev.31.22	0.2.26
 managed	Kiln.Api	Kiln.ConfigEntry.Step.get -> double?	0.2.0-dev.31	0.2.17
 managed	Kiln.Api	Kiln.ConfigEntry.Step.init -> void	0.2.0-dev.31	0.2.17
 managed	Kiln.Api	Kiln.ConfigEntry.Synced.get -> bool	<=0.2.0-dev.26	<=0.2.1
@@ -2485,6 +2489,10 @@ managed	Kiln.Api	Kiln.RangeAttribute.Max.get -> double	<=0.2.0-dev.26	<=0.2.1
 managed	Kiln.Api	Kiln.RangeAttribute.Min.get -> double	<=0.2.0-dev.26	<=0.2.1
 managed	Kiln.Api	Kiln.RangeAttribute.RangeAttribute(double min, double max) -> void	<=0.2.0-dev.26	<=0.2.1
 managed	Kiln.Api	Kiln.RangeAttribute.RangeAttribute(double min, double max, double step) -> void	0.2.0-dev.31	0.2.17
+managed	Kiln.Api	Kiln.RangeAttribute.SoftMax.get -> bool	0.2.0-dev.31.22	0.2.26
+managed	Kiln.Api	Kiln.RangeAttribute.SoftMax.set -> void	0.2.0-dev.31.22	0.2.26
+managed	Kiln.Api	Kiln.RangeAttribute.SoftMin.get -> bool	0.2.0-dev.31.22	0.2.26
+managed	Kiln.Api	Kiln.RangeAttribute.SoftMin.set -> void	0.2.0-dev.31.22	0.2.26
 managed	Kiln.Api	Kiln.RangeAttribute.Step.get -> double?	0.2.0-dev.31	0.2.17
 managed	Kiln.Api	Kiln.Reflected	<=0.2.0-dev.26	<=0.2.1
 managed	Kiln.Api	Kiln.ReflectedResource	<=0.2.0-dev.26	<=0.2.1

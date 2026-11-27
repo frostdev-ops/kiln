@@ -200,7 +200,9 @@ kiln-vfxcook shader kit --out DIR          # the hook kit's headers
 ```
 
 `cook` writes what the game would be served: `assets.json`, `cooked/` and `report.json`, the report above plus which file is what. It exits 1 on any error
-or refusal.
+or refusal. A blob's `hash` in `assets.json` is kiln.assets' spelling (the size in decimal, the words in hex:
+[assets.md](assets.md#mod-layout-assetsassetsjson)); the file names and the report use the cook's own all-hex spelling. Up to 0.2.0-dev.31.21 the
+manifest had the all-hex one too, which kiln.assets read as another size.
 
 ## Tests
 ```sh

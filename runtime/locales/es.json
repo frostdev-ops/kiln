@@ -344,13 +344,20 @@
     "default_tip": "Predeterminado: {value}",
     "type_here": "Escribe el valor aquí.",
     "range": "un número de {min} a {max}",
+    "range_min": "un número desde {min}",
+    "range_max": "un número hasta {max}",
+    "range_any": "un número",
     "describe": {
       "entry": "{path}: {type}, predeterminado {default}",
       "entry_range": "{path}: {type}, predeterminado {default}, rango {min}..{max}",
       "options": "opciones: {options}",
       "synced": "Sincronizado: el servidor envía su valor a los clientes.",
       "restart": "Requiere reiniciar: un cambio se aplica cuando el mod se vuelve a cargar.",
-      "from_server": "Tiene el valor del servidor mientras estás conectado."
+      "from_server": "Tiene el valor del servidor mientras estás conectado.",
+      "soft_min": "El control empieza en {min}; puedes escribir un valor menor.",
+      "soft_max": "El control termina en {max}; puedes escribir un valor mayor.",
+      "soft_min_any": "También se permiten valores menores que {min}.",
+      "soft_max_any": "También se permiten valores mayores que {max}."
     },
     "apply": "Aplicar ({count})",
     "undo": "Deshacer",

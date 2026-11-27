@@ -113,7 +113,7 @@
               "comment": {},
               "file": { "$ref": "#/$defs/file" },
               "side": { "enum": ["client", "both"], "default": "both", "description": "client: load on clients only (a dedicated server skips the entry and counts it as for clients only)." },
-              "hash": { "type": "string", "pattern": "^[0-9]+-[0-9a-fA-F]{1,8}-[0-9a-fA-F]{1,8}-[0-9a-fA-F]{1,8}$", "description": "<size>-<h0>-<h1>-<h2> (decimal size, hex words)." }
+              "hash": { "type": "string", "pattern": "^[0-9]{1,10}-[0-9a-fA-F]{1,8}-[0-9a-fA-F]{1,8}-[0-9a-fA-F]{1,8}$", "description": "<size>-<h0>-<h1>-<h2> as ContentHash.ToString writes it: the size in decimal, each word 1 to 8 hex digits (native/services/assets/util.cpp parse_hash). Any other text refuses the entry.", "x-kiln-message": "want <decimal size>-<h0>-<h1>-<h2> as ContentHash.ToString writes it (a size up to 4294967295, 1 to 8 hex digits per word, nothing else): kiln.assets refuses the entry otherwise" }
             },
             "x-kiln-unknownKeys": "warning",
             "x-kiln-unknownKeysMessage": "unknown key in a blob entry (ignored)"

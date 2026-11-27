@@ -344,13 +344,20 @@
     "default_tip": "Par défaut : {value}",
     "type_here": "Saisissez la valeur ici.",
     "range": "un nombre de {min} à {max}",
+    "range_min": "un nombre à partir de {min}",
+    "range_max": "un nombre jusqu'à {max}",
+    "range_any": "un nombre",
     "describe": {
       "entry": "{path} : {type}, par défaut {default}",
       "entry_range": "{path} : {type}, par défaut {default}, plage {min}..{max}",
       "options": "options : {options}",
       "synced": "Synchronisé : un serveur envoie sa valeur aux clients.",
       "restart": "Redémarrage requis : un changement s'applique au prochain chargement du mod.",
-      "from_server": "A la valeur du serveur pendant la connexion."
+      "from_server": "A la valeur du serveur pendant la connexion.",
+      "soft_min": "Le curseur commence à {min} ; vous pouvez saisir une valeur plus basse.",
+      "soft_max": "Le curseur s'arrête à {max} ; vous pouvez saisir une valeur plus élevée.",
+      "soft_min_any": "Les valeurs inférieures à {min} sont aussi acceptées.",
+      "soft_max_any": "Les valeurs supérieures à {max} sont aussi acceptées."
     },
     "apply": "Appliquer ({count})",
     "undo": "Annuler",
