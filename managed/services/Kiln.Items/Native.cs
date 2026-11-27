@@ -237,6 +237,13 @@ internal static unsafe class ItemsNative
         public uint Count;
         public ulong Slot;
         public ulong ToSlot;
+        public SlotWitness Source, Destination;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct SlotWitness
+    {
+        public uint Item, Count, Pide, Stamp;
     }
 
     [StructLayout(LayoutKind.Sequential)]

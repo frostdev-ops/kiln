@@ -2285,9 +2285,78 @@ void storage_guard_test() {
     storage_guards.store(nullptr);
 }
 
+void checked_move_test() {
+    E.tx_ctor = &fake_tx_ctor;
+    E.tx_init = &fake_tx_init;
+    E.commit = &fake_tx_noop;
+    E.rollback = &fake_tx_rollback;
+    E.free_arrays = &fake_tx_noop;
+    E.instances_ok = true;
+    stamps().reset();
+    reset_world();
+    FakeTx tx;
+    Access a;
+    check(access_from_tx(&tx, &a), "checked moves: usable transaction");
+    MoveJob job{};
+    job.r.kind = KILN_MOVE_STACK;
+    job.r.flags = KILN_ITEMS_MOVE_CHECKED;
+    job.r.from = A;
+    job.r.to = B;
+    job.r.slot = KILN_SLOT_ID(A, 0);
+    job.r.to_slot = KILN_SLOT_ID(B, 5);
+    job.r.count = 2;
+    job.source = {WOOD, 7, 0, 0};
+    auto run = [&] {
+        unsigned long code = 0;
+        KilnItemsMoveResult result{};
+        check(run_move(a, job, reinterpret_cast<uint8_t*>(&tx), &result, &code),
+              "checked moves: simulation returned");
+        return result;
+    };
+    auto refused = [&](int status, const char* reason) {
+        const auto before = g_comps;
+        const auto r = run();
+        check(r.status == status && r.done == 0 && before == g_comps, reason);
+    };
+
+    put(A, 0, IRON, 7);
+    refused(KILN_ITEMS_SLOT_CHANGED, "checked moves: replacing selected type leaves both owners untouched");
+    put(A, 0, WOOD, 6);
+    refused(KILN_ITEMS_SLOT_CHANGED, "checked moves: changed source count");
+    put(A, 0, WOOD, 7);
+    put(B, 5, IRON, 7);
+    refused(KILN_ITEMS_SLOT_CHANGED, "checked moves: changed destination leaves both owners untouched");
+    job.destination = {IRON, 7, 0, 0};
+    refused(KILN_ITEMS_NO_ROOM, "checked moves: occupied destination cannot fall back to another free slot");
+    put(B, 5, WOOD, 249);
+    job.destination = {WOOD, 249, 0, 0};
+    refused(KILN_ITEMS_REFUSED, "checked moves: partial destination cannot spill into another slot");
+    put(B, 5, WOOD, 248);
+    job.destination = {WOOD, 248, 0, 0};
+    auto result = run();
+    check(result.status == KILN_ITEMS_DONE && result.done == 2 && count_at(B, 5) == 250 && count_at(A, 0) == 5,
+          "checked moves: requested amount merges at exactly the chosen slot");
+
+    reset_world();
+    put(A, 0, SWORD, 1, 3077);
+    job.source = {SWORD, 1, 3078, stamp_for(3078, SWORD)};
+    job.destination = {};
+    job.r.count = 1;
+    refused(KILN_ITEMS_SLOT_CHANGED, "checked moves: same type, different gear entity");
+    const uint32_t stamp = stamp_for(3077, SWORD);
+    job.source = {SWORD, 1, 3077, stamp + 1};
+    refused(KILN_ITEMS_SLOT_CHANGED, "checked moves: same gear entity id with a different generation");
+    job.source.stamp = stamp;
+    result = run();
+    check(result.status == KILN_ITEMS_DONE && result.done == 1 && pide_at(B, 5) == 3077 &&
+          result.changes[0].reserved == stamp,
+          "checked moves: exact gear entity and stamp arrive at the specified slot");
+}
+
 int main(int argc, char** argv) {
     setup_engine();
     const std::string mode = argc > 1 ? argv[1] : "all";
+    if (mode == "checked") { checked_move_test(); return failures ? EXIT_FAILURE : EXIT_SUCCESS; }
     if (mode == "storage") { storage_guard_test(); return failures ? EXIT_FAILURE : EXIT_SUCCESS; }
     if (mode == "give-equip") { give_equip_test(); return failures ? EXIT_FAILURE : EXIT_SUCCESS; }
     if (mode == "review") {
@@ -2325,6 +2394,8 @@ int main(int argc, char** argv) {
         std::printf("items move test (%s): %d failure(s)\n", mode.c_str(), failures);
         return failures ? EXIT_FAILURE : EXIT_SUCCESS;
     }
+    checked_move_test();
+    setup_engine();
     logic_tests();
     issue109_logic();
     setup_engine();

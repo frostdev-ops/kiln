@@ -347,6 +347,7 @@ enum {
     KILN_ITEMS_MOVE_ACTIONBAR = 0x04u, /* STACK: may take from and fill a player's action-bar pages (default: refused
                                           as a source, skipped as a destination); MOVE_ALL: takes the action bar along
                                           (default: it stays) */
+    KILN_ITEMS_MOVE_CHECKED = 0x10u,   /* STACK: requires KilnItemsCheckedMoveRequest and exact slot witnesses */
     KILN_ITEMS_MOVE_SILENT = 0x08u,    /* QUICK_STACK / MOVE_ALL: no transfer rules or events (the caller is a handler) */
 };
 
@@ -368,6 +369,26 @@ typedef struct KilnItemsMoveRequest {
                             item's type tops up the worn stack; one it may enter that is full gives way to the choice. A stack that
                             arrived anywhere else, or items lost on the way, roll the move back as REFUSED. */
 } KilnItemsMoveRequest;
+
+/* Read from a slot of its holder. Plain items have pide/stamp zero. For a named destination only, all zeros
+ * means it must still be empty. Item entity stamps are those returned in the inventory slot by kiln.items v4. */
+typedef struct KilnItemsSlotWitness {
+    KilnItemId item;
+    uint32_t count;
+    KilnEntity pide;
+    uint32_t stamp;
+} KilnItemsSlotWitness;
+
+/* The original 40-byte request remains valid. Setting CHECKED adds this tail and requires KILN_MOVE_STACK.
+ * A specified destination must still match and receive the entire requested count in that exact slot. */
+typedef struct KilnItemsCheckedMoveRequest {
+    KilnItemsMoveRequest base;
+    KilnItemsSlotWitness source;
+    KilnItemsSlotWitness destination;
+} KilnItemsCheckedMoveRequest;
+
+/* KilnItemsStatus2.reserved bits. Older runtimes report zero and refuse the checked request flag. */
+#define KILN_ITEMS_HAS_CHECKED_MOVE 0x01u
 
 /* One piece of the ledger: `amount` of `item` left `from_slot` and arrived in `to_slot`. Gear (a stack with an item
  * entity) moves whole: `pide` is the item entity that moved with it (the same entity before and after). */

@@ -43,6 +43,19 @@ public static unsafe partial class Items
     /// The session part is read live; <c>items.moves</c> carries it in the registry, up to a second late.</summary>
     public static bool MovesAvailable => Can(Caps.Move) && Status3()?.Moves == true;
 
+    /// <summary>True when the server simulation can validate source and destination witnesses inside a move.</summary>
+    public static bool CheckedMovesAvailable
+    {
+        get
+        {
+            var t = V3;
+            if (t == null || !Can(Caps.Move)) return false;
+            ItemsNative.Status2 status = default;
+            status.Size = (uint)sizeof(ItemsNative.Status2);
+            return t->GetStatus2(&status) == ItemsNative.Ok && status.Moves != 0 && (status.Reserved & 1) != 0;
+        }
+    }
+
     /// <summary>True when <see cref="ContainerName"/> can read names on this game build (capability
     /// <c>items.names</c>).</summary>
     public static bool ContainerNamesAvailable => Can(Caps.Names);
@@ -169,6 +182,43 @@ public static unsafe partial class Items
     [TickThreadOnly]
     public static Task<MoveResult> MoveAll(EntityId from, EntityId to, MoveOptions options = MoveOptions.None) =>
         SubmitMove(NewMove(MoveKind.All, from, to, options), "Items.MoveAll");
+
+    /// <summary>Move the selected inventory slot only while its item, count and optional stamped item entity still match.
+    /// When a destination slot is supplied its snapshot must also match and the full count must land in that slot.
+    /// Checks and transfer run together in the server inventory transaction. A stale selection returns SlotChanged.</summary>
+    [RequiresCapability(Caps.Move)]
+    [TickThreadOnly]
+    public static Task<MoveResult> MoveChecked(EntityId from, InventorySlot expected, EntityId to, int count, InventorySlot? destination = null)
+    {
+        Services.RequireTickThread("Items.MoveChecked");
+        if (!CheckedMovesAvailable)
+            return Task.FromResult(MoveResult.Fail(ItemsStatus.Unavailable, MoveKind.Stack, from, to, "checked moves are unavailable"));
+        if (expected.IsEmpty || expected.Slot.IsNone || count < 1 || count > 100000 || count > expected.Count ||
+            destination is { Slot.IsNone: true })
+            return MoveInvalid(MoveKind.Stack, from, to, "invalid source, destination or amount");
+        var r = NewMove(MoveKind.Stack, from, to, MoveOptions.None);
+        r.Flags |= 0x10; // KILN_ITEMS_MOVE_CHECKED: older native services refuse this flag.
+        r.Slot = expected.Slot.Value;
+        r.ToSlot = destination?.Slot.Value ?? 0;
+        r.Count = (uint)count;
+        if (!Witness(expected, out r.Source) || (destination != null && !Witness(destination, out r.Destination)))
+            return MoveInvalid(MoveKind.Stack, from, to, "the selected item has no usable instance stamp");
+        return SubmitMove(r, "Items.MoveChecked");
+    }
+
+    private static bool Witness(InventorySlot slot, out ItemsNative.SlotWitness witness)
+    {
+        witness = default;
+        if (slot.IsEmpty) return true;
+        witness.Item = slot.Item.Value;
+        witness.Count = (uint)slot.Count;
+        if (slot.ItemEntity.IsNone) return !slot.IsGear;
+        if (slot.Ref.Entity.Id != slot.ItemEntity || slot.Ref.Item != slot.Item ||
+            IdentitySources.PlaceOf(slot.Ref.Entity.Serial) != EntitySourceOrder.Items) return false;
+        witness.Pide = slot.ItemEntity.Value;
+        witness.Stamp = StampOf(slot.Ref, nameof(slot));
+        return witness.Stamp != 0;
+    }
 
     private static ItemsNative.MoveRequest NewMove(MoveKind kind, EntityId from, EntityId to, MoveOptions options)
     {
