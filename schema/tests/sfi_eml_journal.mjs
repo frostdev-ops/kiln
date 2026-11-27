@@ -271,7 +271,7 @@ for (const [what, ok] of [
 // what the writer makes; Kiln's native reader is tested on it, native/services/content/tests/registry_writers_test.cpp):
 // valid, in field order (raw text), the rules kept.
 // The EML dialect's (kiln-eml-writer-eml.json, format 2, the same test's second half) likewise.
-for (const [name, own] of [['kiln-eml-writer.json', validate], ['kiln-eml-writer-eml.json', validate2]]) {
+for (const [name, own] of [['kiln-eml-writer.json', validate], ['kiln-eml-writer-eml.json', validate2], ['kiln-eml-writer-sf2.json', validate2]]) {
   const raw = text(`../sfi/eml-journal/fixtures/${name}`).trimEnd();
   const record = JSON.parse(raw);
   assert(own(record), `${name}: ${JSON.stringify(own.errors)}`); ++assertions;
