@@ -42,6 +42,10 @@ PHASES = ["Free", "Connecting", "LoggingIn", "Loading", "Spawning", "InGame", "L
 # peer (a script's own pause) says HELLO again first.
 KEEPALIVE = 5.0
 IDLE_RECONNECT = 45.0
+# labbot-test's use waits for the game to take the use (the first-time spawn intro: Busy) at most `wait` seconds, USE_WAIT
+# by default; the client waits USE_MARGIN longer than that for the answer.
+USE_WAIT = 30.0
+USE_MARGIN = 15.0
 
 
 class LabBotError(Exception):
@@ -299,7 +303,7 @@ class Bot:
         item, so a script that will use items calls this right after the join."""
         return self.lab.call("ready", id=self.id, ready=ready)
 
-    def use(self, item=None, slot=None, at=None, yaw=None, pitch=None, eye=None, distance=None, wait=None, timeout=45.0):
+    def use(self, item=None, slot=None, at=None, yaw=None, pitch=None, eye=None, distance=None, wait=None, timeout=None):
         """Uses `item` (a name or id: the first slot holding it) or the item in `slot` the way the game does for a hotbar
         use (Abilities.UseItem: the item's own sequence with that slot as the used item; the game takes the item when its
         sequence's consume event runs). The bot says it is ready for gameplay first; with `at` or `yaw`/`pitch` its camera
@@ -307,8 +311,10 @@ class Bot:
         towards `at`. The server waits while the game answers NotReady or Busy, at most `wait` seconds (30 by default):
         a bot that just became ready plays the game's first-time spawn intro (17.7 s), so call ready() early. Returns
         {"result": "Started", "slot", "item", "name", "countBefore", "tries", "waited", "look"?}; raises LabBotError with
-        the game's answer (NotConsumable, Busy, NotReady, ...) and the bot's states otherwise."""
+        the game's answer (NotConsumable, Busy, NotReady, ...) and the bot's states otherwise. `timeout`: how long this
+        client waits for the answer, at least `wait` + USE_MARGIN (15) seconds."""
         args = self._look(at, yaw, pitch, eye, distance)
+        timeout = max(timeout or 0.0, (USE_WAIT if wait is None else float(wait)) + USE_MARGIN)
         if wait is not None:
             args["wait"] = wait
         if slot is not None:

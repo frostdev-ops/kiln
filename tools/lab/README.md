@@ -93,7 +93,7 @@ item whose use spawns at the "crosshair" (an animal bait) starts at the camera a
 up and 10 m/s forward, so `pitch` picks how far it lands (on flat ground about 12.9 m at 0 degrees, 8 m at 22.5, 4 m at
 44, 2 m at 66). `bot.look(...)` and `bot.ready()` set them alone. The answer is `{"result": "Started", ...}`; anything else
 (`NotConsumable`, `Busy`, `NotReady` still after `wait` seconds, 30 by default, ...) raises `LabBotError` with the bot's
-states. Saying ready makes the game play a new character's first-time spawn intro (17.7 s; a bot is a new character at every
+states; the client waits for the answer `wait` + 15 s at least. Saying ready makes the game play a new character's first-time spawn intro (17.7 s; a bot is a new character at every
 join), so the first use waits for it: call `bot.ready()` right after the join. A wild animal senses a thrown bait in the
 game's own way (lab p2: a dog took the bot's bait and pursued it), but only in some of its states; `docs/re/labbot.md`
 "Using an item" has what is open. Lab probes for the result: `lab.spawn_entity(template,
