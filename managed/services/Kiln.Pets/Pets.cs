@@ -137,19 +137,22 @@ public static partial class Pets
     }
 
     /// <summary>The pets of the player's character, as <see cref="Of(CharacterKey)"/> and as the requests name their owner (a
-    /// <see cref="PlayerRef"/>): the player must be in game. An offline character's pets are read by its key. Server tick
-    /// thread.</summary>
-    /// <exception cref="ArgumentException">No player, or the player is not in game (or has no character id here): the
-    /// message starts with the reason's word (<c>OwnerOffline</c>, <c>NoCharacter</c>).</exception>
+    /// <see cref="PlayerRef"/>), for a player in game. A player who is not in game (or has no character here: an account-only
+    /// player owns no pets) has none to list this way: the answer is empty. An offline character's records come from
+    /// <see cref="Of(CharacterKey)"/>, by its key. Server tick thread.</summary>
+    /// <param name="player">The player, as the requests name their owner (<c>PlayerRef.Of(player.Entity)</c>).</param>
+    /// <returns>A snapshot of each pet, as it is now (as <see cref="Of(CharacterKey)"/> gives them); empty for a player who is
+    /// not in game.</returns>
+    /// <exception cref="ArgumentException">No player (<see cref="PlayerRef.None"/>).</exception>
     /// <exception cref="KilnUnavailableException"><c>pets.records</c> is off (a joined client, no server world).</exception>
+    /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>
     [ServerOnly, TickThreadOnly, RequiresCapability(Caps.Records)]
     public static IReadOnlyList<PetSnapshot> Of(PlayerRef player)
     {
         if (player.IsNone) throw new ArgumentException("no player", nameof(player));
         var r = Roster("Pets.Of");
-        var who = r.World.Owner(player, out var why)
-                  ?? throw new ArgumentException($"{why ?? "OwnerOffline: the player is not in game"} (an offline character's pets: Pets.Of(CharacterKey))", nameof(player));
-        return r.Of(who.Key);
+        // not in game (OwnerOffline) or no character here (NoCharacter): a runtime state, not a bad argument (owner 11-27)
+        return r.World.Owner(player, out _) is { } who ? r.Of(who.Key) : [];
     }
 
     /// <summary>The pet, or null (unknown here, or its owner's records are not read yet: <see cref="Of(CharacterKey)"/> reads them).

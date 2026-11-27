@@ -287,8 +287,19 @@ public sealed class PetsFacadeShapeTests : IDisposable
         var mine = Pets.Of(a);
         Assert.Single(mine);
         Assert.Equal(Pets.Of(_a).Single().Id, mine[0].Id);
+    }
+
+    // ---- owner 11-27: a player who is not in game has no pets to list by PlayerRef (a runtime state, not a bad argument);
+    // the offline character's records come from Pets.Of(CharacterKey) ----
+
+    [Fact]
+    public void Of_a_player_not_in_game_is_empty_and_the_character_key_reads_the_offline_records()
+    {
+        Assert.True(Run(Pets.Grant(_b, "mod-a:wolf", PetRequest.New())).Ok);    // _b never joined: an offline character
         var offline = new PlayerRef(_b.Account, _b.Id, new EntityRef(new EntityId(99), 1));
-        Assert.Contains("OwnerOffline", Assert.Throws<ArgumentException>(() => Pets.Of(offline)).Message);
+        Assert.Empty(Pets.Of(offline));
+        Assert.Single(Pets.Of(_b));
+        Assert.Throws<ArgumentException>(() => Pets.Of(PlayerRef.None));      // no player at all stays a bad argument
     }
 
     // ---- C10: Pets.Define is not any-thread while a server world runs (the roster's state is the tick thread's) ----

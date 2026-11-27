@@ -93,7 +93,7 @@ for this pet; the down itself cannot be refused. `PetDownedEvent` comes only aft
 [ServerOnly, TickThreadOnly] public static class Pets {
     PetDefinitionResult Define(PetDefinition definition);                     // pets.definitions (tick thread; any thread before a server world runs)
     PetDefinition? Definition(string id); IReadOnlyList<PetDefinition> Definitions;
-    IReadOnlyList<PetSnapshot> Of(CharacterKey owner); IReadOnlyList<PetSnapshot> Of(PlayerRef player);   // pets.records (a player: in game)
+    IReadOnlyList<PetSnapshot> Of(CharacterKey owner); IReadOnlyList<PetSnapshot> Of(PlayerRef player);   // pets.records (a player not in game: empty; offline records by CharacterKey)
     PetSnapshot? Get(PetId pet);
     Task<PetResult> Grant(PlayerRef owner, string definition, PetRequest request);   // in game, as every request
     Task<PetResult> Grant(CharacterKey owner, string definition, PetRequest request); // a character, also offline
