@@ -3201,7 +3201,12 @@ KilnResult registry_live_install_turn(uint64_t ticket, uint32_t flags, std::vect
     // a preparation not landed is freed off the tick too (a full one is as big as the composition)
     if (!keeps || g.in != p->in || g.world != p->world || g.epoch != p->epoch || store_below_generation() != p->below)
         return free_later(std::move(p)), *stale = 1, KILN_ERR_UNAVAILABLE;
-    if (g.bind_epoch != p->bind_epoch || !p->classic.empty()) {
+    // review of LOOT-2: a drop table the preparation found unloaded that the game has loaded since. With no live field waiting
+    // for it (the pass is the first to edit it) its load moved no epoch, and the plan would leave its fields waiting for a load
+    // that has happened: never written in this world. Stale in the bindings, as a load of a table the live state waits for is.
+    const bool table_loaded = std::any_of(p->out.pending_tables.begin(), p->out.pending_tables.end(),
+                                          [](const LiveState::Pending& t) { return reg(KILN_CONTENT_DROPS).lookup(t.guid) != nullptr; });
+    if (g.bind_epoch != p->bind_epoch || table_loaded || !p->classic.empty()) {
         // stale only in its bindings: prepared again unless asked; a turn the preparation does not cover lands the classic way
         if (p->classic.empty() && !(flags & kRegistryInstallAnyway)) return free_later(std::move(p)), *stale = 2, KILN_ERR_UNAVAILABLE;
         if (!p->classic.empty()) LOGI("registry (live): a prepared turn lands the classic way: %s", p->classic.c_str());

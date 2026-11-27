@@ -326,6 +326,40 @@ void a_preparation_stale_only_in_its_bindings_lands_on_request() {
           "asked to, it lands the classic way, composed and written on the world thread");
     registry_live_revert(72, l.handles[0], &reply), registry_live_revert(71, pending, &reply);
 }
+// review of LOOT-2: a drop table the preparation found unloaded, loaded by the game before the turn lands, while nothing live
+// waited for it (the pass is the first to edit it: off to on). Its load moved no epoch, so the plan's fields would wait for a load
+// that has happened and never be written in this world. The turn is stale in its bindings: prepared again, it binds the table.
+void a_drop_table_loaded_while_a_turn_is_prepared_is_not_left_waiting() {
+    fresh_live(); RegistryLiveReply reply;
+    const std::string doubled = R"([{"registry":"drops","select":"game:dt_wolf","field":"entries[*].count.max","op":{"mul":2}}])";
+    uint64_t ticket = prepare({call(72, "b", doubled)}, {});
+    add_drop_table();
+    registry_live_table(g_regs[KILN_CONTENT_DROPS].entries[0]);  // the game loads it: no live field waits for it
+    Landed l = install(ticket);
+    check(l.rc == KILN_ERR_UNAVAILABLE && l.stale == 2 && at<uint32_t>(0x31018) == 3 && registry_live_status().active == 0,
+          "a preparation that left a now loaded table waiting is not written as prepared (rc " + std::to_string(l.rc) + ", stale " +
+              std::to_string(l.stale) + ", outcome " + (l.replies.empty() ? std::string("-") : std::to_string(static_cast<int>(l.replies[0].outcome))) + ")");
+    l = install(prepare({call(72, "b", doubled)}, {}));
+    check(l.rc == KILN_OK && l.replies[0].outcome == RegistryLiveOutcome::Applied && at<uint32_t>(0x31018) == 6 && at<uint32_t>(0x31058) == 6,
+          "prepared again, it binds the loaded table and lands: " + std::to_string(static_cast<int>(l.rc)));
+    ticket = prepare({call(72, "b", R"([{"registry":"drops","select":"game:dt_wolf","field":"entries[*].count.max","op":{"mul":3}}])")}, {{72, l.handles[0]}});
+    const Landed anyway = install(ticket, kRegistryInstallAnyway);
+    check(anyway.rc == KILN_OK && anyway.replies[0].outcome == RegistryLiveOutcome::Applied && at<uint32_t>(0x31018) == 9,
+          "and a bound table re-authored lands as usual");
+    registry_live_revert(72, anyway.handles[0], &reply);
+    check(at<uint32_t>(0x31018) == 3, "reverted to the game's value");
+}
+// The same with the landing asked to go ahead (the third preparation, or the tick's): the classic way binds the table.
+void a_drop_table_loaded_while_a_turn_is_prepared_lands_bound_on_request() {
+    fresh_live(); RegistryLiveReply reply;
+    const uint64_t ticket = prepare({call(72, "b", R"([{"registry":"drops","select":"game:dt_wolf","field":"entries[*].count.max","op":{"mul":2}}])")}, {});
+    add_drop_table();
+    registry_live_table(g_regs[KILN_CONTENT_DROPS].entries[0]);
+    const Landed l = install(ticket, kRegistryInstallAnyway);
+    check(l.rc == KILN_OK && l.replies[0].outcome == RegistryLiveOutcome::Applied && at<uint32_t>(0x31018) == 6,
+          "landed bound, not waiting for the table: outcome " + std::to_string(static_cast<int>(l.replies.empty() ? 99 : static_cast<int>(l.replies[0].outcome))));
+    registry_live_revert(72, l.handles[0], &reply);
+}
 // A turn the preparation does not cover (a formula field: its evaluation reads the entry's other values, which the turn itself
 // may change) lands the classic way: composed and written on the world thread, with the turn's rules.
 void a_turn_the_preparation_does_not_cover_lands_the_classic_way() {
@@ -529,6 +563,8 @@ int main() {
         {"a_prepared_turn_keeps_the_turn_rules", a_prepared_turn_keeps_the_turn_rules},
         {"a_stale_preparation_is_never_written", a_stale_preparation_is_never_written},
         {"a_preparation_stale_only_in_its_bindings_lands_on_request", a_preparation_stale_only_in_its_bindings_lands_on_request},
+        {"a_drop_table_loaded_while_a_turn_is_prepared_is_not_left_waiting", a_drop_table_loaded_while_a_turn_is_prepared_is_not_left_waiting},
+        {"a_drop_table_loaded_while_a_turn_is_prepared_lands_bound_on_request", a_drop_table_loaded_while_a_turn_is_prepared_lands_bound_on_request},
         {"a_turn_the_preparation_does_not_cover_lands_the_classic_way", a_turn_the_preparation_does_not_cover_lands_the_classic_way},
         {"a_turn_is_prepared_off_the_world_thread", a_turn_is_prepared_off_the_world_thread},
         {"a_prepared_turn_that_cannot_write_keeps_the_earlier_layers", a_prepared_turn_that_cannot_write_keeps_the_earlier_layers},
