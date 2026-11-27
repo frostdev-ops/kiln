@@ -116,3 +116,5 @@ static Kiln.ItemCosts.WearAvailable.get -> bool
 static Kiln.ItemSelection.Of(Kiln.EntityRef owner, Kiln.InventorySlot! slot) -> Kiln.ItemSelection!
 static Kiln.ItemSelection.operator !=(Kiln.ItemSelection? left, Kiln.ItemSelection? right) -> bool
 static Kiln.ItemSelection.operator ==(Kiln.ItemSelection? left, Kiln.ItemSelection? right) -> bool
+Kiln.ItemsResult.Ok.get -> bool
+Kiln.ItemsResult.Reason.get -> string?

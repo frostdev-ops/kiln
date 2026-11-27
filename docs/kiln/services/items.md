@@ -105,7 +105,7 @@ ItemInfo? info = Items.Get(new ItemId(0x43108313));    // Bronze Sword: IsGear, 
 
 // Give: completes on the tick thread one step later
 ItemsResult r = await Items.Give(player, wood!.Id, 250, options: GiveOptions.Notify);   // "+250 Wood Logs" popup
-if (r.Status == ItemsStatus.Partial) Log.Info($"only {r.Done} fit");
+if (!r.Ok) Log.Info(r.Reason);                         // Ok: all of it (Done); "Partial: ..." when only r.Done fit (r.Succeeded)
 
 // Gear with a level and rarity (the game clamps the level to the item's range)
 var g = await Items.Give(chest, info!.Id, 1, new Gear(Level: 20, Rarity: ItemRarity.Epic));
@@ -178,7 +178,9 @@ match, `KILN_ERR_BUFFER_TOO_SMALL` past `capacity` (the first `capacity` rows wr
   = false)`, `TakeSlot(target, InventorySlot, dryRun)`.
 - `ItemsResult`: `Status` (`Done`, `Partial`, `NoRoom`, `NotEnough`, `NoInventory`, `UnknownItem`, `SlotChanged`,
   `Refused`, `Unavailable`, `Dropped`, `Invalid`), `Done`, `Requested`, `Changes` (slot, item, amount, item entity),
-  `Message`, `GameError` (the game's code), `Steps`, `DryRun`. Game-side outcomes never throw.
+  `Message`, `GameError` (the game's code), `Steps`, `DryRun`. Game-side outcomes never throw. Since 0.2.0-dev.32 it is an
+  `IKilnResult` like the others: `Ok` is `Status == Done` (all of it; there is no `ItemsStatus.Ok`), `Reason` the status and
+  message when not, and `Succeeded` also counts a `Partial` give.
 - `Read(entity)` → `InventoryContents` (`Inventories` with their `InventoryCategory`, `Slots` with `Item`, `Count`,
   `ItemEntity`, `Level`, `Rarity`, `Category`, `Link`, `IsGear`, `IsEquipped`, `IsBroken`), `GenericSlots`,
   `AvailableSlots`, `IsPlayer`, `Count(item)`, `FreeSlots()`.
