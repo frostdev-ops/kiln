@@ -369,7 +369,7 @@ enum: DistanceAndFaction, Voxels
 - `InBase { get; init; } -> bool` — A base is fine (the default): a friendly NPC may stand in one, so it comes as near as `NpcPlace.Distance` asks while...
 - `Once { get; init; } -> bool` — Only the first time in a world.
 
-## Npcs `0.2.23` — Friendly NPCs' speech bubbles: a mod's own lines in the game's bubble over a villager, craftsperson or assistant.
+## Npcs `0.2.23` — Friendly NPCs' speech: a mod's own lines in the game's bubble over a villager, craftsperson or assistant, and, since 0.2.0-dev.32, in the NPC's dialogue menu: a...
 - `static Available { get; } -> bool` — This game shows Kiln's speech in its own bubbles (a game client whose kiln.npcspeech found the bubble on this build...
 - `static CanSpeak(EntityId npc) -> bool` — The entity is a friendly NPC with dialogue lines, the kind that has a speech bubble (a villager, a craftsperson, an...
 - `static Farewells(EntityId npc) -> NpcLines` `0.2.26` — The calling mod's override of the NPC's farewell: the line in the dialogue menu's speech box when a player leaves...
@@ -406,14 +406,14 @@ enum: DistanceAndFaction, Voxels
 - `Hint { get; init; } -> NpcTopicHint` — The marker in the list.
 - `Id { get; } -> string` — The topic's id within its mod: the same id names the same topic (Remove, the pick).
 - `Label { get; } -> UiText` — Its text in the topic list.
-- `const MaxIdLength = 64 -> int` — The longest topic id.
+- `const MaxIdLength = 64 -> int` — The longest topic id, in characters: 64.
 - `OnPick { get; init; } -> Action<NpcTopicContext>?` — Runs on the host's tick thread when a player picks the topic (the host's own player too), as the mod that set it.
 - `Reply { get; init; } -> UiText?` — What the NPC answers in the speech box when a player picks it (the game's reveal, no voice-over).
 
 ## NpcTopicContext `0.2.26` — A pick of a topic: which NPC, which player, which topic.
 - `ModId { get; } -> string` — The mod whose topic it is.
 - `Npc { get; } -> EntityId` — The NPC.
-- `Player { get; } -> EntityId` — The player who picked it.
+- `Player { get; } -> EntityId` — The player who picked it (the host's own player, or a joined player).
 - `Reply(UiText text) -> SpeechResult` — As `NpcTopicContext.Reply`, with a text per language.
 - `Reply(string text) -> SpeechResult` — Answers this player in the speech box of their menu with the NPC (`Npcs.MenuSay`).
 - `Topic { get; } -> NpcTopic` — The topic picked.
