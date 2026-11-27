@@ -87,7 +87,7 @@ public sealed record PetCommit
 }
 
 /// <summary>
-/// A pet as it is now: an immutable copy, never updated in place. Read it again (<see cref="Pets.Get"/>, <see cref="Pets.Of"/>) or
+/// A pet as it is now: an immutable copy, never updated in place. Read it again (<see cref="Pets.Get"/>, <see cref="Pets.Of(CharacterKey)"/>) or
 /// take the one an answer or an event carries. Since 0.2.0-dev.32.
 /// </summary>
 /// <remarks>A pet has three independent facts: <see cref="Life"/> (alive, down or gone), <see cref="Presence"/> (where it is: no
@@ -95,7 +95,7 @@ public sealed record PetCommit
 /// while a transition runs is <c>Busy</c>. <see cref="Body"/> is an entity only while the pet is <see cref="PetPresence.Live"/> or
 /// <see cref="PetPresence.Retiring"/>; never keep it across steps, ask again. Server side only: a client reads
 /// <see cref="PetViewEntry"/> through <see cref="PetsClient"/>.</remarks>
-/// <seealso cref="Pets.Of"/>
+/// <seealso cref="Pets.Of(CharacterKey)"/>
 /// <seealso cref="PetChange"/>
 public sealed record PetSnapshot
 {

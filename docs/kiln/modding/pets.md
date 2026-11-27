@@ -103,8 +103,9 @@ await Pets.Release(who, pet, PetRequest.New());
 foreach (var p in Pets.Of(owner)) Log.Info($"{p.Label}: {p.Life} {p.Presence} {p.Health}/{p.HealthMax}");
 ```
 
-Every answer is a `PetResult` (`Ok`, `Reason`, the pet after it, cost receipts). Requests run on the server's tick
-thread; `await` them from your handlers or commands.
+Every answer is a `PetResult` (`Ok`, `Reason`, the pet after it, cost receipts). Decide by `Refusal` (`PetRefusal.Capacity`,
+`PetRefusal.NotOwner`, ...), never by the `Reason` text, which is for logs. Requests run on the server's tick thread; `await`
+them from your handlers or commands.
 
 ## Decide per pet
 

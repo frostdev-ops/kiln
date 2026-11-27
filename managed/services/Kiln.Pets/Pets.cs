@@ -161,7 +161,7 @@ public static partial class Pets
     /// <example><code>
     /// if (Pets.Get(pet) is { Life: PetLife.Downed } downed) Log.Info($"{downed.Label} is down: revive it next to its anchor");
     /// </code></example>
-    /// <seealso cref="Of"/>
+    /// <seealso cref="Of(CharacterKey)"/>
     [ServerOnly, TickThreadOnly, RequiresCapability(Caps.Records)]
     public static PetSnapshot? Get(PetId pet) => pet.IsNone ? null : Roster("Pets.Get").Get(pet);
 
@@ -270,7 +270,7 @@ public static partial class Pets
     /// PetResult r = await Pets.Release(player, pet, PetRequest.New());
     /// </code></example>
     /// <seealso cref="PetReleasedEvent"/>
-    /// <seealso cref="Pets.Grant"/>
+    /// <seealso cref="Pets.Grant(CharacterKey, string, PetRequest)"/>
     [ServerOnly, TickThreadOnly, RequiresCapability(Caps.Records)]
     public static Task<PetResult> Release(PlayerRef owner, PetId pet, PetRequest request) => Request(PetRoster.Kind.Release, "Pets.Release", Caps.Records, owner, pet, request);
 
