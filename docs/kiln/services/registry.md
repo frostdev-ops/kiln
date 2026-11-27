@@ -147,3 +147,18 @@ the active world's thread. Without a world they operate only on copied data.
 The TestKit currently marks this native table unavailable rather than pretending to simulate game byte ownership.
 The native host suites exercise it over the real store, mapped readers and synthetic game memory. Real-client and
 multiplayer behavior is not verified by those suites or a dedicated-server lab; a successful DLL build alone does not prove it.
+
+## Native views: kiln.registry.view v1
+
+Since 0.2.0-dev.32: a separate 48-byte read-only table (`native/core/abi/services/kiln_registry_view.h`, served by
+kiln-content.dll on both sides; kiln.registry and kiln.registry.live are unchanged). One view per registry (stable: read
+through the stage's resolved view, `read(KILN_REGISTRY_VIEW_RESOLVED, ...)`, with the field's mapping on this build) and one
+per other resource type of the running build (advanced: Kiln names derived from the game's reflection, the alias table
+`<game>/kiln/regmap/views.json`, read-only). `views_json`, `fields_json(view)`, `read(view, id, field)`, `select(view,
+selector)`, `entry_json(view, id)`; a refusal returns its code (`UNAVAILABLE`, `NOT_FOUND`, `INVALID_ARGUMENT`) and copies the
+reason, in Kiln words, into the buffer. Any thread: an advanced read decodes the resident bytes under kiln.content's store
+lock. The catalog (every struct type kiln.types lists that kiln.assets has resources of) is built once per process at the first
+call after the stage; an advanced view's entries are listed when first needed and again when the count of its type's resources
+changes. Code: `registry/views.{h,cpp}` (names, the alias table, values; plain data), `registry/view_service.{h,cpp}` (the
+service and the C table over an env), `registry/view_types.cpp` (the reflection as plain types), `registry/view_table.cpp`
+(the env over the game). Mod-facing: [registries/views.md](../modding/registries/views.md).

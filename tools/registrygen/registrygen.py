@@ -39,6 +39,7 @@ CS_DIR = "managed/services/Kiln.Registry/Generated"
 SECTION = "schema/registry-section.schema.json"
 DOCS = "docs/kiln/modding/registries"
 HINTS = "managed/Kiln.Analyzers/src/Kiln.Analyzers/RegistryHints.g.cs"
+HAND_PAGES = ("README.md", "views.md")  # pages of the registries' folder that no schema makes
 # The old paths' sections and the game type their paths start from: kiln.gamedata's (native gamedata_res.cpp builds each from
 # that type; tests check the two agree) and the item data section. kiln.content's items, recipes, loot and drops sections start
 # where the registry of the same name does (regmap/common entries).
@@ -1450,7 +1451,7 @@ def stale(root, outputs):
         folder = Path(root) / d
         for p in sorted(folder.glob(pat)) if folder.is_dir() else []:
             rel = f"{d}/{p.name}"
-            if rel not in outputs and p.name != "README.md":
+            if rel not in outputs and p.name not in HAND_PAGES:
                 bad.append(rel + " (no schema makes it)")
     return bad
 

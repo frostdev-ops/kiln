@@ -48,6 +48,11 @@ registry has a breaking step yet: every schema is 0.1.0, and Kiln ships no migra
 The per-registry pages are generated from `schema/registry/<registry>.json` by `tools/registrygen/registrygen.py`; edit
 the schema, never the page. Kiln maintainers adding a registry: [adding-a-registry.md](../../adding-a-registry.md).
 
+**One view over every registry and resource type** (since 0.2.0-dev.32): [views.md](views.md). `RegistryViews` reads any
+registry by name (stable) and any other resource type of the running build under Kiln names derived from the game's
+reflection (advanced: verified per game build, read-only); `RegistryStage.Entries(name)` edits any registry of the schema by
+name, typed by its fields, including registries without a typed property.
+
 ## C# authoring (API 0.2.17)
 
 Reference `Registry` in `KilnServices` and opt into experimental diagnostic `KILNX031`. Published entry types remain in
@@ -646,9 +651,13 @@ template, which take the `drops_` form. The table's GUID also selects it, as dat
 
 | Tier | What | Promise |
 |---|---|---|
-| Stable | registry schemas, Kiln ids and fields, `Kiln.Registry` C# and data sections, typed blocks | survives game updates: Kiln updates the mapping; frozen by API 1.0.0 |
-| Advanced | raw reflection paths (`raw` in an edit), resource patches, GameFields/GameTypes, boot.GameData keys | works while the game's names hold; checked and refused per entry, never silent corruption |
+| Stable | registry schemas, Kiln ids and fields, `Kiln.Registry` C# and data sections, typed blocks, stable registry views | survives game updates: Kiln updates the mapping; frozen by API 1.0.0 |
+| Advanced | raw reflection paths (`raw` in an edit), resource patches, GameFields/GameTypes, boot.GameData keys, advanced registry views | works while the game's names hold; checked and refused per entry, never silent corruption |
 | Native | hooks by address, raw memory, native plugins | the mod's own risk |
+
+Every public surface with its tier, what API 1.0.0 freezes, and how to move a mod up a tier: [tiers.md](../tiers.md). The
+analyzers point old paths at the registry field that covers them (KILN124, with a fix for one-to-one data pack values) and mark
+Native-tier code (KILN125), info level only ([analyzers.md](../analyzers.md#kiln124)).
 
 ## Files
 
@@ -663,3 +672,5 @@ template, which take the `drops_` form. The table's GUID also selects it, as dat
 | `schema/registry-section.schema.json` | the data section's schema (generated) |
 | `regmap/` | how each field maps onto the game, per game build (Kiln's part: mods never read it) |
 | `tools/registrygen/registrygen.py` | the generator; `--check` fails on stale output, `lock` and `retire` keep the ids |
+| `regmap/views.json` | the advanced views' alias table: Kiln names kept across a game's renames, members a build removed (deltas only; [views.md](views.md)) |
+| `managed/Kiln.Analyzers/src/Kiln.Analyzers/RegistryHints.g.cs` | registrygen's table of the old paths and game functions each registry field covers (KILN124, KILN125) |
