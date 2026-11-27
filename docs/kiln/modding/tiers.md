@@ -62,5 +62,5 @@ default tier; types of another tier are listed by name; a test fails when an ass
 | `ContentEntry.Set("maxStackSize", ...)` in code | `Registry.Change(view => view.Items[id].MaxStack = ...)` or `OnRegistry` | by hand: a registry change is a transaction on the world thread with a result, not a code layer above every pack |
 | a resource patch on the balancing table | `balance.*` fields | by hand, in the registry section or `OnRegistry` (GameStart) |
 | a member no registry has yet | the advanced view (`RegistryViews.Find("quest")`) to read it under Kiln names, or the old path to write it | a view field that a registry covers says so (`CoveredBy`) |
-| a hook of a game function Kiln owns a rule for (the altar limit) | a hooks registry's field (the limits registry's `maxAltars`, once that registry ships) | KILN125 names the field when the registry's regmap row names the function |
+| a hook of a game function Kiln owns a rule for (the altar limit) | a registry field (the `limits` registry's `maxAltars`, [limits.md](registries/limits.md)) | KILN125 names the field when the registry's regmap row names the function |
 | a hook by address (`Hooks.Mid(base + rva)`) | a Kiln service, a registry field or an event, case by case | KILN125 marks it; until Kiln has one, the hook stays the mod's own |

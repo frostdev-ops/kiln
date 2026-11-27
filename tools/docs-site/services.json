@@ -204,7 +204,9 @@
       "name": "Blocks",
       "summary": "Building blocks for mods: a block says what the author means (a spell, a weapon, an effect, a status) and Kiln makes the game's resources from it",
       "guides": [
-        "docs/kiln/modding/blocks.md"
+        "docs/kiln/modding/blocks.md",
+        "docs/kiln/modding/npc-dialogue.md",
+        "docs/kiln/services/npc-speech.md"
       ],
       "capabilities": [
         {
@@ -523,7 +525,8 @@
       "name": "Content",
       "summary": "Registries and data packs: items, recipes, random loot, drop tables",
       "guides": [
-        "docs/kiln/services/content.md"
+        "docs/kiln/services/content.md",
+        "docs/kiln/modding/gear-rules.md"
       ],
       "capabilities": [
         {
@@ -723,7 +726,9 @@
       "name": "Items",
       "summary": "Give / take / read inventories, the item catalog",
       "guides": [
-        "docs/kiln/services/items.md"
+        "docs/kiln/services/items.md",
+        "docs/kiln/modding/item-costs.md",
+        "docs/kiln/services/item-costs.md"
       ],
       "capabilities": [
         {
@@ -1470,7 +1475,8 @@
       "name": "Terrain",
       "summary": "Bounded terrain overlays (a vein, a mound, a tunnel) applied once per world over several ticks, with a per-world ledger of who owns which 8-cell block at which version",
       "guides": [
-        "docs/kiln/services/terrain.md"
+        "docs/kiln/services/terrain.md",
+        "docs/kiln/modding/terrain-tiles.md"
       ],
       "capabilities": [
         {
