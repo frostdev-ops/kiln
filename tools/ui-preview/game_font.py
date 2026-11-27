@@ -78,7 +78,7 @@ def main():
 
     def blob(index, path):
         size, h0, h1, h2 = struct.unpack_from("<4I", res, f_off + index * 32)
-        run(*g, "content", f"{size:x}-{h0:x}-{h1:x}-{h2:x}", "-o", str(path))
+        run(*g, "content", struct.pack("<4I", size, h0, h1, h2).hex(), "-o", str(path))  # 32 hex digits: one reading only
 
     blob(font_index, out)
     if bold_index is not None and bold_index < f_count and bold_index != font_index:

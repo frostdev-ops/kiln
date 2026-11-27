@@ -9,7 +9,8 @@
     list [--type NAME|0xHASH] [--guid G] [--limit N]   resources: guid, type, part, size
     get GUID TYPE [--part N] [-o FILE]  raw resource bytes (default $KILN_OUT/res/<guid>.<type>.<part>.bin)
     decode GUID TYPE [--part N] [-o FILE]  reflected decode as JSON
-    content HASH [-o FILE]             one content blob from the .dat containers (32 hex digits or size-h0-h1-h2)
+    content HASH [-o FILE]             one content blob from the .dat containers (32 hex digits, or size-h0-h1-h2 with
+                                       the size in decimal and the words in hex, as kiln.assets reads it)
     refs GUID                          every resource with this GUID (all types and parts)
     model GUID [--lod N] [--obj F] [--gltf F [--skin [--skeleton F]]] [--all-lods] [--game-space] [--bin F [--blob F]]
                                        keen::RenderModel (the game's, or a cooked file) -> OBJ/glTF

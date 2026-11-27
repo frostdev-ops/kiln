@@ -74,9 +74,9 @@ std::vector<uint8_t> g_ttf, g_bold_ttf;
 std::string g_bold_path;
 std::vector<uint8_t> g_font_res;  // fonts, then (with a bold face) one default language group with a regular and a bold set
 // kiln_preview_font_resource: the game's own keen::UiFontResource and a folder of its font files named by content hash
-// ("<size>-<h0>-<h1>-<h2>.bin", hex, as kiln.assets spells them; game_fonts.py writes them from the local game, never into
-// the tree): style.cpp reads the default group's fonts (Latin, bold, Cyrillic, Thai) and a Chinese, Japanese or Korean
-// group's from them
+// ("<size>-<h0>-<h1>-<h2>.bin", all four in hex: the preview's own names, not kiln.assets' text, whose size is decimal;
+// game_fonts.py writes them from the local game, never into the tree): style.cpp reads the default group's fonts (Latin,
+// bold, Cyrillic, Thai) and a Chinese, Japanese or Korean group's from them
 std::vector<uint8_t> g_real_res;
 std::string g_blob_dir;
 
