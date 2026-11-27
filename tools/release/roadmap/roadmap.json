@@ -3978,53 +3978,83 @@
           "text": "Tools and tests for cooked terrain tiles; nothing reaches mods yet.",
           "area": "content",
           "groundwork": true
+        },
+        {
+          "title": "More registry values",
+          "text": "Storage reach, skill values and requirements, buff strength and tick rate, ability length, and projectile and area values join the registries.",
+          "area": "content"
+        },
+        {
+          "title": "Faster starts with big registry packs",
+          "text": "Kiln reuses a world's registry plan when nothing it read has changed, and joining checks the new registries too.",
+          "area": "core"
+        },
+        {
+          "title": "Clicks on the world map",
+          "text": "Mods react to a click or right-click on the world map with the world position and the marker under the cursor, add an entry to the menu there, and read the map's centre and zoom.",
+          "area": "api"
+        },
+        {
+          "title": "Wildlife and farm pets",
+          "text": "Wildlife and farm animals can be pets, pets can have brains of their own, and a mod can choose a downed body for its pets.",
+          "area": "content"
         }
       ]
     },
     {
       "version": "0.2.0-dev.33",
       "status": "planned",
-      "title": "Custom mounts",
-      "summary": "Mods can build fully custom mounts: creatures and vehicles that players ride, fly and drive, with their own models, animations, stats and abilities.",
+      "title": "Attach, drive and move anything",
+      "summary": "The engine pieces that make mounts and vehicles possible: attachments, player-driven creatures, movement modes with flight, animations from code, bodies of any shape and cameras per entity. Mods decide how their mounts behave.",
       "features": [
         {
-          "title": "Riding creatures",
-          "text": "Mods can make creatures rideable: players mount with E, ride at walk, run and sprint, and get off without fall damage.",
-          "area": "content"
+          "title": "Attachments",
+          "text": "Mods put a player, creature or prop on a joint of another entity, with an offset they can change every step; every player sees it, and attaching and detaching are events a mod can refuse.",
+          "area": "api"
         },
         {
-          "title": "Flying mounts",
-          "text": "Mounts can fly: take off, fly with the keys and mouse, and land with a controlled descent.",
-          "area": "content"
+          "title": "Player-driven creatures",
+          "text": "A player's movement keys (move, look, jump, sprint) steer a creature or entity a mod controls.",
+          "area": "api"
         },
         {
-          "title": "Vehicles and carts",
-          "text": "Mods can add vehicles with seats and decks, such as a cart a friend can ride in, that stay in the world after a restart.",
-          "area": "content"
+          "title": "Player input as data",
+          "text": "Mods read a player's movement and held keys on the server, typed.",
+          "area": "api"
         },
         {
-          "title": "Mounts of your own",
-          "text": "Mods can build a mount from scratch: its own model and animations, the rider's seat and pose, the camera, speeds, stamina and abilities, and how players get it, for example by taming it.",
-          "area": "content"
+          "title": "Player actions on hold",
+          "text": "While a mod's state lasts, mods switch off the game's own actions such as the glider, dodging and building, and the fall state and fall damage.",
+          "area": "api"
         },
         {
-          "title": "A mount registry",
-          "text": "Mount speeds, stamina, jumping and flight values become a registry, so data packs can tune any mount, the game's or a mod's.",
-          "area": "content"
+          "title": "Movement modes",
+          "text": "Mods set an entity's movement: ground, jump and flight (hover or momentum), with take-off and a controlled landing; the values are a registry data packs can tune.",
+          "area": "api"
         },
         {
           "title": "Animations from code",
-          "text": "Mods can play an animation from code and cancel a sequence as it starts.",
+          "text": "Mods play, blend and cancel animation states on creatures and players from code, drive a movement graph by speed, and give players full-body poses of their own.",
           "area": "api"
         },
         {
-          "title": "Player animation states from C#",
-          "text": "Mods can define their own player animation states in C#, such as a rider's pose, not only in a data file.",
+          "title": "Bodies of any shape",
+          "text": "Creature bodies from a mod's own skeleton, flying ones too, with bounds and named attach points, not only copies of the game's bases.",
+          "area": "content"
+        },
+        {
+          "title": "Cameras per entity",
+          "text": "A camera profile that follows an entity, with its own distance, height and bounds, while the mouse still turns it.",
           "area": "api"
         },
         {
-          "title": "Mounts in multiplayer",
-          "text": "Riders, passengers and mounts show for every player who has Kiln and the mod, and mounts are saved with their owner.",
+          "title": "E prompts in a mod's own words",
+          "text": "The server sends an interaction prompt's text, so players need nothing extra installed to read it, and prompts work on things that move.",
+          "area": "api"
+        },
+        {
+          "title": "Owned things saved with the character",
+          "text": "Anything a player owns, not only pets, is saved with their character and comes back.",
           "area": "servers"
         }
       ]
