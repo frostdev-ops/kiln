@@ -51,7 +51,7 @@ public sealed record PetBlock : IBlock
     /// <summary>The creature its body is: a <see cref="CreatureBlock"/> (inline, a handle, or a block's name) or a game
     /// creature by its <c>creatures</c> registry id (<c>"game:enemy_wildbeast_wolf_earlygame"</c>).</summary>
     public required PartRef<CreatureBlock> Creature { get; init; }
-    /// <summary>The name owners read; default: the creature's own.</summary>
+    /// <summary>The name owners read; default: the creature's own (<see cref="PetDefinition.Name"/>).</summary>
     public string? Name { get; init; }
     /// <summary>The name before a rename: the id comes from the oldest name, so records keep their pets.</summary>
     public string? Was { get; init; }
@@ -115,7 +115,7 @@ internal static class PetCompiler
 
         var def = new PetDefinition
         {
-            Id = id, Creature = creatureId, DisplayName = p.Name, Level = p.Level ?? new(), Movement = p.Movement ?? new(),
+            Id = id, Creature = creatureId, Name = p.Name, Level = p.Level ?? new(), Movement = p.Movement ?? new(),
             Revive = new PetRevivePolicy
             {
                 Allowed = p.Revive.Allowed, ChannelSeconds = p.Revive.ChannelSeconds, RangeMeters = p.Revive.RangeMeters, HealthFraction = p.Revive.HealthFraction,

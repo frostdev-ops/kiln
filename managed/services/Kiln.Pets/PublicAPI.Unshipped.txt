@@ -75,8 +75,8 @@ Kiln.PetDefinition
 Kiln.PetDefinition.<Clone>$() -> Kiln.PetDefinition!
 Kiln.PetDefinition.Creature.get -> string!
 Kiln.PetDefinition.Creature.init -> void
-Kiln.PetDefinition.DisplayName.get -> string?
-Kiln.PetDefinition.DisplayName.init -> void
+Kiln.PetDefinition.Name.get -> string?
+Kiln.PetDefinition.Name.init -> void
 Kiln.PetDefinition.Downed.get -> Kiln.PetDownedPolicy!
 Kiln.PetDefinition.Downed.init -> void
 Kiln.PetDefinition.Equals(Kiln.PetDefinition? other) -> bool

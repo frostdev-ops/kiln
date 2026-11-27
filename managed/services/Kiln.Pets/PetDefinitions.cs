@@ -186,8 +186,9 @@ public sealed record PetDefinition
     /// (<c>game:enemy_wildbeast_wolf_earlygame</c>) or a creature block of a mod (<c>&lt;mod id&gt;:&lt;name&gt;</c>). Never a game
     /// template name or GUID. Bodies are enemy creatures that walk (wildlife and flying bodies are not supported yet).</summary>
     public required string Creature { get; init; }
-    /// <summary>The name owners read; null: the creature's own.</summary>
-    public string? DisplayName { get; init; }
+    /// <summary>The name owners read (1 to 64 UTF-8 bytes), as a <c>PetBlock</c>'s <c>Name</c> is; null: the creature's own.
+    /// A pet's resolved name is <see cref="PetSnapshot.Label"/>.</summary>
+    public string? Name { get; init; }
     /// <summary>Its level and size.</summary>
     public PetLevelPolicy Level { get; init; } = new();
     /// <summary>How it follows.</summary>
@@ -205,6 +206,8 @@ public sealed record PetDefinition
 
     // the roster's and the binder's name for the limits (internal: kept so their code reads as it did)
     internal PetLimits Caps => Limits;
+    // the roster's name for the shown name (internal, as above)
+    internal string? DisplayName => Name;
 }
 
 /// <summary>The answer of <see cref="Pets.Define"/>. Since 0.2.0-dev.32.</summary>
@@ -231,7 +234,7 @@ internal static class PetDefinitionRules
     {
         if (!ValidId(d.Id)) return ("id", $"\"{d.Id}\" is not a Kiln id <mod id>:<name> (lower case letters, digits, '-', '_', '.')");
         if (d.Creature is null || !ValidId(d.Creature)) return ("creature", $"\"{d.Creature}\" is not a creature's Kiln id (game:<name> or <mod id>:<name>)");
-        if (d.DisplayName is { } n && (n.Length == 0 || System.Text.Encoding.UTF8.GetByteCount(n) > 64)) return ("name", "a name is 1 to 64 UTF-8 bytes");
+        if (d.Name is { } n && (n.Length == 0 || System.Text.Encoding.UTF8.GetByteCount(n) > 64)) return ("name", "a name is 1 to 64 UTF-8 bytes");
         return CheckLevel(d.Level, levelMax) ?? CheckMovement(d.Movement) ?? CheckRevive(d.Revive) ?? CheckTargets(d.Targets) ?? CheckLimits(d.Limits)
                ?? (Enum.IsDefined(d.Downed.Outcome) ? null : ("downed.outcome", $"{d.Downed.Outcome} is not an outcome"));
     }

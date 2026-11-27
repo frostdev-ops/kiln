@@ -133,6 +133,18 @@ public sealed class ApiShapeTests
             PetsClient.ResetForTests();
         }
     }
+
+    // ---- C1: one name for a pet's shown name (PetDefinition.Name, as PetBlock.Name) ----
+
+    [Fact]
+    public void A_definitions_shown_name_is_Name_as_a_blocks_is()
+    {
+        var d = new PetDefinition { Id = "mod-a:wolf", Creature = "game:enemy_wildbeast_wolf", Name = "Rex" };
+        Assert.Equal("Rex", d.Name);
+        Assert.Null(typeof(PetDefinition).GetProperty("DisplayName"));
+        Assert.Contains("\"name\":\"Rex\"", PetsRuntime.CanonicalJson(d));
+        Assert.Equal(("name", "a name is 1 to 64 UTF-8 bytes"), PetDefinitionRules.Check(d with { Name = "" }));
+    }
 }
 
 /// <summary>Kiln.Pets' facade on a roster of the test's (a fake world and store) and a tick thread that is the test's.</summary>

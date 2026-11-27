@@ -459,7 +459,7 @@ public sealed partial class PetsE2eLabMod : Mod
         // does not cancel it (the bot stands still anyway)
         var r = Pets.Define(new PetDefinition
         {
-            Id = Mule, Creature = "game:enemy_wildbeast_wolf_earlygame", DisplayName = "Mule",
+            Id = Mule, Creature = "game:enemy_wildbeast_wolf_earlygame", Name = "Mule",
             Revive = new PetRevivePolicy
             {
                 ChannelSeconds = 0.5, RangeMeters = 8, Cost = new PetCostDefinition(twigs.Id, 1),
