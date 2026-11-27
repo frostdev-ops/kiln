@@ -16,6 +16,8 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 
 from kfc import voxeltile as vt  # noqa: E402
+from kfc import voxelworld as vw  # noqa: E402
+from kfc.archive import ContentHash  # noqa: E402
 
 
 def cell(material, fill):
@@ -260,6 +262,54 @@ class TileTest(unittest.TestCase):
         self.assertEqual(s["uniform"], 1)
         self.assertEqual(s["compressed"], 1)
         self.assertEqual(s["bytes"], len(data))
+
+
+def synthetic_root(size=(320, 64, 192), tile_sizes=(128, 128, 128, 128, 128, 256, 256)):
+    """A VoxelWorldResource in the reflected layout: header, seven levels, then the tile arrays."""
+    head = bytearray(vw.HEADER_SIZE)
+    struct.pack_into("<3I", head, 4, *size)   # type 0 (solid) at +0, origin (0, 0, 0) at +0x10
+    arrays = bytearray()
+    refs = []
+    for li, ts in enumerate(tile_sizes):
+        cells = [s * (1 << li) // 32 for s in size]
+        tc = (-(-cells[0] // ts), -(-cells[2] // ts))
+        at = vw.LEVELS_AT + vw.LEVEL_STRIDE * li
+        first = vw.HEADER_SIZE + len(arrays)
+        struct.pack_into("<4IiI", head, at, ts, ts, *tc, first - (at + 16), tc[0] * tc[1])
+        for i in range(tc[0] * tc[1]):
+            arrays += struct.pack("<4IIIQ", 7170, li, i, 0xAB, 0x11, 0x22, 0x33)
+            refs.append((li, i))
+    return bytes(head + arrays), refs
+
+
+class WorldTest(unittest.TestCase):
+    def test_grid_edges_and_patch(self):
+        raw, refs = synthetic_root()
+        w = vw.VoxelWorld(raw)
+        self.assertEqual([lv.tile_count for lv in w.levels], [(1, 1), (1, 1), (1, 1), (1, 1), (2, 1), (2, 1), (3, 2)])
+        self.assertEqual(w.levels[0].tile_blocks(0, 0), (2, 1))        # 10 x 6 cells: the tile's own, not 128
+        self.assertEqual(w.levels[4].tile_blocks(1, 0), (4, 12))       # 160 x 96 cells: the last tile's remainder
+        self.assertEqual(w.levels[6].tile_blocks(0, 0), (32, 32))
+        self.assertEqual(w.tile_of_cell(600, 300), (5, 88, 44))
+        new = ContentHash(7170, 1, 2, 3)
+        out = vw.VoxelWorld(w.patched({(6, 5): new}))
+        self.assertEqual(out.levels[6].tiles[5].hash, new)
+        self.assertEqual(out.levels[6].tiles[5].sort_key, 0x33)
+        self.assertEqual(sum(a != b for a, b in zip(out.raw, raw)), 3)  # one byte each of h0, h1, h2 (6, 5, 0xab)
+        self.assertEqual(len(refs), len(list(w.refs())))
+
+    def test_roots_this_reader_refuses(self):
+        raw, _ = synthetic_root()
+        with self.assertRaises(vw.WorldFormatError):
+            vw.VoxelWorld(raw[:vw.HEADER_SIZE - 1])
+        bad = bytearray(raw)
+        struct.pack_into("<I", bad, vw.LEVELS_AT + vw.LEVEL_STRIDE * 6 + 8, 4)   # a grid that does not cover the world
+        with self.assertRaises(vw.WorldFormatError):
+            vw.VoxelWorld(bytes(bad))
+        bad = bytearray(raw)
+        struct.pack_into("<i", bad, vw.LEVELS_AT + 16, 1 << 30)                   # a tile array outside the bytes
+        with self.assertRaises(vw.WorldFormatError):
+            vw.VoxelWorld(bytes(bad))
 
 
 if __name__ == "__main__":
