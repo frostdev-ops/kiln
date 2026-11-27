@@ -596,8 +596,8 @@ public override void OnLoad() => _poll = new Timer(_ => Context.Scheduler.Post(C
 - `Memory.Read`, `TryRead`, `ReadBytes`, `Write`, `Patch`;
 - `Constants.Get`, `TryGet`.
 
-The opt-in is `<KilnAdvanced>true</KilnAdvanced>`, or `"advanced": true` in the project's own `kiln.mod.json`,
-which wins, as in the manifest task.
+The opt-in is `<KilnAdvanced>true</KilnAdvanced>`, or `"advanced": true` (or `"native": true`, its newer name since
+0.2.0-dev.32) in the project's own `kiln.mod.json`, which wins, as in the manifest task.
 
 **Why.** `managed/services/Kiln.Hooks/Gate.cs` reads the calling mod's manifest and throws:
 `InvalidOperationException: Symbols.Get: mod 'x' is not advanced …`. The build error says so before the server does.

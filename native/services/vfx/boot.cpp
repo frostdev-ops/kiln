@@ -385,7 +385,7 @@ bool read_mod(const std::string& dir, const fs::path& pending_root, kvb::ModInpu
     m->dir = dir;
     m->side = j.value("side", "server");
     m->clients = j.value("clients", m->side == "server" ? "none" : "mod");
-    m->advanced = j.contains("advanced") && j["advanced"].is_boolean() && j["advanced"].get<bool>();
+    m->advanced = kvb::manifest_native(j);  // "native": true, or its older name "advanced": true
     if (boot && boot->out(m->id)) {
         KV_I("vfx: %s is out of the boot generation: its VFX and materials are not built", m->id.c_str());
         return false;

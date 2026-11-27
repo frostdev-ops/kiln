@@ -18,7 +18,8 @@ namespace Kiln.Analyzers;
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
 public sealed class ModProjectAnalyzer : DiagnosticAnalyzer
 {
-    private static readonly Regex AdvancedKey = new("\"advanced\"\\s*:\\s*(true|false)", RegexOptions.CultureInvariant);
+    // "native" (since 0.2.0-dev.32) is the newer name of "advanced"; Kiln.Host takes either (both must agree)
+    private static readonly Regex AdvancedKey = new("\"(advanced|native)\"\\s*:\\s*(true|false)", RegexOptions.CultureInvariant);
 
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics =>
         ImmutableArray.Create(Descriptors.AdvancedApi, Descriptors.MissingService);
@@ -53,7 +54,7 @@ public sealed class ModProjectAnalyzer : DiagnosticAnalyzer
         });
     }
 
-    /// <summary>True/false from the project's kiln.mod.json ("advanced"; the file wins, as in the SDK's manifest task),
+    /// <summary>True/false from the project's kiln.mod.json ("native" or "advanced"; the file wins, as in the SDK's manifest task),
     /// else from KilnAdvanced; null when neither is known.</summary>
     private static bool? Advanced(AnalyzerOptions options, AnalyzerConfigOptions global)
     {
@@ -62,8 +63,9 @@ public sealed class ModProjectAnalyzer : DiagnosticAnalyzer
             if (!string.Equals(Path.GetFileName(file.Path), "kiln.mod.json", StringComparison.OrdinalIgnoreCase)) continue;
             var text = file.GetText()?.ToString();
             if (text is null) continue;
-            var m = AdvancedKey.Match(text);
-            return m.Success && m.Groups[1].Value == "true";
+            foreach (Match m in AdvancedKey.Matches(text))
+                if (m.Groups[2].Value == "true") return true;
+            return false;
         }
         if (global.TryGetValue("build_property.KilnAdvanced", out var v))
             return string.Equals(v.Trim(), "true", StringComparison.OrdinalIgnoreCase);

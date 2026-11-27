@@ -454,12 +454,19 @@ struct BuiltVfx {
 bool build_vfx(const VfxDef& def, const std::string& mod, const std::function<Guid(const ParticleDef&)>& mesh_of,
                const std::function<Guid(const ParticleDef&)>& tex_of, BuiltVfx* out, std::string* why);
 
+// The manifest's Native-tier opt-in (hooks, raw memory, a mod's own GPU code; docs/kiln/modding/tiers.md): "native": true, or
+// "advanced": true, its older name. "native" decides when both are there (Kiln.Host refuses a manifest where they differ).
+inline bool manifest_native(const ojson& manifest) {
+    if (manifest.contains("native") && manifest["native"].is_boolean()) return manifest["native"].get<bool>();
+    return manifest.contains("advanced") && manifest["advanced"].is_boolean() && manifest["advanced"].get<bool>();
+}
+
 // ---- a whole set of mods ---------------------------------------------------------------------------------------------------------
 struct ModInput {
     std::string id;   // the manifest's id
     std::string dir;  // UTF-8, the mod's folder: textures are relative to it
     std::string side = "both", clients = "mod";
-    bool advanced = false;  // the manifest's "advanced": a mod's own particle modules need it
+    bool advanced = false;  // the manifest's "native" (or its older name "advanced"): a mod's own particle modules need it
     // (file name for messages, text of a blocks/*.json or a pending definition)
     std::vector<std::pair<std::string, std::string>> documents;
     // The same kind of text, read only so a particle can name a material of its mod: a definition from code comes alone, and its mod's data files are here.

@@ -21,7 +21,11 @@ The hints are info level only ([analyzers.md](analyzers.md#kiln124)): they name 
 and never refuse a mod. Nothing old is removed: there is no removal date for the Advanced or Native tier.
 
 **A naming note.** The manifest's `"advanced": true` (and `<KilnAdvanced>`, KILN107) is older than these tiers: it opts a mod
-into hooks, symbols and raw memory, which is the **Native** tier here. The Advanced tier needs no opt-in.
+into hooks, symbols and raw memory, which is the **Native** tier here. Since 0.2.0-dev.32 the manifest also takes
+`"native": true`, the same setting under the tier's name: give either (both: the same value, or Kiln.Host refuses the
+manifest). `"advanced"` keeps working with no removal date. A Kiln before 0.2.0-dev.32 does not know `"native"` (it warns
+about an unknown key and does not opt the mod in), so a mod for older Kilns keeps `"advanced": true`; `<KilnAdvanced>` still
+writes `"advanced"`. The Advanced tier needs no opt-in.
 
 ## Every public surface
 

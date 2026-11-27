@@ -1439,7 +1439,7 @@ fn manifest_reader(out: &mut Out, m: &LMod, schema_errors: &HashSet<String>) {
     // Manifest.cs's Known set (manifest_fixtures_agree_with_kiln_host compares the findings with Kiln.Host's warnings)
     let known: Vec<&str> = vec![
         "$schema", "id", "name", "version", "authors", "author", "description", "license", "url", "apiVersion", "side", "clients",
-        "dependencies", "loadBefore", "loadAfter", "incompatible", "features", "entryAssembly", "entryType", "exports", "advanced", "tests",
+        "dependencies", "loadBefore", "loadAfter", "incompatible", "features", "entryAssembly", "entryType", "exports", "advanced", "native", "tests",
         "kilnBuild", "writes", "boot", "updates", "steamMessages", "systems",
     ];
     for mem in root.as_object().into_iter().flatten().filter(|x| !known.contains(&x.key.as_str())) {

@@ -72,7 +72,8 @@ many array indices were clamped. Players never need a compiler. Commit the sourc
 C#: `Shader = new ParticleShader("shaders/build/swirl.spv", [6f, 0.8f, 0.4f])`. Every other field of the block still works: your hooks start from
 what it says.
 
-**The mod's manifest needs `"advanced": true`.** The launcher shows that.
+**The mod's manifest needs `"native": true`** (or its older name `"advanced": true`, which Kilns before 0.2.0-dev.32 need).
+The launcher shows that.
 
 ## How it is kept safe
 Your `.spv` is a *hook module*: your functions and nothing else. The game never compiles it as it is. At every start Kiln verifies it and links
@@ -115,7 +116,7 @@ and, when it links: `vfx: my-fx: shaders/build/swirl.spv: hooks update, draw lin
 | `its hooks are N instructions long counting every call (at most 16384)` | Smaller hooks, fewer calls inside calls |
 | `a cycle in its control flow that doesn't pass a loop header`, `a loop header whose branch Kiln can't cap` | Hand-written or post-processed SPIR-V: build from HLSL with the tool |
 | `defines none of kiln_hook_spawn, kiln_hook_update, kiln_hook_draw` | Define `KILN_SPAWN`, `KILN_UPDATE` or `KILN_DRAW` before including `kiln_hooks_main.hlsl` |
-| `a mod with its own GPU code has to say "advanced": true` | The manifest |
+| `a mod with its own GPU code has to say "native": true (or its older name "advanced": true)` | The manifest |
 | `mods' own particle shaders are off` | The player's `kiln/config/vfx.json` has `"shaders": false`, or lists your mod in `"skipShaderMods"` |
 
 The linked module is about 41 KB plus your hooks (the sample's is 48 KB); the first play waits for the driver to compile it (Kiln's own

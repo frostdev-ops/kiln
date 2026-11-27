@@ -1,0 +1,31 @@
+{
+  "raw": "{\"id\":\"hooky\",\"version\":\"1.0.0\",\"apiVersion\":\"0.2\",\"entryAssembly\":\"Hooky.dll\",\"advanced\":true,\"native\":true}",
+  "expect": {
+    "ok": true,
+    "manifest": {
+      "id": "hooky",
+      "name": "hooky",
+      "version": "1.0.0",
+      "parsedVersion": "1.0.0",
+      "apiVersion": "0.2",
+      "entryAssembly": "Hooky.dll",
+      "entryType": null,
+      "side": "server",
+      "clients": "none",
+      "authors": [],
+      "description": "",
+      "license": null,
+      "url": null,
+      "dependencies": [],
+      "loadBefore": [],
+      "loadAfter": [],
+      "incompatible": [],
+      "features": [],
+      "exports": [],
+      "advanced": true,
+      "tests": null,
+      "kilnBuild": null,
+      "warnings": []
+    }
+  }
+}

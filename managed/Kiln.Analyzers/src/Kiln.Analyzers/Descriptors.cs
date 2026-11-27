@@ -130,7 +130,7 @@ public static class Descriptors
 
     public static readonly DiagnosticDescriptor AdvancedApi = Rule("KILN107",
         "Advanced API without KilnAdvanced",
-        "'{0}' is an advanced API (hooks, symbols, raw memory): Kiln refuses it unless the mod opts in; set <KilnAdvanced>true</KilnAdvanced> (or \"advanced\": true in kiln.mod.json)",
+        "'{0}' is an advanced API (hooks, symbols, raw memory): Kiln refuses it unless the mod opts in; set <KilnAdvanced>true</KilnAdvanced> (or \"native\": true in kiln.mod.json, its older name \"advanced\": true)",
         Manifest, DiagnosticSeverity.Error,
         "kiln.hooks checks the calling mod's manifest and throws InvalidOperationException ('mod ... is not " +
         "advanced') when it does not declare \"advanced\": true.");
