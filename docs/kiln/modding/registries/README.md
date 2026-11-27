@@ -49,6 +49,22 @@ registry has a breaking step yet: every schema is 0.1.0, and Kiln ships no migra
 | `perks` | every perk: the value it grants, the armour and damage bonus of the simple perks (since 0.2.0-dev.32) | [perks.md](perks.md) |
 | `skills` | the skill tree's nodes: their cost in skill points; levels, kind, class and unlocked ability read-only (since 0.2.0-dev.32) | [skills.md](skills.md) |
 | `stations` | the crafting stations (workbench, production stations, villagers' stations), read-only; a recipe names its station (since 0.2.0-dev.32) | [stations.md](stations.md) |
+| `buffs` | every buff and debuff: duration, what applying it again does (since 0.2.0-dev.32) | [buffs.md](buffs.md) |
+| `abilities` | every timed action (spell casts, attacks, abilities, item uses): when it releases, hits, pays and applies a buff (since 0.2.0-dev.32) | [abilities.md](abilities.md) |
+
+`buffs` and `abilities` (dev.32) are kiln.gamedata's data under Kiln names: the same buffs and sequences a data pack's
+`buffs` / `sequences` sections change by the game's paths ([gamedata.md](../../services/gamedata.md)), which keep working as
+they are; a registry edit is the later layer and wins (reported). They take no raw paths and no entry add or remove (a mod's
+own buffs and abilities are kiln.gamedata clones or blocks). A spell's costs are its item's (`items.manaCost`,
+`items.staminaCost`); `abilities.timing.*` moves the moment of the first event of a kind together with every event of that kind
+at the same moment. Example: [SpellRegistry sample](../../../../mods/samples/SpellRegistry/SpellRegistryMod.cs) (a data pack for
+Fireball I's timing, C# for a buff's duration).
+
+In multiplayer, `buffs` fields are the server's alone (`serverOnly`: a client shows the time the server gave the buff). An
+`abilities.timing.*` edit makes the server spawn, hit, pay and apply buffs at the new time; a vanilla client keeps playing the
+ability's animation and effects at the old times, and a Kiln client gets the new time through the content sync. One exception:
+a time moved past a later event of the same kind in that ability is not sent, so Kiln clients keep the old time there too (the
+server still acts at the new one); a move that keeps the order (earlier, or later but not past such an event) is sent.
 
 The per-registry pages are generated from `schema/registry/<registry>.json` by `tools/registrygen/registrygen.py`; edit
 the schema, never the page. Kiln maintainers adding a registry: [adding-a-registry.md](../../adding-a-registry.md).
@@ -351,7 +367,7 @@ each generated page's **Joined client** column describe the multiplayer path (si
 
 | Joined client | Server edit on an already joined Kiln client |
 |---|---|
-| `now` | ContentSync transfers the effective item/recipe layer; the client uses it at the next use after receipt. Not instantaneous: generation/changed-count updates are checked periodically, and value-only changes are exported at least every 10 seconds while sync is enabled. |
+| `now` | ContentSync transfers the effective item/recipe layer (for `abilities`, kiln.gamedata's sequence values); the client uses it at the next use after receipt. Not instantaneous: generation/changed-count updates are checked periodically, and value-only changes are exported at least every 10 seconds while sync is enabled. |
 | `worldLoad` | ContentSync transfers the layer, but a consumer that read it at world load (notably stack clamping) is not replayed. The next client world load consumes it. |
 | `restart` | Not transferred by ContentSync. Both sides need the same boot values at process start; the join compares the resolved values when both peers send them ([network.md](../../network.md#registry-boot-values-and-order)). A rejoin alone is not enough. |
 | `serverOnly` | The client needs no copy for this field; server outcomes apply. There is no client-held value to refresh. |
@@ -377,7 +393,7 @@ matching files ([data-pack caveat](../../services/content.md#multiplayer-registr
 | Fields / operation | `clients` | Why |
 |---|---|---|
 | `loot`, `drops`; any `serverOnly` field (including the read-only balance gear constants, which cannot be edited) | `none` | Only the server needs the values. |
-| Synced `items` / `recipes` fields (`now` or `worldLoad`), `skills.cost` | `kiln` for matching UI/prediction; `none` deliberately permits vanilla UI/prediction | Kiln clients get server layers; vanilla clients do not. |
+| Synced `items` / `recipes` / `abilities` fields (`now` or `worldLoad`), `skills.cost` | `kiln` for matching UI/prediction; `none` deliberately permits vanilla UI/prediction | Kiln clients get server layers; vanilla clients do not. |
 | Client-needed `balance` fields (`restart`) | `mod`, with `side: "both"` | Each process must bake its own matching value/settings and load order; `kiln` alone cannot transfer it. |
 | Client-only fields (`localOnly`, currently `recipes.unlock`) | `mod`, with `side: "both"` | The client's own mod supplies them; a dedicated server refuses client-only edits. |
 | Item/recipe entry add/remove | At least `kiln`; `mod` for custom assets or other client-local content | Definitions and visibility are not just scalar server rules. Existing content/look-alike rules still apply. Loot removal alone remains server-only (`none`). |

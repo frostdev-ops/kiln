@@ -1,0 +1,62 @@
+{
+  "regmap": 1,
+  "registry": "buffs",
+  "entries": {
+    "kind": "array",
+    "resourceType": "keen::BuffTypeCollectionResource",
+    "array": "buffs",
+    "id": "buffTypeId",
+    "unnamed": "buff_%08x"
+  },
+  "rows": {
+    "duration": {
+      "paths": [
+        "defaultLifeTime"
+      ],
+      "conv": "time",
+      "read": "now",
+      "backend": "live",
+      "evidence": "docs/re/abilities.md section 10: applyBuffCore 0x15e130 (server f0d824be) reads BuffType+8 at every application (0x15e249), unless the applier passes its own time or the used item has a duration config; the client's buff bar shows the replicated lifetime"
+    },
+    "stacking": {
+      "paths": [
+        "applyType"
+      ],
+      "conv": "enum",
+      "values": {
+        "keep": "Invalid",
+        "refresh": "ResetTime",
+        "replace": "Replace",
+        "replaceAtEnd": "ReplaceAtEnd"
+      },
+      "read": "now",
+      "backend": "live",
+      "evidence": "docs/re/abilities.md section 10: applyBuffCore (server f0d824be) reads BuffType+5 at 0x15e46e when the target already holds the buff: Invalid refuses (result 0x11), ResetTime writes a new end (0x15e6af), Replace and ReplaceAtEnd destroy the running buff entity and apply a new one (0x15e49d); another buff type in the slot is always replaced; no other GetBuffType caller reads +5"
+    },
+    "kind": {
+      "paths": [
+        "slot"
+      ],
+      "conv": "enum",
+      "values": {
+        "food": "Food",
+        "buff": "Buff",
+        "debuff": "Debuff",
+        "rested": "Rested",
+        "terrain": "TerrainDebuff"
+      },
+      "read": "now",
+      "backend": "none",
+      "evidence": "docs/re/abilities.md section 4: BuffContainer slots (4 food, 16 buffs, 16 debuffs, rested, terrain); read-only"
+    },
+    "saved": {
+      "paths": [
+        "isSaved"
+      ],
+      "conv": "bool",
+      "read": "now",
+      "backend": "none",
+      "evidence": "docs/re/gamedata.md section 5 (buff capacity recheck): the save path's isSaved check (+0x4a); read-only"
+    }
+  }
+}

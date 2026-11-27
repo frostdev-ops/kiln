@@ -743,3 +743,50 @@ nothing (no animation, no mana). The cause is the sequence, not the player:
 - **Arguments read with no check.** A native reads `args[i]` through a pointer it leaves null when the argument is unconnected. Most test a flag first and return an error; some do not, and the process dies. `natives.json` marks those `"unchecked"` (74 arguments of 42 natives, found by a scan of the decompiles and kept only where all 571 vanilla programs connect the argument). `hasAttackCategory.matchAll` (`0x1885d0`) took a lab down.
 - **Consuming with no used item.** The spawn path `0x42390` reads `ItemRegistryFind(id)+0x42c` with no check (`0x42586`), so a `consume` event with no used item takes the server down. The cost payer `0x40d00` returns when there is no item, so `PayUsageCost.consume` is safe: 75 vanilla staff events have it on. Events with `consume` on, of 2,157 sequences: SpawnEntityEvent 79, PayUsageCost 75, SpawnImpact 15, ApplyBuffEvent 11, PlaceVoxelObjectEvent 1.
 - **Item clones share lists.** A clone made by copying `ItemInfo` and rebasing its offsets still points at the base's lists, so a change to one of their elements changes the base and every other clone. kiln.content now copies every list per clone.
+
+## 10. Read times of the buffs and abilities registries (dev.32; server f0d824be, build 26430253) **[dis] [data]**
+Evidence for `regmap/common/buffs.json` and `abilities.json` (docs/kiln/modding/registries/buffs.md, abilities.md). Capstone over a
+read-only copy of the server exe; RVAs of this build.
+
+**Buffs: applyBuffCore `0x15e130`** (callers through GetBuffType `0x933700`, e.g. `0x5de2b` at `0x5e221`/`0x5e25a`). Its fourth
+argument is the `BuffType*`:
+- `+0x49 despawnOnDeath` with ActorStateTest 7: a dying target gets no buff (`0x15e19d`).
+- `+0x08 defaultLifeTime` at every application (`0x15e249`), replaced by the caller's own time (`[r12+0x60]`) or by a duration
+  config of the used item (`ItemInfo+0x5f8`, found by `0x994a70`, its value at `+0x50`): **read now**; an applier with its own time
+  overrides it.
+- `+0x05 applyType` when the target already holds a buff in the slot found by `0x161540` (`0x15e46e`): another buff type there
+  is always treated as `Replace` (3). `Invalid` (0) returns result `0x11` (nothing applied); `ResetTime` (1) writes the running
+  buff's new end (`0x15e6af`: WriteOther, ProgramTime, `[rdi+8]`); `Replace` (3) and `ReplaceAtEnd` (2) destroy the running buff
+  entity (CmdDestroyEntity `0x15e4b3`) and apply a new one. **Read now.** No other GetBuffType caller reads `+0x05`
+  (registers tracked after each call). On this build ReplaceAtEnd and Replace behave the same here.
+- (review of dev.32) The `ResetTime` path's new end is ProgramTime plus the running buff entity's own `lifeTime` (`[rdi]`,
+  `0x15e712`, written to `[rdi+8]` endOfLife at `0x15e734`), not `+0x08`: a refreshed buff restarts with the length it started
+  with, so a `buffs.duration` edit reaches a running buff only when it ends and is applied again.
+- (review of dev.32) `+0x04 slot` Food (0) multiplies the time by the float `0x9378f0` returns (`0x15e395`..`0x15e3d8`; the world's
+  food buff duration factor, settings.md `foodBuffDurationFactor`); `slot` Debuff (2) for the one buff id `0x946f50` returns takes
+  a value off it (`0x15e306`..`0x15e393`).
+- The 274 buffs (`BuffTypeCollectionResource` 02022e86-…, decoded with tools/kfc): applyType ResetTime 211, Replace 38,
+  ReplaceAtEnd 15, Invalid 10; slots Buff 127, Debuff 118, Food 17, TerrainDebuff 11, Rested 1; defaultLifeTime 0 to 900 s.
+- Magnitude and tick rate are configs of each buff's own program (`impactValues`: 346 config ids in the game, the buffs use
+  75; the most common are AttackMod 23, Stamina_Recharge 19, DebuffType 19, SpawnEntityOnTick 15 and a TimeImpactConfig
+  whose programs call it Duration, Interval or WaitTime, 15): no single field means the same in every buff, so the registry
+  has none yet.
+
+**Abilities: the sequence window walker `0x34520` -> `0x34620`.** It reads each event's `time` (`+0`) and `duration` (`+8`) from
+the sub-sequence's events at every step and stops at the first event whose time is at or after the window's end
+(`0x3474c: cmp rcx, rdi; jge 0x34801`). Every consumer of a kind of event takes its window from it:
+- actor_spawn_entity `0x45539` (SpawnEntityEvent `0x51e20bf3`, SpawnImpact `0x64b5dc20`), call at `0x4569f`;
+- actor_pay_usage_cost `0x4539e` (PayUsageCost `0x4e5c0937`), call at `0x45408`;
+- actor_apply_buff `0x75c09` (ApplyBuffEvent `0xf02be4c8`), call at `0x75caf`.
+
+So an event's time is **read now**, at each playback (Kiln keeps the list sorted after a change: gamedata.md "Event order").
+The sub-sequence accessors `0x9328d0` / `0x932930` (registry Find `0x9327c0`) hand the sub-sequence to the walkers; no caller
+reads `length` (`+8`) right after them, and its reader is not traced: the registry has no `length` field yet.
+- The 2,157 sequences (decoded with tools/kfc): 5 have a second part; every events list is sorted by time and the first event of
+  a kind is its earliest. First moments: SpawnImpact in 442 sequences, SpawnEntityEvent 418, PayUsageCost 152, ApplyBuffEvent
+  106; another event of the same kind at the first moment in 99, 42 and 31 of them (Fireball I: two PayUsageCost at 0.65 s).
+  Only 1 of 230 PayUsageCost events carries a cost of its own (ManaCost): costs are the cost item's (items.manaCost,
+  items.staminaCost; the special-ability bar's `0x2de5f1f5` has no registry field yet).
+- No player cooldown exists beyond this timing (section "Short answers"). Two programs (a742438c-…, b1e3f38c-…) take a cooldown
+  as a buff (configs CooldownBuff, CooldownDelayBuff, CooldownDebuffDuration); where that buff's time is its own, it is the
+  buff's `buffs.duration` [hyp for which items use them].

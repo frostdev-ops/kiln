@@ -54,6 +54,10 @@ public sealed class RegistryStage
     /// <summary>The crafting stations, by Kiln id (the id of the item that builds each one). Read-only; a recipe names its
     /// station (recipes.station).</summary>
     public RegistryEntries<StationEntry> Stations { get { Context.Ensure(); return new(this, "stations", static (id, cells) => new(id, cells)); } }
+    /// <summary>Buffs and debuffs, by Kiln id (game:buff_&lt;32-bit id in hex&gt;): duration and what applying one again does.</summary>
+    public RegistryEntries<BuffEntry> Buffs { get { Context.Ensure(); return new(this, "buffs", static (id, cells) => new(id, cells)); } }
+    /// <summary>Abilities (the game's timed action sequences: casts, attacks, abilities), by Kiln id: their timing.</summary>
+    public RegistryEntries<AbilityEntry> Abilities { get { Context.Ensure(); return new(this, "abilities", static (id, cells) => new(id, cells)); } }
     /// <summary>The singleton balance table. Its restart fields are editable only at game start.</summary>
     public BalanceEntry Balance { get { Context.Ensure(); return new(new("game:balance"), Cells("balance", "game:balance")); } }
     /// <summary>Authors new entries in the add pass. Entry creation is GameStart-only; later native points report RestartRequired.</summary>

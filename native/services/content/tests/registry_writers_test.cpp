@@ -467,6 +467,17 @@ int main(int argc, char** argv) {
                   "the creature is named whole, not on every field: " + std::to_string(v.archive_fields.size()) + " per-field names");
             CHECK(cbm.registries["creatures"][1].archive.empty(), "a write of the template's name names no creature");
         }
+        // dev.32 abilities: a regmap member with a [<Type>#<k>] selector (which the journal's paths never carry: they give an
+        // element's index) is named by a written path at any index there, so a package that wrote an event's time is never
+        // missed (it can over-name, as the journal may)
+        const std::map<std::string, std::vector<std::string>> ab = {
+            {"timing.release", {"subSequences[0].events[keen::actor::SpawnEntityEvent#0].time"}},
+            {"timing.cost", {"subSequences[0].events[keen::actor::PayUsageCost#0].time"}}};
+        CHECK(archive_fields_of(ab, {"subSequences[0].events[11].time"}) == std::set<std::string>({"timing.release", "timing.cost"}) &&
+                  archive_fields_of(ab, {"subSequences[0].events"}).size() == 2 && archive_fields_of(ab, {"subSequences[0].events[]"}).size() == 2 &&
+                  archive_fields_of(ab, {"subSequences[0].length"}).empty() && archive_fields_of(ab, {"subSequences[1].events[3].time"}).empty() &&
+                  archive_fields_of(ab, {"subSequences[0].events[11].duration"}).empty() && archive_fields_of(ab, {"subSequences"}).size() == 2,
+              "a variant selector names any element at its place, never another member or part");
         // the same journal without the regmap's fields: per entry as before, never an element
         BaseModel plain = eb;
         for (auto& [reg, es2] : plain.registries)

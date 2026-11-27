@@ -3,6 +3,7 @@
 #include "model.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -62,6 +63,31 @@ bool jwalk(const json& root, const std::string& path, bool tmpl, json* out, std:
             if (e == std::string::npos) return *why = "\"[\" without \"]\" in " + path, false;
             const std::string in = path.substr(i + 1, e - i - 1);
             if (!cur->is_array()) return *why = path.substr(0, i) + " is not a list", false;
+            if (!in.empty() && !std::isdigit(static_cast<unsigned char>(in[0]))) {
+                // [<Type>#<k>] / [<Type>]: the k-th element of that variant type (a tree gives a variant as {"$type": <its name>,
+                // ...}; the type is named qualified or by its last part, kiln.gamedata's grammar)
+                const size_t h = in.find('#');
+                std::string want = in.substr(0, h);
+                if (const size_t ns = want.rfind("::"); ns != std::string::npos) want = want.substr(ns + 2);
+                char* nend = nullptr;
+                const unsigned long nth = h == std::string::npos ? 0 : std::strtoul(in.c_str() + h + 1, &nend, 10);
+                if (h != std::string::npos && (h + 1 == in.size() || !nend || *nend)) return *why = "\"[" + in + "]\": <Type>#<index>", false;
+                const json* found = nullptr;
+                unsigned long seen = 0;
+                for (const auto& el : *cur) {
+                    if (!el.is_object() || !el.contains("$type") || !el["$type"].is_string()) continue;
+                    std::string t = el["$type"].get<std::string>();
+                    if (const size_t ns = t.rfind("::"); ns != std::string::npos) t = t.substr(ns + 2);
+                    if (lc(t) != lc(want) || seen++ != nth) continue;
+                    found = &el;
+                    break;
+                }
+                if (!found) return *why = path.substr(0, i) + " has no " + in, false;
+                cur = found;
+                i = e + 1;
+                first = false;
+                continue;
+            }
             char* end = nullptr;
             const unsigned long n = std::strtoul(in.c_str(), &end, 10);
             if (in.empty() || !end || *end) return *why = "\"[" + in + "]\": an index", false;
@@ -370,7 +396,9 @@ std::optional<Value> decode(const map::RegistryMap& reg, const map::Row& row, co
     };
     const std::string& c = row.conv;
     json a, b;
-    if (c == "int" || c == "float" || c == "bool" || c == "time") {
+    // eventTime: the first event of a kind ("<list>[<Type>#0].time"), read as a time; the live back-end moves every event of
+    // that kind at the same time with it (regmap/README.md)
+    if (c == "int" || c == "float" || c == "bool" || c == "time" || c == "eventTime") {
         if (!at(0, &a)) return std::nullopt;
         return scalar(f, f.type == FieldType::List ? f.element : f.type, a, why);
     }
@@ -973,7 +1001,7 @@ void Model::fill(const Need& need, BaseModel* out) {
                 if (!raw_key(r.paths[0], &key, &err)) continue;
                 const bool converted = r.conv == "formula" || r.conv == "enum" || r.conv == "optionalEnum" || r.conv == "flags" || r.conv == "impactConfig" ||
                                        r.conv == "ref" || r.conv == "refList" || r.conv == "unlock" || r.conv == "stackCount" || r.conv == "list" ||
-                                       r.conv == "inventoryWalk";
+                                       r.conv == "inventoryWalk" || r.conv == "eventTime";
                 out->raw_cover[reg][key] = {fn, converted};
             }
     }

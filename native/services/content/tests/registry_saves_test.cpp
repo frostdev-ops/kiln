@@ -37,6 +37,14 @@ int main() {
     CHECK(is(stack, "stackCut", sv::Decision::Guard) && stack->text.find("250 -> 100") != std::string::npos &&
               stack->unguarded.find("this edit was not applied") != std::string::npos, "a lower max stack: guard (refused without the guard)");
     CHECK(!sv::judge("items", "maxStack", I(250), I(1000)), "a higher max stack changes nothing a save holds");
+    // dev.32 (adding-a-registry 2.8a): no buffs or abilities field changes what a save holds. A saved buff keeps its end time and
+    // its id (buffs.duration and stacking are read when a buff is applied; kind and saved are read-only), and an ability's timing
+    // is read while it plays. Pinned so a later save class is a decision, not an accident.
+    for (const char* f : {"duration", "stacking"})
+        CHECK(!sv::judge("buffs", f, Value::number(10), Value::number(1)) && !sv::judge("buffs", f, Value::text("refresh"), Value::text("keep")),
+              (std::string("buffs.") + f + ": no save class").c_str());
+    for (const char* f : {"timing.release", "timing.hit", "timing.cost", "timing.buff"})
+        CHECK(!sv::judge("abilities", f, Value::number(0.65), Value::number(0.1)), (std::string("abilities.") + f + ": no save class").c_str());
     // levelRange: a narrower range clamps saved copies at load and the save keeps it: refused
     CHECK(is(sv::judge("items", "levels.max", I(55), I(30)), "levelRange", sv::Decision::Refuse), "levels.max lowered: refused");
     CHECK(is(sv::judge("items", "levels.min", I(1), I(5)), "levelRange", sv::Decision::Refuse), "levels.min raised: refused");

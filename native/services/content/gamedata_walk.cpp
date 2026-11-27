@@ -169,14 +169,23 @@ bool elements(const Node& n, std::vector<Node>* out) {
     return false;
 }
 
-std::string variant_brief(const Node& raw) {
+const TType* variant_type(const Node& raw) {
     const TType* r = raw.t ? raw.t->resolved() : nullptr;
-    if (!r || r->kind != K_BLOBVAR) return {};
+    if (!r || r->kind != K_BLOBVAR) return nullptr;
     uint32_t h = 0, sz = 0;
     uintptr_t d = 0;
-    if (!blob_variant(raw.addr, &h, &d, &sz) || !h) return {};
-    const TType* vt = type_hash(h);
+    if (!blob_variant(raw.addr, &h, &d, &sz) || !h) return nullptr;
+    return type_hash(h);
+}
+std::string variant_brief(const Node& raw) {
+    const TType* vt = variant_type(raw);
     return vt ? vt->brief : std::string();
+}
+// A [Type#k] selector's type: qualified ("keen::actor::SpawnEntityEvent", Kiln's regmap names one exactly) or its last part.
+bool variant_is(const Node& raw, const std::string& want) {
+    const TType* vt = variant_type(raw);
+    if (!vt) return false;
+    return lower(want.find("::") != std::string::npos ? vt->name : vt->brief) == lower(want);
 }
 
 uint32_t config_id_of(const Node& cfg) {
@@ -444,8 +453,8 @@ bool resolve(Root kind, Node root, const std::string& path, std::vector<Resolved
             uint32_t seen = 0;
             bool found = false;
             for (size_t i = 0; i < els.size(); ++i) {
+                if (!variant_is(els[i], want)) continue;
                 const std::string b = variant_brief(els[i]);
-                if (b.empty() || lower(b) != lower(want)) continue;
                 if (seen++ != nth) continue;
                 State s2 = st;
                 s2.node = els[i];

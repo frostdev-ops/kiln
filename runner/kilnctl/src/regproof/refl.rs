@@ -19,6 +19,7 @@ pub const K_TYPEDEF: u32 = 17;
 pub const K_STRUCT: u32 = 18;
 pub const K_STATIC_ARRAY: u32 = 19;
 pub const K_BLOB_ARRAY: u32 = 24;
+pub const K_BLOB_VARIANT: u32 = 27;
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Member {
@@ -273,13 +274,67 @@ pub fn component_type(name: &str) -> String {
     format!("keen::ecs::{name}")
 }
 
-/// The members a dotted path walks through from a type. A part `name[i]` is element i of the array member `name` (a step of
-/// its own, the element's type at i times its size); from a template root the first part names a component by its type (a
-/// step from the template to that component type, offset 0: where a template holds it is the template's, not the build's).
+/// A path's members: dots outside brackets split it ("a[keen::x::Y#0].b" has two).
+fn split_path(path: &str) -> Vec<&str> {
+    let (mut out, mut depth, mut start) = (Vec::new(), 0i32, 0usize);
+    for (i, c) in path.char_indices() {
+        match c {
+            '[' => depth += 1,
+            ']' => depth -= 1,
+            '.' if depth == 0 => {
+                out.push(&path[start..i]);
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    out.push(&path[start..]);
+    out
+}
+
+/// A member with its selectors: "events[keen::actor::SpawnEntityEvent#0]" -> ("events", ["keen::actor::SpawnEntityEvent#0"]).
+fn parse_part(part: &str) -> Option<(&str, Vec<&str>)> {
+    let name_end = part.find('[').unwrap_or(part.len());
+    let name = &part[..name_end];
+    if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        return None;
+    }
+    let mut sels = Vec::new();
+    let mut rest = &part[name_end..];
+    while !rest.is_empty() {
+        let inner = rest.strip_prefix('[')?;
+        let close = inner.find(']')?;
+        if close == 0 {
+            return None;
+        }
+        sels.push(&inner[..close]);
+        rest = &inner[close + 1..];
+    }
+    Some((name, sels))
+}
+
+/// t is base, or a struct whose chain of bases reaches it.
+fn derives(db: &TypeDb, t: &Type, base: &str) -> bool {
+    let mut cur = Some(t);
+    for _ in 0..32 {
+        let Some(c) = cur else { return false };
+        if c.name == base {
+            return true;
+        }
+        cur = if c.kind == K_STRUCT { c.inner.as_deref().and_then(|n| db.get(n)) } else { None };
+    }
+    false
+}
+
+/// The members a dotted path walks through from a type, one step per member. A member may carry selectors (kiln.gamedata's
+/// grammar): `[<index>]` an array's element (a static array's within its count; its step's offset is the element's within the
+/// owner), `[<Type>#<k>]` a variant of a list of variants (qualified, or the last part when one variant of the list's base has
+/// it); the step's type is then the selected one. From a template root the first part names a component by its type (a step
+/// from the template to that component type, offset 0: where a template holds it is the template's, not the build's).
 fn walk(db: &TypeDb, base: &str, path: &str) -> std::result::Result<Vec<Step>, Stop> {
     let mut cur = db.get(base).ok_or_else(|| Stop { at: 0, owner: base.into(), member: String::new(), why: format!("{base} is not in the reflection") })?;
     let mut steps = Vec::new();
-    let mut parts: Vec<&str> = path.split('.').collect();
+    let mut parts = split_path(path);
     if base == TEMPLATE && !parts.is_empty() && !db.fields(cur).iter().any(|f| f.name == parts[0]) {
         let ty = component_type(parts[0]);
         let comp = db.get(&ty).filter(|t| db.resolve(t).kind == K_STRUCT).ok_or_else(|| Stop {
@@ -288,34 +343,64 @@ fn walk(db: &TypeDb, base: &str, path: &str) -> std::result::Result<Vec<Step>, S
         cur = comp;
         parts.remove(0);
     }
-    for whole in parts {
-        let (part, index) = match whole.strip_suffix(']').and_then(|x| x.split_once('[')) {
-            Some((n, i)) => (n, Some(i)),
-            None => (whole, None),
-        };
+    for part in parts {
         let owner = db.resolve(cur);
         let stop = |why: String| Stop { at: steps.len(), owner: owner.name.clone(), member: part.into(), why };
         if owner.kind != K_STRUCT {
             return Err(stop(format!("{} has no members", owner.name)));
         }
-        let Some(m) = db.fields(owner).into_iter().find(|f| f.name == part) else {
-            return Err(stop(format!("{} has no member {part}", owner.name)));
+        let Some((name, sels)) = parse_part(part) else {
+            return Err(stop(format!("{part} is not a member name with [<index>] or [<Type>#<k>] selectors")));
         };
-        let next = db.get(&m.ty).ok_or_else(|| stop(format!("the type of {part} ({}) is not in the reflection", m.ty)))?;
-        steps.push(Step { owner: owner.name.clone(), member: part.into(), ty: m.ty.clone(), offset: m.offset });
-        cur = next;
-        if let Some(i) = index {
-            let at = steps.len();
-            let arr = db.resolve(cur);
-            let stop = |why: String| Stop { at, owner: arr.name.clone(), member: format!("[{i}]"), why };
-            let i: u64 = i.parse().map_err(|_| stop(format!("[{i}] is not an index")))?;
-            let el = db.element(&arr.name).ok_or_else(|| stop(format!("{part} is not an array")))?;
-            if arr.kind == K_STATIC_ARRAY && el.size > 0 && i >= arr.size / el.size {
-                return Err(stop(format!("{part} has {} elements, not {}", arr.size / el.size, i + 1)));
+        let Some(m) = db.fields(owner).into_iter().find(|f| f.name == name) else {
+            return Err(stop(format!("{} has no member {name}", owner.name)));
+        };
+        let mut next = db.get(&m.ty).ok_or_else(|| stop(format!("the type of {name} ({}) is not in the reflection", m.ty)))?;
+        let mut offset = m.offset;
+        for sel in sels {
+            let arr = db.resolve(next);
+            if arr.kind != K_STATIC_ARRAY && arr.kind != K_BLOB_ARRAY {
+                return Err(stop(format!("{name} is not a list ([{sel}])")));
             }
-            steps.push(Step { owner: arr.name.clone(), member: format!("[{i}]"), ty: el.name.clone(), offset: i * el.size });
-            cur = el;
+            let el = arr.inner.as_deref().and_then(|n| db.get(n)).ok_or_else(|| stop(format!("the elements of {name} are not in the reflection")))?;
+            let elr = db.resolve(el);
+            if sel.chars().all(|c| c.is_ascii_digit()) {
+                if elr.kind == K_BLOB_VARIANT {
+                    return Err(stop(format!("{name} holds variants: name one with [<Type>#<k>], not [{sel}]")));
+                }
+                // a static array's element lies within the owner (dev.32 creatures: an attribute's slot): an index past its end on
+                // this build changes the row, a moved slot is carried by its offset
+                if arr.kind == K_STATIC_ARRAY {
+                    let i: u64 = sel.parse().map_err(|_| stop(format!("[{sel}] is not an index")))?;
+                    if el.size > 0 && i >= arr.size / el.size {
+                        return Err(stop(format!("{name} has {} elements, not {}", arr.size / el.size, i + 1)));
+                    }
+                    offset += i * el.size;
+                }
+                next = el;
+                continue;
+            }
+            let (want, k) = sel.split_once('#').unwrap_or((sel, "0"));
+            if want.is_empty() || k.is_empty() || !k.chars().all(|c| c.is_ascii_digit()) {
+                return Err(stop(format!("[{sel}] is neither an index nor <Type>#<k>")));
+            }
+            if elr.kind != K_BLOB_VARIANT {
+                return Err(stop(format!("[{sel}] picks a variant, and {name} holds no variants")));
+            }
+            let vbase = elr.inner.clone().unwrap_or_default();
+            let found: Vec<&Type> = if want.contains("::") {
+                db.get(want).into_iter().collect()
+            } else {
+                db.types.values().filter(|t| t.name.rsplit("::").next() == Some(want)).collect()
+            };
+            let found: Vec<&Type> = found.into_iter().filter(|t| derives(db, t, &vbase)).collect();
+            match found.as_slice() {
+                [t] => next = t,
+                _ => return Err(stop(format!("{want} is not one variant of {vbase} in the reflection"))),
+            }
         }
+        steps.push(Step { owner: owner.name.clone(), member: part.into(), ty: next.name.clone(), offset });
+        cur = next;
     }
     Ok(steps)
 }
@@ -389,8 +474,15 @@ fn find_paths(db: &TypeDb, base: &str, name: &str, depth: usize, prefix: &str, o
 fn propose(old: &TypeDb, new: &TypeDb, nbase: &str, path: &str, os: &[Step], stop: &Stop) -> Option<Proposal> {
     let was = os.get(stop.at)?;
     let old_names: Vec<String> = old.get(&was.owner).map(|t| old.fields(t).iter().map(|f| f.name.clone()).collect()).unwrap_or_default();
+    // a member with selectors ("events[keen::actor::SpawnEntityEvent#0]"): its step's type is the element or variant it picks;
+    // a rename is the member itself, so compare the member's own type (the list) and keep its selectors in the proposal
+    let (was_name, selectors) = was.member.split_at(was.member.find('[').unwrap_or(was.member.len()));
+    let was_ty = old
+        .get(&was.owner)
+        .and_then(|t| old.fields(t).into_iter().find(|f| f.name == was_name).map(|f| f.ty.clone()))
+        .unwrap_or_else(|| was.ty.clone());
     let owner = new.get(&stop.owner)?;
-    let cands: Vec<&Member> = new.fields(owner).into_iter().filter(|f| !old_names.contains(&f.name) && !retyped(old, new, &was.ty, &f.ty)).collect();
+    let cands: Vec<&Member> = new.fields(owner).into_iter().filter(|f| !old_names.contains(&f.name) && !retyped(old, new, &was_ty, &f.ty)).collect();
     let same_place: Vec<&&Member> = cands.iter().filter(|f| f.offset == was.offset).collect();
     let rename = match (same_place.len(), cands.len()) {
         (1, _) => Some((same_place[0].name.clone(), "renamed: a new member with the same offset and type")),
@@ -400,8 +492,8 @@ fn propose(old: &TypeDb, new: &TypeDb, nbase: &str, path: &str, os: &[Step], sto
     let old_leaf = leaf(os);
     let fits = |p: &str| walk(new, nbase, p).is_ok_and(|s| !retyped(old, new, &old_leaf, &leaf(&s)));
     if let Some((name, why)) = rename {
-        let mut parts: Vec<String> = path.split('.').map(str::to_string).collect();
-        parts[stop.at] = name;
+        let mut parts: Vec<String> = split_path(path).into_iter().map(str::to_string).collect();
+        parts[stop.at] = name + selectors;
         let now = parts.join(".");
         if fits(&now) {
             return Some(Proposal { was: path.into(), now, why: why.into() });
@@ -680,6 +772,65 @@ pub(crate) mod tests {
 
     fn status(d: &ReflDiff, q: &str) -> Status {
         d.status(q).unwrap_or_else(|| panic!("{q} not in the diff: {:?}", d.rows.keys().collect::<Vec<_>>()))
+    }
+
+    /// dev.32: a sequence-like resource whose sub-sequences' events are variants of a base event (selectors in paths).
+    fn seq_types() -> Vec<Value> {
+        vec![
+            t("demo::s64", 9, 8), t("demo::Guid", 29, 16), t("demo::Text", 25, 8),
+            st("demo::Time", 8, 0x10, &[("value", "demo::s64", 0)]),
+            st("demo::Event", 16, 0x11, &[("time", "demo::Time", 0), ("duration", "demo::Time", 8)]),
+            json!({"name": "demo::act::Spawn", "kind": K_STRUCT, "size": 24, "layout": 0x12, "inner": "demo::Event", "fields": []}),
+            json!({"name": "demo::ds::Spawn", "kind": K_STRUCT, "size": 24, "layout": 0x13, "inner": null,
+                   "fields": [{"name": "time", "type": "demo::Time", "offset": 0}]}),
+            json!({"name": "demo::BlobVariant<demo::Event>", "kind": K_BLOB_VARIANT, "size": 12, "layout": 0, "inner": "demo::Event"}),
+            arr("demo::Events", "demo::BlobVariant<demo::Event>"),
+            st("demo::Sub", 24, 0x14, &[("events", "demo::Events", 0), ("length", "demo::Time", 8), ("name", "demo::Text", 16)]),
+            arr("demo::Subs", "demo::Sub"),
+            st("demo::Seq", 24, 0x15, &[("id", "demo::Guid", 0), ("subSequences", "demo::Subs", 16)]),
+        ]
+    }
+
+    #[test]
+    fn paths_take_index_and_variant_selectors() {
+        let d = db(seq_types(), "a");
+        let steps = walk(&d, "demo::Seq", "subSequences[0].events[demo::act::Spawn#0].time").unwrap();
+        let tys: Vec<&str> = steps.iter().map(|s| s.ty.as_str()).collect();
+        assert_eq!(tys, ["demo::Sub", "demo::act::Spawn", "demo::Time"]);
+        assert_eq!(steps[1].offset, 0);
+        assert_eq!(leaf(&walk(&d, "demo::Seq", "subSequences[0].events[Spawn#2].duration").unwrap()), "demo::Time",
+                   "a last name names the one variant of the list's base");
+        assert_eq!(leaf(&walk(&d, "demo::Seq", "subSequences[0].name").unwrap()), "demo::Text");
+        for (path, why) in [("subSequences[0].events[demo::ds::Spawn#0].time", "not one variant"),
+                            ("subSequences[0].events[0].time", "holds variants"),
+                            ("subSequences[0].length[0]", "not a list"),
+                            ("subSequences[x].length", "holds no variants"),
+                            ("subSequences[0].events[demo::act::Spawn#x].time", "neither an index")] {
+            let e = walk(&d, "demo::Seq", path).err().unwrap_or_else(|| panic!("{path} resolved"));
+            assert!(e.why.contains(why), "{path}: {}", e.why);
+        }
+    }
+
+    /// Review of dev.32: a member with selectors renamed on a new build (the update rehearsal) is proposed with its selectors kept,
+    /// compared by the member's own type (the list), never by the variant its selector picks.
+    #[test]
+    fn a_renamed_member_with_selectors_is_proposed_with_them() {
+        let old = db(seq_types(), "a");
+        let path = "subSequences[0].events[demo::act::Spawn#0].time";
+        let os = walk(&old, "demo::Seq", path).unwrap();
+        for (replacement, now) in [
+            (st("demo::Sub", 24, 0x14, &[("timeline", "demo::Events", 0), ("length", "demo::Time", 8), ("name", "demo::Text", 16)]),
+             "subSequences[0].timeline[demo::act::Spawn#0].time"),
+            (st("demo::Seq", 24, 0x15, &[("id", "demo::Guid", 0), ("parts", "demo::Subs", 16)]), "parts[0].events[demo::act::Spawn#0].time"),
+        ] {
+            let mut n = seq_types();
+            replace(&mut n, replacement);
+            let new = db(n, "b");
+            let stop = walk(&new, "demo::Seq", path).unwrap_err();
+            let p = propose(&old, &new, "demo::Seq", path, &os, &stop).unwrap_or_else(|| panic!("no proposal for {now}"));
+            assert_eq!(p.now, now);
+            assert!(p.why.starts_with("renamed"), "{p:?}");
+        }
     }
 
     #[test]

@@ -120,8 +120,9 @@ public class RegistryTests
             Assert.DoesNotContain("0x", f.Field);
             Assert.InRange((int)f.Applies, 1, 3);
         }
-        // R1's five and dev.32's creatures, arsenals, perks, skills and stations (later waves add theirs)
-        Assert.Superset(new HashSet<string> { "balance", "drops", "items", "loot", "recipes", "creatures", "arsenals", "perks", "skills", "stations" },
+        // R1's five and dev.32's creatures, arsenals, perks, skills, stations, buffs and abilities (later waves add theirs)
+        Assert.Superset(new HashSet<string> { "balance", "drops", "items", "loot", "recipes", "creatures", "arsenals", "perks", "skills", "stations",
+                                              "buffs", "abilities" },
                         RegistrySchema.Versions.Keys.ToHashSet());
     }
 

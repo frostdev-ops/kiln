@@ -16,6 +16,7 @@ root = pathlib.Path(sys.argv[1])
 # the copy's own mapping digest (kilnctl regproof's regmapDigest), so its records stay bound to the common they sit beside
 text = "".join(f"{f.name}\n{hashlib.sha256(f.read_bytes()).hexdigest()}\n" for f in sorted((root / "common").glob("*.json")))
 digest = hashlib.sha256(text.encode()).hexdigest()
+common = sorted(f"{d['registry']}.{row}" for f in (root / "common").glob("*.json") for d in [json.loads(f.read_text(encoding="utf-8"))] for row in d.get("rows", {}))
 for side in ("server", "client"):
     for f in sorted((root / side).glob("*.json")):
         doc = json.loads(f.read_text(encoding="utf-8"))

@@ -1,0 +1,24 @@
+{
+  "format": 1,
+  "comment": "Spell registry example: Kiln registry fields only (docs/kiln/modding/registries/abilities.md). Fireball I's cast (game:attack_player_staff_fixedanim_fireball_fast) releases its projectile at 0.45 s instead of 0.65 s and pays its mana at the same moment: every spawn and every payment at their first moment move with the field (mods/samples/SpellTweaks moves each event by its kiln.gamedata path instead). The buffs are in SpellRegistryMod.cs.",
+  "registry": {
+    "alter": [
+      {
+        "registry": "abilities",
+        "select": {
+          "id": "game:attack_player_staff_fixedanim_fireball_fast"
+        },
+        "field": "timing.release",
+        "op": 0.45
+      },
+      {
+        "registry": "abilities",
+        "select": {
+          "id": "game:attack_player_staff_fixedanim_fireball_fast"
+        },
+        "field": "timing.cost",
+        "op": 0.45
+      }
+    ]
+  }
+}

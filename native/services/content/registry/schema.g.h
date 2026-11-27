@@ -63,6 +63,8 @@ inline constexpr Registry kRegistries[] = {
     {8, "perks", "0.1.0", true, false, "", true, 143, 25},
     {9, "skills", "0.1.0", true, false, "", false, 168, 5},
     {10, "stations", "0.1.0", true, false, "", false, 173, 2},
+    {11, "abilities", "0.1.0", true, false, "", false, 175, 4},
+    {12, "buffs", "0.1.0", true, false, "", false, 179, 4},
 };
 
 inline constexpr Field kFields[] = {
@@ -241,6 +243,14 @@ inline constexpr Field kFields[] = {
     {0x00090005u, "skills", "unlocks", Kind::Ref, Kind::Ref, false, false, 0.0, 0.0, 0u, "", "items", "", true, Applies::Now, Ops::None, "", "", true, 0u, "", 0, Side::Both, "serverOnly"},
     {0x000a0001u, "stations", "item", Kind::Ref, Kind::Ref, false, false, 0.0, 0.0, 0u, "", "items", "", true, Applies::Restart, Ops::None, "", "", true, 0u, "", 0, Side::Both, "serverOnly"},
     {0x000a0002u, "stations", "npc", Kind::Bool, Kind::Bool, false, false, 0.0, 0.0, 0u, "", "", "", true, Applies::Restart, Ops::None, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x000b0001u, "abilities", "timing.release", Kind::Time, Kind::Time, true, true, 0.0, 600.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "s", "", false, 0u, "", 0, Side::Both, "now"},
+    {0x000b0002u, "abilities", "timing.hit", Kind::Time, Kind::Time, true, true, 0.0, 600.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "s", "", false, 0u, "", 0, Side::Both, "now"},
+    {0x000b0003u, "abilities", "timing.cost", Kind::Time, Kind::Time, true, true, 0.0, 600.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "s", "", false, 0u, "", 0, Side::Both, "now"},
+    {0x000b0004u, "abilities", "timing.buff", Kind::Time, Kind::Time, true, true, 0.0, 600.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "s", "", false, 0u, "", 0, Side::Both, "now"},
+    {0x000c0001u, "buffs", "duration", Kind::Time, Kind::Time, true, true, 0.0, 86400.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "s", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x000c0002u, "buffs", "stacking", Kind::Enum, Kind::Enum, false, false, 0.0, 0.0, 0u, "keep|refresh|replace|replaceAtEnd", "", "", false, Applies::Now, Ops::Set, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x000c0003u, "buffs", "kind", Kind::Enum, Kind::Enum, false, false, 0.0, 0.0, 0u, "food|buff|debuff|rested|terrain", "", "", true, Applies::Now, Ops::None, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x000c0004u, "buffs", "saved", Kind::Bool, Kind::Bool, false, false, 0.0, 0.0, 0u, "", "", "", true, Applies::Now, Ops::None, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
 };
 
 // The id migrations of the schemas' breaking steps (schema/registry/migrations/<registry>-<from>-<to>.json), oldest
@@ -436,6 +446,14 @@ inline constexpr uint32_t skills_class = 0x00090004u;
 inline constexpr uint32_t skills_unlocks = 0x00090005u;
 inline constexpr uint32_t stations_item = 0x000a0001u;
 inline constexpr uint32_t stations_npc = 0x000a0002u;
+inline constexpr uint32_t abilities_timing_release = 0x000b0001u;
+inline constexpr uint32_t abilities_timing_hit = 0x000b0002u;
+inline constexpr uint32_t abilities_timing_cost = 0x000b0003u;
+inline constexpr uint32_t abilities_timing_buff = 0x000b0004u;
+inline constexpr uint32_t buffs_duration = 0x000c0001u;
+inline constexpr uint32_t buffs_stacking = 0x000c0002u;
+inline constexpr uint32_t buffs_kind = 0x000c0003u;
+inline constexpr uint32_t buffs_saved = 0x000c0004u;
 }  // namespace field
 
 }  // namespace kc::registry::gen

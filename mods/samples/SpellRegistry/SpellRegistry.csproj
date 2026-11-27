@@ -1,0 +1,20 @@
+<Project>
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.props" />
+  <!-- Sample (dev.32): spell timing and buffs through Kiln's registries. content/spell-registry.json does what
+       mods/samples/SpellTweaks does for Fireball I's timing with kiln.gamedata paths, in Kiln names (abilities.timing.*); the
+       code sets Poisoned's duration from a setting (buffs.*). Server-side values: vanilla clients play along; Kiln clients get them (sync). -->
+  <PropertyGroup>
+    <KilnModId>spell-registry</KilnModId>
+    <KilnModName>Spell registry example</KilnModName>
+    <Version>0.1.0</Version>
+    <Description>Fireball I leaves the staff earlier and pays its cost at the same moment; Poisoned lasts as long as a setting says. Kiln registry fields only (abilities, buffs).</Description>
+    <KilnSide>server</KilnSide>
+    <KilnServices>Registry</KilnServices>
+    <KilnGameIds>None</KilnGameIds>
+    <NoWarn>$(NoWarn);KILNX031</NoWarn>
+  </PropertyGroup>
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.targets" />
+  <Target Name="_SpellRegistrySharedOut" AfterTargets="_KilnModFiles">
+    <ItemGroup><_KilnModFile Remove="$(OutDir)Kiln.*" /></ItemGroup>
+  </Target>
+</Project>

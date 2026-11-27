@@ -398,6 +398,11 @@ fn registry_only_clients_guidance_tracks_the_edited_fields() {
     check("good-skill-cost", "kiln", "skills", "cost", None);
     // stations are read-only: an edit of them is refused, so lint makes no claim about it
     check("station", "kiln", "stations", "npc", None);
+    // dev.32: a buff's duration and stacking are the server's (serverOnly); an ability's timing reaches Kiln clients (now)
+    check("buff", "kiln", "buffs", "duration", Some("none"));
+    check("good-buff", "none", "buffs", "stacking", None);
+    check("ability", "none", "abilities", "timing.release", Some("kiln"));
+    check("good-ability", "kiln", "abilities", "timing.cost", None);
 }
 
 /// Every registry schema Kiln ships is in KL213's field table (a registry left out gives its packs no guidance at all).
@@ -416,7 +421,7 @@ fn registry_clients_knows_every_shipped_registry() {
         assert!(known.contains(name), "schema/registry/{name}.json is not in lint/registry.rs's field table: {known:?}");
         seen += 1;
     }
-    assert!(seen >= 8, "{seen} registry schemas in {}", dir.display());
+    assert!(seen >= 12, "{seen} registry schemas in {}", dir.display());
 }
 
 #[test]

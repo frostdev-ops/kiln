@@ -1,0 +1,52 @@
+{
+  "regmap": 1,
+  "registry": "abilities",
+  "entries": {
+    "kind": "resource",
+    "resourceType": "keen::actor::ActorSequenceResource",
+    "name": "subSequences[0].name",
+    "unnamed": "ability_%.8s"
+  },
+  "rows": {
+    "timing.release": {
+      "paths": [
+        "subSequences[0].events[keen::actor::SpawnEntityEvent#0].time"
+      ],
+      "conv": "eventTime",
+      "read": "now",
+      "backend": "live",
+      "clientNeeds": true,
+      "evidence": "docs/re/abilities.md section 10: actor_spawn_entity 0x45539 (server f0d824be; SpawnEntityEvent 0x51e20bf3) takes the step's events from the window walker 0x34520 -> 0x34620 (call at 0x4569f), which reads each event's time from the sub-sequence at every step and stops at the first event at or after the window's end; a Kiln client plays its own copy's notifiers"
+    },
+    "timing.hit": {
+      "paths": [
+        "subSequences[0].events[keen::actor::SpawnImpact#0].time"
+      ],
+      "conv": "eventTime",
+      "read": "now",
+      "backend": "live",
+      "clientNeeds": true,
+      "evidence": "docs/re/abilities.md section 10: actor_spawn_entity 0x45539 (server f0d824be; SpawnImpact 0x64b5dc20) through the window walker 0x34520 (call at 0x4569f), at every step"
+    },
+    "timing.cost": {
+      "paths": [
+        "subSequences[0].events[keen::actor::PayUsageCost#0].time"
+      ],
+      "conv": "eventTime",
+      "read": "now",
+      "backend": "live",
+      "clientNeeds": true,
+      "evidence": "docs/re/abilities.md section 10: actor_pay_usage_cost 0x4539e (server f0d824be; PayUsageCost 0x4e5c0937) through the window walker 0x34520 (call at 0x45408), at every step"
+    },
+    "timing.buff": {
+      "paths": [
+        "subSequences[0].events[keen::actor::ApplyBuffEvent#0].time"
+      ],
+      "conv": "eventTime",
+      "read": "now",
+      "backend": "live",
+      "clientNeeds": true,
+      "evidence": "docs/re/abilities.md section 10: actor_apply_buff 0x75c09 (server f0d824be; ApplyBuffEvent 0xf02be4c8) through the window walker 0x34520 (call at 0x75caf), at every step"
+    }
+  }
+}

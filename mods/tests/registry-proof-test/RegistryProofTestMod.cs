@@ -4,8 +4,8 @@
 // internal bridge as registry-live-native-test, and reads Kiln's regmap, which no mod should.
 //
 // With <kiln>/data/content/registry/proof/request.json, at the world's first content ready, for every mapped field of the live
-// registries (items, recipes, loot, drops; since dev.32 creatures, arsenals and perks, whose entries are kiln.gamedata's, and skills,
-// RegistryProofTestMod.Skills.cs) it takes one entry that reads, and:
+// registries (items, recipes, loot, drops; since dev.32 creatures, arsenals and perks, whose entries are kiln.gamedata's, skills in
+// RegistryProofTestMod.Skills.cs, buffs and abilities in RegistryProofTestMod.GameData.cs) it takes one entry that reads, and:
 //   - reads the value through the schema (kiln.registry.live read), the row's members raw (Content.* by the game's member
 //     paths), and the SHA-256 of the entry's resource bytes (kiln.assets);
 //   - writes a probe value through kiln.registry.live (begin, submit, commit: the public mapping guard), reads it back
@@ -463,6 +463,7 @@ public sealed unsafe partial class RegistryProofTestMod : Mod
         Check(exe.Length == 64, $"the running build {exe}");
         foreach (var registry in Live.Where(r => r != "drops")) SampleRegistry(registry);
         SampleSkills();  // dev.32: kiln.gamedata's skills section (RegistryProofTestMod.Skills.cs)
+        foreach (var registry in GameDataLive) SampleGameData(registry);  // dev.32: kiln.gamedata's entries (RegistryProofTestMod.GameData.cs)
         return true;
     }
 

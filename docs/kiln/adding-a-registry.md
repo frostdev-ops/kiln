@@ -225,6 +225,29 @@ registry over one needs no kiln.content kind:
   `Content.Templates` / `Arsenals` / `Perks` (`Probed`), with the resource digest of the entry's own resource (a template, a
   perk) or the shared one (the arsenal registry).
 
+### 2.8b Registries over kiln.gamedata's sections (dev.32: buffs, abilities)
+
+Entries kiln.gamedata lists (buffs, sequences; templates, perks, skills next) have no kiln.content store kind and no flat schema:
+- `RegistryLive`'s `gd_kind` / `gd_entry` / `gd_slots` / `gd_written` hooks (set in `stage_service.cpp`, implemented by
+  `gd_registry_*` in gamedata_packs.cpp) give the store kind (`GD_KIND_BASE + section`), the entry by the stage's 32-bit id or
+  GUID (a clone never: the registry names the game's entries), and the value slots of a row's path; `bind_gamedata` binds
+  int/float/bool/time/enum and eventTime rows over them (compare-before-write, rollback and per-entry refusals as for every live
+  field), and `gd_written` runs after every flush: kiln.gamedata re-sorts the events lists it was told about and lets its buff
+  mirror (the game reads Kiln's copy of the buff collection once there are buff clones) follow the game's records.
+- Slots are named in kiln.gamedata's `g_info` as it names its own, so the content sync carries registry layers to Kiln clients
+  (as `sequences` / `buffs` values of the receiver's gamedata sections) and a code writer of them (kiln.gamedata's own
+  `<label>: <section> <entry>.<path>` layers) is named in Kiln words (`name_code_writer`, from the entry the binding found).
+- Paths start at the registry's entry root (a buff's record; a sequence resource, so `subSequences[0].`); kiln.gamedata's
+  paths start at the entry it lists (a sub-sequence): the producer leaves the prefix off for raw reads.
+- A path's selectors (`[<index>]`, `[<Type>#<k>]` with a qualified type) are checked by regmap_check.py and kilnctl, and kilnctl
+  dumps the variant types they name (regmap/README.md). An eventTime row resolves the first event of its kind over the game's
+  own order (the store's original events header), never over Kiln's sorted copy. Every event of the moment is one of the
+  field's slots (review of 2.8b): a failed write or another writer on any of them is the field's and its change's (P17, P44),
+  so a moment is never reported moved while part of it stays.
+- A new gamedata registry adds its name to `gd_registry_kind`, `gd_registry_entry` and `registry_root`, a producer entry in
+  `RegistryProofTestMod.GameData.cs`, its entries to `regmap_entries.py` and `compute_aliases` (regmap_check.py), and host cases
+  to `registry_live_gamedata_test.cpp`.
+
 ### 2.9 Managed typed API and analyzers
 
 - Generated: `Kiln.Registry/Generated/<R>.gen.cs` and the catalog. Hand-written: the registry property on `RegistryStage`
@@ -404,6 +427,17 @@ Each row: the symptom we saw, why, the fix that is in now, and the code or test 
 | P57 | the registry's live read of a read-only field in a running world fails (UNAVAILABLE) | the live back-end binds only live rows; read-only rows come from the base (proof.cpp `read_only`, the stage's base) | expected for the proof: read-only rows are proven from the base, and the producer samples only live rows of a gamedata-backed registry. A mod's read of a read-only field in a running world reads the base since P52 | `RegistryProofTestMod.Skills.cs` |
 | P58 | a node of the game's skill tree changed in the resource but the game's tree did not follow (the fear; not seen: the dev.32 lab showed the game's PointsSpent and NodeById follow a registry write, 3 -> 4, with no mod nodes served) | kiln.skills serves an expanded copy of the tree when mods add nodes; a world whose tree was built before the copy was served would hold the old bytes | kiln.gamedata resolves the resource at the world's start, after kiln.skills serves it; the proof producer's effect reads the cost back through the game's NodeById and PointsSpent (a lab with mod nodes would show the served-copy case) | docs/re/abilities.md "The skills registry" |
 | P59 | a start that took a lowered `skills.cost` back up (1 for the last world, 2 now, the game's 3) got no saves warning, while characters who spent their points at 1 get the game's free tree reset at their next join | warning classes were judged only against the value without the registry (3 -> 2: lower); only Refuse classes were judged against the plan the last world ran on | a Warn verdict against that plan is a warning too, where the start's own value has no verdict of its own (one note per field). Not covered: a start where no mod has registry content (no base is read), and a live change's revert (never judged) | `stage.cpp` (start against the last world's plan); `registry_stage_test` `a_start_raising_a_skill_cost_over_the_last_worlds_warns` |
+
+### dev.32 (buffs, abilities)
+
+| # | Symptom | Cause | Fix | Where |
+|---|---|---|---|---|
+| P60 | (found in design) an ability's "first spawn" bound to another event after a time edit, and bound back at the next bind | kiln.gamedata keeps a sub-sequence's events sorted by pointing its header at a sorted copy; `[<Type>#0]` resolved over current memory follows that copy, so moving the first event past another of its kind made the other one "first" | the first event of a kind and the events at its moment are found over the store's original events header and original times (the game's own order); kiln.gamedata is told the header (`g_touched`) so its sort follows the registry's writes | `gamedata_packs.cpp` `gd_registry_slots`; `registry_live_gamedata_test` `ability_release_moves_the_moment` |
+| P61 | (found in design) a buff edit applied in the store but the game kept the old duration | once a mod defines a buff clone the game reads Kiln's copy of the buff collection, which follows the game's records only after kiln.gamedata's own changes | the live back-end calls `gd_written` after every flush (re-sort events, `buffs_sync`) | `registry_live.cpp` `apply_changes`; `gamedata_packs.cpp` `gd_registry_written`; test `buff_duration_read_write_revert` (gd_written called) |
+| P62 | (found in design) a lab probe of an ability's timing could come out `changed` | the producer read the raw time back by `[<Type>#0]`; a probe moved later can pass another event of the kind, which is then the first | an eventTime probe moves the first event earlier (0.75 x; none at 0), so it stays the first of its kind | `RegistryProofTestMod.GameData.cs` `EventTimeProbe`; host test `Event_time_probes_move_the_first_event_earlier` |
+| P63 | (found in review of 2.8b) an EML package that wrote one event's time would not be named on `abilities.timing.*` | a format-2 journal path gives an element's index (`events[11].time`); the regmap member picks it by variant type (`events[keen::actor::SpawnEntityEvent#0].time`); the textual prefix test never matched | a member's `[<Type>#<k>]` step matches any index (or `[]`) at its place: the journal can over-name, never miss | `archive_journal.cpp` `same_step`; `registry_writers_test` (variant selector case) |
+| P64 | the gamedata live host test died with ASan's index 20 out of bounds for `Registry [5]` | the live test harness's fake `reg(kind)` indexed `g_regs[kind]` unchecked; production's `reg` maps any other kind (a gamedata kind, 16 and up) to an empty registry | the fake clamps as registries.cpp does | `registry_live_test.cpp` `reg` |
+| P65 | (constraint, not fixed; review of 2.8b) an `abilities.timing.*` time moved past a later event of its kind reaches no Kiln client | a slot is named `events[<Type>#<k>]` by its place in the game's order; kiln.gamedata's content sync sends a slot only while that path still names it in the sender's current, sorted order (`gd_export`), so the receiver, which resolves the path in its own order, never lands on another event | keep: sending it could move the wrong event on a receiver whose order is another; the registries README says so to mod authors (the server acts at the new time, Kiln clients keep the old one there) | `gamedata_packs.cpp` `gd_export`; registries README (buffs and abilities paragraph) |
 
 Regmap reasons are player-facing (P31's rule for records): `regmap_check.py:324-330`. A reason must say what is not
 known in Kiln words, without nested parentheses (kiln.content wraps it in parentheses).

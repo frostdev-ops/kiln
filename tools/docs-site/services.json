@@ -1115,7 +1115,8 @@
         }
       ],
       "samples": [
-        "RegistryEdits"
+        "RegistryEdits",
+        "SpellRegistry"
       ]
     },
     {

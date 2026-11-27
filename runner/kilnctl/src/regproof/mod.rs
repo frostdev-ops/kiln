@@ -660,7 +660,8 @@ fn python(tree: &Path, script: &str, args: &[&std::ffi::OsStr], out: &Path, log:
 }
 
 /// The registries' root types (and a drop table's naming component; a template registry's components, which its paths start
-/// at): the closure kilnctl dumps.
+/// at; every variant type a path's `[<Type>#<k>]` selector names qualified: a list of variants does not reach them by its
+/// fields): the closure kilnctl dumps.
 pub fn roots(map: &regmap::RegMap) -> Vec<String> {
     let mut v: BTreeSet<String> = BTreeSet::new();
     for f in map.values() {
@@ -678,6 +679,15 @@ pub fn roots(map: &regmap::RegMap) -> Vec<String> {
                     if !first.is_empty() {
                         v.insert(refl::component_type(first));
                     }
+                }
+            }
+        }
+        let paths = f.rows.values().flat_map(|r| r.paths.iter()).chain([&f.entries.name, &f.entries.guid, &f.entries.id]);
+        for p in paths {
+            for sel in p.split('[').skip(1).filter_map(|x| x.split_once(']').map(|(s, _)| s)) {
+                let ty = sel.split_once('#').map_or(sel, |(t, _)| t);
+                if ty.contains("::") {
+                    v.insert(ty.to_string());
                 }
             }
         }
@@ -1322,6 +1332,18 @@ mod tests {
     use super::*;
     use crate::regproof::ids::tests::table;
     use crate::regproof::refl::tests::{db, old_types};
+
+    /// dev.32: a `[<Type>#<k>]` selector's qualified type joins the closure kilnctl dumps (a list of variants does not reach it by
+    /// its fields); a last-name selector or an index adds nothing.
+    #[test]
+    fn variant_types_named_in_paths_join_the_closure() {
+        let mut map = crate::regproof::regmap::tests::sample();
+        let f = map.values_mut().next().unwrap();
+        f.rows.get_mut("size").unwrap().paths = vec!["subs[0].events[keen::actor::SpawnEntityEvent#0].time".into(), "x[Spawn#1].y".into()];
+        let r = roots(&map);
+        assert!(r.contains(&"keen::actor::SpawnEntityEvent".to_string()), "{r:?}");
+        assert!(!r.iter().any(|x| x == "Spawn" || x == "0"), "{r:?}");
+    }
     use crate::regproof::regmap::tests::sample;
     use crate::regproof::roundtrip::tests::{SHA, full};
     use crate::regproof::values::tests::{OLD, export, old_values};

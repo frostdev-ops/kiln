@@ -1909,6 +1909,119 @@
         }
       },
       "retired": {}
+    },
+    "abilities": {
+      "id": 11,
+      "version": "0.1.0",
+      "since": "0.1.0",
+      "history": [
+        {
+          "version": "0.1.0"
+        }
+      ],
+      "fields": {
+        "timing.release": {
+          "id": 1,
+          "since": "0.1.0",
+          "kind": "time",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 600
+        },
+        "timing.hit": {
+          "id": 2,
+          "since": "0.1.0",
+          "kind": "time",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 600
+        },
+        "timing.cost": {
+          "id": 3,
+          "since": "0.1.0",
+          "kind": "time",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 600
+        },
+        "timing.buff": {
+          "id": 4,
+          "since": "0.1.0",
+          "kind": "time",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 600
+        }
+      },
+      "retired": {}
+    },
+    "buffs": {
+      "id": 12,
+      "version": "0.1.0",
+      "since": "0.1.0",
+      "history": [
+        {
+          "version": "0.1.0"
+        }
+      ],
+      "fields": {
+        "duration": {
+          "id": 1,
+          "since": "0.1.0",
+          "kind": "time",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 86400
+        },
+        "stacking": {
+          "id": 2,
+          "since": "0.1.0",
+          "kind": "enum",
+          "applies": "now",
+          "ops": "set",
+          "readOnly": false,
+          "values": [
+            "keep",
+            "refresh",
+            "replace",
+            "replaceAtEnd"
+          ]
+        },
+        "kind": {
+          "id": 3,
+          "since": "0.1.0",
+          "kind": "enum",
+          "applies": "now",
+          "ops": "none",
+          "readOnly": true,
+          "values": [
+            "food",
+            "buff",
+            "debuff",
+            "rested",
+            "terrain"
+          ]
+        },
+        "saved": {
+          "id": 4,
+          "since": "0.1.0",
+          "kind": "bool",
+          "applies": "now",
+          "ops": "none",
+          "readOnly": true
+        }
+      },
+      "retired": {}
     }
   },
   "retiredRegistries": {}

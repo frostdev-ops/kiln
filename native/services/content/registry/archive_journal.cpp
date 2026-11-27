@@ -202,13 +202,53 @@ std::vector<std::string> archive_paths_of(const std::string& resource_type, cons
     if (resource_type == "keen::ecs::TemplateResource") return {kTemplateComponents};
     return row_paths;
 }
+namespace {
+// A member path as its steps: names ("events") and bracket contents ("11", "", "keen::actor::SpawnEntityEvent#0"), each flagged.
+struct Step {
+    std::string text;
+    bool bracket = false;
+};
+std::vector<Step> steps_of(const std::string& p) {
+    std::vector<Step> out;
+    size_t i = 0;
+    while (i < p.size()) {
+        if (p[i] == '.') {
+            ++i;
+            continue;
+        }
+        if (p[i] == '[') {
+            const size_t e = p.find(']', i);
+            const size_t end = e == std::string::npos ? p.size() : e;
+            out.push_back({p.substr(i + 1, end - i - 1), true});
+            i = end + 1;
+            continue;
+        }
+        size_t e = i;
+        while (e < p.size() && p[e] != '.' && p[e] != '[') ++e;
+        out.push_back({p.substr(i, e - i), false});
+        i = e;
+    }
+    return out;
+}
+// One step of a written path against one of a regmap member: equal, or the member's [<Type>#<k>] selector (dev.32 abilities: an
+// element picked by its variant type, which a journal path never says) against any index there, so a writer is never missed.
+bool same_step(const Step& written, const Step& member) {
+    if (written.bracket != member.bracket) return false;
+    if (written.text == member.text) return true;
+    const bool selector = member.bracket && !member.text.empty() && !std::isdigit(static_cast<unsigned char>(member.text[0]));
+    return selector && (written.text.empty() || std::all_of(written.text.begin(), written.text.end(), [](char c) { return std::isdigit(static_cast<unsigned char>(c)) != 0; }));
+}
+}  // namespace
 
 std::set<std::string> archive_fields_of(const std::map<std::string, std::vector<std::string>>& rows, const std::vector<std::string>& paths) {
-    // a and b are one member or one holds the other, at a member boundary ('.' or '[')
-    auto overlap = [](const std::string& a, const std::string& b) {
-        const std::string& s = a.size() <= b.size() ? a : b;
-        const std::string& l = a.size() <= b.size() ? b : a;
-        return l.compare(0, s.size(), s) == 0 && (l.size() == s.size() || l[s.size()] == '.' || l[s.size()] == '[');
+    // the written path and the member are one member or one holds the other, at a member boundary ('.' or '['): their steps
+    // agree as far as the shorter goes
+    auto overlap = [](const std::string& written, const std::string& member) {
+        const std::vector<Step> w = steps_of(written), m = steps_of(member);
+        const size_t n = std::min(w.size(), m.size());
+        for (size_t i = 0; i < n; ++i)
+            if (!same_step(w[i], m[i])) return false;
+        return true;
     };
     std::set<std::string> out;
     for (const auto& [field, members] : rows)

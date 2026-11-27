@@ -69,7 +69,7 @@ KilnContentValue decode(const Field& f, const uint8_t* b) {
         uint64_t u = 0;
         std::memcpy(&u, b, f.bytes);
         v.i = static_cast<int64_t>(u);
-        v.f = static_cast<double>(u);
+        v.f = f.vt == KILN_CV_TIME ? static_cast<double>(v.i) / 1e9 : static_cast<double>(u);  // keen::Time: seconds, as refl.cpp
     }
     return v;
 }
@@ -113,7 +113,14 @@ const TField* TType::field(const std::string& n) const {
         if (lower(f.name) == lower(n)) return &f;
     return nullptr;
 }
-const TType* type_hash(uint32_t) { return nullptr; }
+std::map<uint32_t, const TType*>& hashed() {
+    static std::map<uint32_t, const TType*> m;
+    return m;
+}
+const TType* type_hash(uint32_t h) {
+    const auto it = hashed().find(h);
+    return it == hashed().end() ? nullptr : it->second;
+}
 const TType* type_named(const std::string& n) {
     const auto it = named().find(n);
     return it == named().end() ? nullptr : it->second;
@@ -179,6 +186,34 @@ void byte_table_type() {
     tab.name = "keen::ByteTable", tab.brief = "ByteTable", tab.kind = K_STRUCT, tab.size = 28;
     tab.fields = {{"altarsPerFlameLevel", rec(arr), 0}, {"playerLevelCap", rec(u32), 24}};
     named()["keen::ByteTable"] = &tab;
+}
+// dev.32 abilities: keen::actor::ActorSequenceResource {resourceId Guid +0, subSequences BlobArray<ActorSubSequenceResource> +16}, a
+// sub-sequence {events BlobArray<BlobVariant<keen::SequenceEvent>> +0, length keen::Time +8, name BlobString +20} of 32 bytes, and
+// two event types (keen::actor::PayUsageCost 0x4e5c0937, keen::actor::SpawnEntityEvent 0x51e20bf3; a SpawnEntityEvent of another
+// namespace with the same last name, which a qualified selector must not take): each {time keen::Time +0, duration +8}
+void sequence_types() {
+    using namespace kc::gd;
+    static TType s64, guid, str, time, base, pay, spawn, dsspawn, var, events, sub, subs, seq;
+    auto rec = [](const TType& t) { return reinterpret_cast<uintptr_t>(&t); };
+    s64.name = s64.brief = "sint64", s64.kind = K_S64, s64.size = 8;
+    guid.name = guid.brief = "keen::Guid", guid.kind = K_GUID, guid.size = 16;
+    str.name = str.brief = "keen::BlobString", str.kind = K_BLOBSTRING, str.size = 8;
+    time.name = "keen::Time", time.brief = "Time", time.kind = K_STRUCT, time.size = 8, time.fields = {{"value", rec(s64), 0}};
+    base.name = "keen::SequenceEvent", base.brief = "SequenceEvent", base.kind = K_STRUCT, base.size = 16;
+    base.fields = {{"time", rec(time), 0}, {"duration", rec(time), 8}};
+    for (TType* t : {&pay, &spawn, &dsspawn}) t->kind = K_STRUCT, t->size = 16, t->inner_rec = rec(base), t->fields = base.fields;
+    pay.name = "keen::actor::PayUsageCost", pay.brief = "PayUsageCost", pay.hash = 0x4e5c0937u;
+    spawn.name = "keen::actor::SpawnEntityEvent", spawn.brief = "SpawnEntityEvent", spawn.hash = 0x51e20bf3u;
+    dsspawn.name = "keen::ds::actor::SpawnEntityEvent", dsspawn.brief = "SpawnEntityEvent", dsspawn.hash = 0xc089f628u;
+    var.name = "keen::BlobVariant<keen::SequenceEvent>", var.brief = "BlobVariant<keen::SequenceEvent>", var.kind = K_BLOBVAR, var.size = 12, var.inner_rec = rec(base);
+    events.name = events.brief = "keen::BlobArray<keen::BlobVariant<keen::SequenceEvent>>", events.kind = K_BLOBARRAY, events.size = 8, events.inner_rec = rec(var);
+    sub.name = "keen::actor::ActorSubSequenceResource", sub.brief = "ActorSubSequenceResource", sub.kind = K_STRUCT, sub.size = 32;
+    sub.fields = {{"events", rec(events), 0}, {"length", rec(time), 8}, {"name", rec(str), 20}};
+    subs.name = subs.brief = "keen::BlobArray<keen::actor::ActorSubSequenceResource>", subs.kind = K_BLOBARRAY, subs.size = 8, subs.inner_rec = rec(sub);
+    seq.name = "keen::actor::ActorSequenceResource", seq.brief = "ActorSequenceResource", seq.kind = K_STRUCT, seq.size = 24;
+    seq.fields = {{"resourceId", rec(guid), 0}, {"subSequences", rec(subs), 16}};
+    named()[seq.name] = &seq;
+    for (TType* t : {&pay, &spawn, &dsspawn}) hashed()[t->hash] = t;
 }
 }  // namespace rbtest
 }  // namespace kc

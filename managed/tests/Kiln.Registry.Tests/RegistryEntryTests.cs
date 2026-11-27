@@ -72,4 +72,38 @@ public sealed class RegistryEntryTests
         view.Items.Remove("game:wood");
         Assert.Equal(2, JsonNode.Parse(context.CaptureIr()!)!["edits"]!.AsArray().Count); context.Close();
     }
+    // dev.32: the buffs and abilities registries through the stage: typed entries, a time as seconds, an enum as its Kiln name,
+    // read-only fields without a setter.
+    [Fact]
+    public void BuffsAndAbilitiesAreTypedRegistriesOfTheStage()
+    {
+        var context = new RegistryContext(HostAccess.CreateContext(new ModInfo("test", "Test", "1", "."), 77, "."), RegistryEntryPoint.GameStart,
+            RegistryPhase.Alter, null, "entries", (_, _, field) => field switch
+            {
+                "duration" => "10.0", "stacking" => "\"refresh\"", "kind" => "\"debuff\"", "saved" => "false", _ => "0.65",
+            }, (_, _) => ["game:buff_5f425faf"]);
+        using var scope = context.Enter();
+        var view = DataRegistry.For(context);
+        view.Alter(stage =>
+        {
+            var poison = stage.Buffs["game:buff_5f425faf"];
+            Assert.Equal(TimeSpan.FromSeconds(10), poison.Duration);
+            Assert.Equal(BuffStacking.Refresh, poison.Stacking);
+            Assert.Equal(BuffKind.Debuff, poison.Kind);
+            Assert.False(poison.Saved);
+            poison.Duration = TimeSpan.FromSeconds(30);
+            poison.Stacking = BuffStacking.Replace;
+            var cast = stage.Abilities["game:attack_player_staff_fixedanim_fireball_fast"];
+            Assert.Equal(TimeSpan.FromSeconds(0.65), cast.Timing.Release);
+            cast.Timing.Release = TimeSpan.FromSeconds(0.45);
+        });
+        var edits = JsonNode.Parse(context.CaptureIr()!)!["edits"]!.AsArray();
+        Assert.Equal(3, edits.Count);
+        Assert.Equal(("buffs", "duration", 30.0), (edits[0]!["registry"]!.GetValue<string>(), edits[0]!["field"]!.GetValue<string>(), edits[0]!["op"]!.GetValue<double>()));
+        Assert.Equal("replace", edits[1]!["op"]!.GetValue<string>());
+        Assert.Equal(("abilities", "timing.release", 0.45), (edits[2]!["registry"]!.GetValue<string>(), edits[2]!["field"]!.GetValue<string>(), edits[2]!["op"]!.GetValue<double>()));
+        Assert.Null(typeof(BuffEntry).GetProperty(nameof(BuffEntry.Kind))!.SetMethod);
+        Assert.Null(typeof(BuffEntry).GetProperty(nameof(BuffEntry.Saved))!.SetMethod);
+        context.Close();
+    }
 }

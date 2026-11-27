@@ -1308,6 +1308,142 @@ bool gd_list_size(uint32_t section, const Entry& e, const std::string& path, uin
     return true;
 }
 
+uint32_t gd_registry_kind(const std::string& registry) {
+    if (registry == "buffs") return GD_KIND_BASE + KILN_GD_BUFFS;
+    if (registry == "abilities") return GD_KIND_BASE + KILN_GD_SEQUENCES;
+    return 0;
+}
+
+bool gd_registry_entry(const std::string& registry, uint32_t num, const std::string& guid, Entry* out, std::string* why) {
+    std::lock_guard lock(store_mutex());
+    if (registry == "buffs") {
+        const GRegistry& B = greg(KILN_GD_BUFFS);
+        const GEntry* e = num ? B.get(num) : nullptr;
+        if (!B.type || !e || e->clone) return *why = "the entry is not in this world", false;
+        out->id = e->id, out->addr = e->addr, out->name = e->name;
+        std::memset(out->guid, 0, 16);
+        return true;
+    }
+    if (registry == "abilities") {
+        const GRegistry& S = greg(KILN_GD_SEQUENCES);
+        const TType* st = type_named("keen::actor::ActorSequenceResource");
+        uint8_t g[16];
+        if (!S.type || !st || guid.empty() || !guid_parse(guid, g)) return *why = "the entry is not in this world", false;
+        const GEntry* e = S.get(fnv1a(g, 16));  // the sequence's first part (sub_id of part 0)
+        if (!e || e->clone || e->sub != 0 || std::memcmp(e->guid, g, 16) != 0) return *why = "the entry is not in this world", false;
+        const uintptr_t base = res_data(g, st->hash);
+        if (!base) return *why = "the entry is not in this world", false;
+        out->id = e->id, out->addr = base, out->name = e->name;
+        std::memcpy(out->guid, g, 16);
+        return true;
+    }
+    return *why = "this registry has no live back-end", false;
+}
+
+namespace {
+// The root a registry's regmap paths start from: a buff's record, a sequence resource.
+gd::Node registry_root(const std::string& registry, const Entry& e) {
+    if (registry == "buffs") return gd::Node{greg(KILN_GD_BUFFS).type, e.addr};
+    const TType* st = type_named("keen::actor::ActorSequenceResource");
+    return gd::Node{st ? st->resolved() : nullptr, e.addr};
+}
+void name_slot(uint32_t section, const Entry& e, const std::string& path, const Field& f, uintptr_t addr, GdValueSlot* out) {
+    out->addr = addr, out->f = f, out->kind = GD_KIND_BASE + section, out->id = e.id, out->field = path_index(path), out->tip = 0;
+    SlotInfo& si = g_info[addr];
+    si.section = section, si.id = e.id, si.name = e.name, si.path = path, si.f = f, si.sub = -1, si.follow = false;
+}
+}  // namespace
+
+bool gd_registry_slots(const std::string& registry, const Entry& e, const std::string& path, bool group, std::vector<GdValueSlot>* out,
+                       std::string* why) {
+    std::lock_guard lock(store_mutex());
+    out->clear();
+    const uint32_t section = registry == "buffs" ? KILN_GD_BUFFS : registry == "abilities" ? KILN_GD_SEQUENCES : 0;
+    const gd::Node root = registry_root(registry, e);
+    if (!section || !root.t) return *why = "this registry has no live back-end on this game build", false;
+    if (!group) {
+        std::vector<Resolved> rs;
+        std::string err;
+        Field f;
+        // P45: the refusal names no game member; the path and the walker's words go to kiln.log for maintainers
+        if (!resolve(Root::Plain, root, path, &rs, &err) || rs.size() != 1 || !rs[0].node.t || !leaf_of(rs[0].node.t, &f)) {
+            LOGD("registry (live): %s %s: %s (%s)", registry.c_str(), e.name.c_str(), path.c_str(), err.c_str());
+            return *why = "the game's value of this field is missing on this game build (Kiln's mapping of it needs an update)", false;
+        }
+        GdValueSlot s;
+        // kiln.gamedata's own path from the entry it lists (a buff's record is the registry's entry root)
+        name_slot(section, e, rs[0].path, f, rs[0].node.addr + f.offset, &s);
+        out->push_back(s);
+        return true;
+    }
+    // "<list>[<Type>#0].time": the list, the type; the events in the game's own order (the header's original bytes)
+    const size_t open = path.rfind('['), close = path.rfind(']');
+    if (open == std::string::npos || close == std::string::npos || close < open || path.compare(close, std::string::npos, "].time") != 0 ||
+        path.compare(close - 2, 2, "#0") != 0)
+        return *why = "Kiln's mapping of this field names no first event (Kiln's mapping of it needs an update)", false;
+    const std::string list = path.substr(0, open), type = path.substr(open + 1, close - 2 - open - 1);
+    std::vector<Resolved> rs;
+    std::string err;
+    if (!resolve(Root::Plain, root, list, &rs, &err) || rs.size() != 1 || !rs[0].node.t) {
+        LOGD("registry (live): %s %s: %s (%s)", registry.c_str(), e.name.c_str(), list.c_str(), err.c_str());
+        return *why = "the game's value of this field is missing on this game build (Kiln's mapping of it needs an update)", false;
+    }
+    const uintptr_t header = rs[0].node.addr;
+    uint8_t ob[16];
+    if (!original_bytes(header, 8, ob)) return *why = "the ability's events are not readable", false;
+    int32_t orel = 0;
+    uint32_t n = 0;
+    std::memcpy(&orel, ob, 4), std::memcpy(&n, ob + 4, 4);
+    if (!orel || n == 0 || n > 4096) n = 0;
+    const TType* tt = type_named("keen::Time");
+    Field tf;
+    if (!tt || !leaf_of(tt, &tf)) return *why = "the game's time of an event is missing on this game build (Kiln's mapping of it needs an update)", false;
+    const uintptr_t data = header + static_cast<intptr_t>(orel);
+    int64_t anchor_time = 0;
+    uint32_t seen = 0;
+    std::string brief;
+    for (uint32_t i = 0; i < n; ++i) {
+        uint32_t h = 0, sz = 0;
+        uintptr_t d = 0;
+        if (!blob_variant(data + static_cast<uintptr_t>(i) * 12, &h, &d, &sz)) continue;
+        const TType* vt = type_hash(h);
+        if (!vt || lower(vt->name) != lower(type)) continue;
+        const uint32_t to = event_time_offset(h);
+        uint8_t tb[16];
+        int64_t t = 0;
+        if (to == 0xFFFFFFFF || !original_bytes(d + to, 8, tb)) continue;
+        std::memcpy(&t, tb, 8);
+        const uint32_t k = seen++;
+        if (k == 0) anchor_time = t, brief = vt->brief;
+        else if (t != anchor_time) continue;
+        GdValueSlot s;
+        // kiln.gamedata's path from the sub-sequence it lists: the k-th event of the type in the game's order (what the content
+        // sync's receiver resolves before its own sort)
+        const std::string sub_path = "events[" + brief + "#" + std::to_string(k) + "].time";
+        name_slot(section, e, sub_path, tf, d + to, &s);
+        out->push_back(s);
+    }
+    if (out->empty()) return *why = "this ability has no such moment on this game build", false;
+    // the list stays sorted by time after the registry's writes (the game's walker stops at the first event past the window)
+    if (const TField* ev = greg(KILN_GD_SEQUENCES).type ? greg(KILN_GD_SEQUENCES).type->field("events") : nullptr; ev && section == KILN_GD_SEQUENCES) {
+        const GEntry* sub0 = greg(KILN_GD_SEQUENCES).get(e.id);
+        if (sub0 && sub0->addr + ev->offset == header) g_touched[header] = e.id;
+    }
+    return true;
+}
+
+void gd_registry_written() {
+    std::lock_guard lock(store_mutex());
+    g_modified_stale = true;
+    if (!g_touched.empty()) {
+        reorder_all();
+        std::string err;
+        store_flush(&err);
+        if (!err.empty()) LOGW("gamedata: event order after a registry write: %s", err.c_str());
+    }
+    buffs_sync();  // the game reads buffs from Kiln's copy once there are buff clones: it follows the game's records
+}
+
 bool gd_ui_scale(uint8_t format, double v, int64_t* out) {
     bool ok = false;
     *out = ui_scale(format, v, &ok);
