@@ -8,12 +8,14 @@ using System.Text;
 
 namespace Kiln;
 
-/// <summary>A pet body as the network names it: informational, never an entity to resolve on a client. Since 0.2.0-dev.32.</summary>
+/// <summary>A pet body as the network names it: informational (to tell whether a pet has a body, and which one), never an
+/// entity to resolve or act on from a client. Since 0.2.0-dev.32.</summary>
 /// <param name="NetworkEntityId">The server's entity id of the body.</param>
 /// <param name="BodyGeneration">The body's generation.</param>
 public sealed record PetBodyViewKey(uint NetworkEntityId, ulong BodyGeneration);
 
-/// <summary>One pet in its owner's view. Since 0.2.0-dev.32.</summary>
+/// <summary>One pet in its owner's view: what a HUD needs, and nothing the owner may not see. It mirrors a
+/// <see cref="PetSnapshot"/> without entities. Since 0.2.0-dev.32.</summary>
 public sealed record PetViewEntry
 {
     /// <summary>The pet.</summary>
@@ -56,7 +58,8 @@ public sealed record PetViewEntry
     public bool ShowMarker { get; init; } = true;
 }
 
-/// <summary>An owner's whole view of their pets, as one snapshot. Since 0.2.0-dev.32.</summary>
+/// <summary>An owner's whole view of their pets, as one snapshot: what <see cref="PetsClient.Snapshot"/> holds. Never a delta;
+/// a newer one replaces it. Since 0.2.0-dev.32.</summary>
 /// <param name="WorldEpoch">The server world session.</param>
 /// <param name="CharacterSession">The owner's join (a fresh random token each time).</param>
 /// <param name="Sequence">Strictly increasing within the session.</param>

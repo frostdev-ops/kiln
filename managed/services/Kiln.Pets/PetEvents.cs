@@ -4,7 +4,17 @@
 // change settled and outside every lock, so a handler may call Pets (its request runs at the next step).
 namespace Kiln;
 
-/// <summary>The base of every pet change event: subscribe to it for all of them. Server tick thread. Since 0.2.0-dev.32.</summary>
+/// <summary>The base of every pet change event: subscribe to it for all of them, or to one kind below. Server tick thread.
+/// Since 0.2.0-dev.32.</summary>
+/// <remarks>These are after-events: the change settled before they are posted, outside every lock, so a handler may call
+/// <see cref="Pets"/> (its request runs at the next step). One logical change posts several (a pet going down posts
+/// <see cref="PetBodyRetiredEvent"/> and <see cref="PetDownedEvent"/>, and <see cref="PetReleasedEvent"/> too when its outcome
+/// is release) that share the pet's <see cref="PetSnapshot.StateRevision"/>. They are not cancelable; to refuse a revive or change what a downed pet becomes, use
+/// <see cref="PetRevivingEvent"/> and <see cref="PetDowningEvent"/>, which are asked first.</remarks>
+/// <example><code>
+/// Events.On&lt;PetChangeEvent&gt;(e =&gt; Log.Info($"{e.GetType().Name}: {e.Change.After.Label} ({e.Change.Cause}) {e.Change.Before.Life} -&gt; {e.Change.After.Life}"));
+/// </code></example>
+/// <seealso cref="PetChange"/>
 public abstract class PetChangeEvent : KilnEvent
 {
     private protected PetChangeEvent(PetChange change) => Change = change;
@@ -51,6 +61,17 @@ public sealed class PetProtectionLostEvent : PetChangeEvent { internal PetProtec
 /// <summary>A pet is going down: its combat body is about to be retired. <see cref="Outcome"/> starts as its definition's
 /// choice; a handler may choose another for this pet. The down itself cannot be refused. Server tick thread.
 /// Since 0.2.0-dev.32.</summary>
+/// <remarks>Set <see cref="Outcome"/> to change what this one pet becomes; the last handler's value wins. The pet's body may be
+/// gone already when the cause is a lost body (<see cref="PetChangeCause.BodyLost"/>).</remarks>
+/// <example><code>
+/// // this mod's choice: a downed hound goes for good when it fell more than 40 m from its owner
+/// Events.On&lt;PetDowningEvent&gt;(e =&gt;
+/// {
+///     if (e.Pet.Definition == "my-mod:hound" &amp;&amp; FellFarFromOwner(e.Pet)) e.Outcome = PetDownedOutcome.Release;   // FellFarFromOwner: the mod's own rule
+/// });
+/// </code></example>
+/// <seealso cref="PetDownedPolicy"/>
+/// <seealso cref="PetDownedEvent"/>
 public sealed class PetDowningEvent : KilnEvent
 {
     internal PetDowningEvent(PetSnapshot pet, PetChangeCause cause, PetDownedOutcome outcome) => (Pet, Cause, Outcome) = (pet, cause, outcome);
@@ -99,6 +120,13 @@ public sealed class PetControlChangedEvent : KilnEvent
 /// <summary>A revive is about to start: its cost was quoted and nothing has moved. A handler may cancel it (nothing is taken
 /// and no PetReviveStartedEvent follows): the mod's own revive rules (a cooldown, a zone). The completion checks the quote
 /// again; no handler runs between the debit and the activation. Server tick thread. Since 0.2.0-dev.32.</summary>
+/// <example><code>
+/// Events.On&lt;PetRevivingEvent&gt;(e =&gt;
+/// {
+///     if (InArena(e.Owner)) e.Cancel();      // InArena: the mod's own rule; the answer to Pets.Revive is ReviveRefused
+/// });
+/// </code></example>
+/// <seealso cref="Pets.Revive"/>
 public sealed class PetRevivingEvent : CancelableEvent
 {
     internal PetRevivingEvent(CharacterKey owner, PetSnapshot pet, Guid operation, PetCostDefinition? cost) =>

@@ -8,6 +8,36 @@ namespace Kiln;
 /// This game's view of its owner's pets, as the server sends it, and the built-in pet bar. Read <see cref="Snapshot"/> to
 /// draw a HUD of your own (and turn the built-in one off with <see cref="Configure"/>). Since 0.2.0-dev.32.
 /// </summary>
+/// <remarks>
+/// <para>Client only. The server sends each owner a full, bounded snapshot of their own pets on the channel <c>kiln:pets</c>
+/// (never anyone else's, never a delta). It carries no entity to resolve and changes no gameplay: a HUD is only a picture.
+/// A vanilla server, or one without Kiln.Pets, sends nothing: <see cref="State"/> stays
+/// <see cref="PetViewState.Disconnected"/> and there is no bar.</para>
+/// <para>Threads: <see cref="Snapshot"/>, <see cref="State"/>, <see cref="Options"/> and <see cref="Configure"/> are safe from
+/// any thread, including the render thread; read <see cref="Snapshot"/> once per frame and use that one value. The two events
+/// are posted on the client main thread. To act on a pet (summon, order, revive), send the player's choice to the server
+/// and call <see cref="Pets"/> there: this class has no request methods.</para>
+/// </remarks>
+/// <example>
+/// Turn the built-in bar off and draw a line per pet yourself:
+/// <code>
+/// PetsClient.Configure(new PetHudOptions(Enabled: false));
+/// Events.On&lt;RenderFrameEvent&gt;(f =&gt;
+/// {
+///     if (PetsClient.State != PetViewState.Current || PetsClient.Snapshot is not { } view) return;
+///     float y = 40 * f.Scale;
+///     foreach (PetViewEntry pet in view.Entries)
+///     {
+///         f.Draw.Text(20 * f.Scale, y, $"{pet.Label}  {pet.Current}/{pet.Maximum}  {pet.Life}", new Color(240, 240, 240, 255), 14 * f.Scale);
+///         y += 18 * f.Scale;
+///     }
+/// });
+/// </code>
+/// </example>
+/// <seealso cref="Pets"/>
+/// <seealso cref="PetOwnerView"/>
+/// <seealso cref="PetOwnerViewChangedEvent"/>
+/// <seealso href="https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/services/pets.md">Pets service</seealso>
 [ClientOnly]
 public static class PetsClient
 {
@@ -18,11 +48,13 @@ public static class PetsClient
     private static PetViewState _posted = PetViewState.Disconnected;
     private static readonly object Gate = new();
 
-    /// <summary>The latest view, or null (none yet, disconnected). One immutable snapshot: read it once per frame.</summary>
+    /// <summary>The latest view, or null (none received, disconnected). One immutable snapshot: read it once per frame. It may be
+    /// stale: check <see cref="State"/> before drawing it as current.</summary>
     [AnyThread, RequiresCapability(Pets.Caps.HudClient)]
     public static PetOwnerView? Snapshot => Cache.View;
 
-    /// <summary>Whether <see cref="Snapshot"/> is current, stale (no keepalive for 3 s) or there is none.</summary>
+    /// <summary>Whether <see cref="Snapshot"/> is current, stale (no keepalive for 3 s) or there is none. The built-in bar draws
+    /// only while it is <see cref="PetViewState.Current"/>.</summary>
     [AnyThread]
     public static PetViewState State
     {
@@ -36,12 +68,19 @@ public static class PetsClient
         }
     }
 
-    /// <summary>The built-in bar's options on this game.</summary>
+    /// <summary>The built-in bar's options on this game: the defaults until <see cref="Configure"/> sets others.</summary>
     [AnyThread]
     public static PetHudOptions Options => Volatile.Read(ref _options);
 
-    /// <summary>Sets where and whether the built-in bar draws (this game only; never a server state).</summary>
+    /// <summary>Sets where and whether the built-in bar draws (this game only; never a server state). Not saved: set it again each
+    /// session (a mod's <c>OnLoad</c>). Posts <see cref="PetHudOptionsChangedEvent"/>.</summary>
+    /// <param name="options">The options: whether the bar and the recovery markers draw, and the bar's place and width.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="options"/> is null.</exception>
     /// <exception cref="ArgumentException">An anchor outside 0..1, a width outside 80..600, or a value that is not finite.</exception>
+    /// <example><code>
+    /// PetsClient.Configure(new PetHudOptions(AnchorX: 0.02, AnchorY: 0.5, WidthPixels: 260));   // move it left and up
+    /// PetsClient.Configure(new PetHudOptions(Enabled: false, RecoveryMarkers: false));         // hide it all
+    /// </code></example>
     [AnyThread, RequiresCapability(Pets.Caps.HudClient)]
     public static void Configure(PetHudOptions options)
     {
