@@ -624,12 +624,14 @@ impl TemplateComponent {
                 &crate::runtime::overrides::StorageKey::Resource(ownership_key(&self.key)),
             )?;
         }
+        // sfi R3: the write names the view's package and the field path it gave, for Kiln's registry report
         if let Err(reason) = self.assets.compare_exchange(
             &self.key,
             &before,
             range.start,
             &after[range.clone()],
             self.session,
+            &crate::runtime::assets::WriteName::package(&self.owner, &path),
         ) {
             if reason.to_lowercase().contains("uncertain") {
                 *self.write_fault.borrow_mut() = Some(reason.clone());
