@@ -1,0 +1,81 @@
+{
+  "$schema": "../registry-schema.schema.json",
+  "registrySchema": 1,
+  "registry": "skills",
+  "typeName": "SkillNode",
+  "version": "0.1.0",
+  "stability": "experimental",
+  "experimentalId": "KILNX031",
+  "doc": "The nodes of the game's skill tree: what each costs in skill points, how many levels it has, its kind and class, and the ability it unlocks.",
+  "ids": {
+    "game": "game:skill_<node id>",
+    "mod": "(none: a mod adds nodes through kiln.skills)",
+    "rule": "A node has no debug name: it is game:skill_<its 32-bit node id as 8 hex digits> (game:skill_4475e8dd), the name Kiln's skills data-pack section and catalogs already give it. Nodes a mod adds through Kiln's skill tree service are not entries: their definition holds their cost."
+  },
+  "traits": {
+    "active": "unlocks an ability (kind active)",
+    "leveled": "has levels (maxLevel above 0)"
+  },
+  "fields": {
+    "cost": {
+      "type": "int",
+      "min": 0,
+      "max": 65535,
+      "applies": "now",
+      "ops": "number",
+      "doc": "The skill points one unlock costs (each level of a node with levels costs it again). The game counts it at every unlock, at every join and at a respec: a character whose unlocked nodes now cost more than their skill points gets the game's free reset of the whole tree at their next join.",
+      "joinedClient": "now"
+    },
+    "maxLevel": {
+      "type": "int",
+      "min": 0,
+      "max": 7,
+      "readOnly": true,
+      "applies": "now",
+      "doc": "How many levels the node has: 0 is one unlock, 1 to 7 are levels. Read-only: a character's saved level above it would reset the whole tree at the next join, and a node without levels has no level slot.",
+      "joinedClient": "serverOnly"
+    },
+    "kind": {
+      "type": "enum",
+      "values": [
+        "root",
+        "attribute",
+        "active",
+        "passive"
+      ],
+      "readOnly": true,
+      "applies": "now",
+      "doc": "The node's kind: a root of the tree, an attribute, an active skill (it unlocks an ability) or a passive skill.",
+      "typeName": "SkillNodeKind",
+      "joinedClient": "serverOnly"
+    },
+    "class": {
+      "type": "enum",
+      "values": [
+        "warrior",
+        "mage",
+        "ranger",
+        "neutral"
+      ],
+      "readOnly": true,
+      "applies": "now",
+      "doc": "The class the node belongs to (its colour on the skill screen).",
+      "typeName": "SkillNodeClass",
+      "joinedClient": "serverOnly"
+    },
+    "unlocks": {
+      "type": "ref",
+      "registry": "items",
+      "readOnly": true,
+      "optional": true,
+      "applies": "now",
+      "doc": "The ability item the node unlocks; absent for every node that unlocks none.",
+      "joinedClient": "serverOnly"
+    }
+  },
+  "entry": {
+    "add": false,
+    "remove": false
+  },
+  "raw": "refused"
+}

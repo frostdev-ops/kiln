@@ -102,12 +102,13 @@ static bool refused_with(const std::vector<Refusal>& v, uint32_t n, const std::s
 int main() {
     const Schema s = generated_schema();
     // ---- the glue: the generated rows as the IR's descriptor
-    CHECK(s.format == 1 && s.registries.size() == std::size(gen::kRegistries) && s.registries.size() >= 8);
+    CHECK(s.format == 1 && s.registries.size() == std::size(gen::kRegistries) && s.registries.size() >= 10);
     size_t specs = 0;
     for (const auto& [n, r] : s.registries) {
         specs += r.fields.size();
-        // the shipped schema versions: items 0.1.1 since 31.x (block and comfort apply now), the others 0.1.0
-        CHECK(r.version == (n == "items" ? "0.1.1" : "0.1.0") && r.raw);
+        // the shipped schema versions: items 0.1.1 since 31.x (block and comfort apply now), the others 0.1.0; skills and
+        // stations take no raw game paths (raw: refused)
+        CHECK(r.version == (n == "items" ? "0.1.1" : "0.1.0") && r.raw == (n != "skills" && n != "stations"));
     }
     CHECK(specs == std::size(gen::kFields));  // every generated row, leaves of list elements kept
     const RegistrySpec& rec = *s.registry("recipes");

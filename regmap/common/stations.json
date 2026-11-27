@@ -1,0 +1,35 @@
+{
+  "regmap": 1,
+  "registry": "stations",
+  "entries": {
+    "kind": "array",
+    "resourceType": "keen::WorkshopRegistryResource",
+    "array": "workshops",
+    "guid": "workshopGuid",
+    "id": "workshopId",
+    "unnamed": "station_%08x",
+    "key": "items",
+    "keyMember": "item"
+  },
+  "rows": {
+    "item": {
+      "paths": [
+        "item",
+        "itemRef"
+      ],
+      "conv": "ref",
+      "read": "restart",
+      "backend": "none",
+      "evidence": "docs/re/building.md 2.4 and docs/re/stations.md section 15: the workshop registry is read once, its map sized from the resource at load"
+    },
+    "npc": {
+      "paths": [
+        "isNpc"
+      ],
+      "conv": "bool",
+      "read": "restart",
+      "backend": "none",
+      "evidence": "docs/re/building.md 2.4 and docs/re/stations.md section 15: the workshop registry is read once, its map sized from the resource at load"
+    }
+  }
+}

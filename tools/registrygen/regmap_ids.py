@@ -74,10 +74,12 @@ def derive(registry, src, aliases, entries, by_item_id=None, by_key_guid=None):
         keyed = None
         if src.get("key"):
             g = e.get("guid", "").lower()
+            # loot: the entry's own id is the item's; stations ("keyMember"): the item that builds it (none: the name rules)
+            item = e.get("keyId", 0) if src.get("keyMember") else e.get("id")
             if by_key_guid is not None and g and g in by_key_guid:
                 keyed = by_key_guid[g]
-            elif by_item_id is not None and e.get("id") in by_item_id:
-                keyed = by_item_id[e["id"]]
+            elif by_item_id is not None and (item or not src.get("keyMember")) and item in by_item_id:
+                keyed = by_item_id[item]
         if keyed is not None:
             cur = keyed
             if cur in taken:

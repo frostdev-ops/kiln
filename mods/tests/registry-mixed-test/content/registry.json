@@ -56,6 +56,16 @@
         "op": {
           "mul": 3
         }
+      },
+      {
+        "registry": "skills",
+        "select": {
+          "id": "game:skill_4475e8dd"
+        },
+        "field": "cost",
+        "op": {
+          "mul": 2
+        }
       }
     ]
   }

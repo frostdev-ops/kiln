@@ -96,7 +96,7 @@ bool load_common(const json& doc, RegistryMap* out, std::vector<std::string>* er
     if (out->registry.empty()) return errs->push_back("a regmap file names its \"registry\""), false;
     const std::string& r = out->registry;
     const json e = doc.value("entries", json::object());
-    static const char* const ekeys[] = {"kind", "resourceType", "array", "resourceGuid", "name", "guid", "id", "unnamed", "nameFrom", "key", "withComponent"};
+    static const char* const ekeys[] = {"kind", "resourceType", "array", "resourceGuid", "name", "guid", "id", "unnamed", "nameFrom", "key", "keyMember", "withComponent"};
     for (const auto& [k, v] : e.items())
         if (std::none_of(std::begin(ekeys), std::end(ekeys), [&](const char* x) { return k == x; })) errs->push_back(r + ": entries: unknown member \"" + k + "\"");
     const std::string kind = str(e, "kind");
@@ -107,6 +107,8 @@ bool load_common(const json& doc, RegistryMap* out, std::vector<std::string>* er
     out->entries.array = str(e, "array"), out->entries.resource_guid = str(e, "resourceGuid");
     out->entries.name = str(e, "name"), out->entries.guid = str(e, "guid"), out->entries.id = str(e, "id");
     out->entries.unnamed = str(e, "unnamed"), out->entries.name_from = str(e, "nameFrom"), out->entries.key = str(e, "key");
+    out->entries.key_member = str(e, "keyMember");
+    if (!out->entries.key_member.empty() && out->entries.key != "items") errs->push_back(r + ": entries.keyMember goes with \"key\": \"items\"");
     if (out->entries.kind == EntryKind::Array && out->entries.array.empty()) errs->push_back(r + ": entries.array names the member that holds the entries");
     if (e.contains("withComponent")) {  // template roots only: the entries are the templates holding one of these components
         const json& wc = e["withComponent"];
@@ -433,8 +435,9 @@ std::vector<std::string> assign_ids(const std::string& registry, const EntrySour
             const std::string* keyed = nullptr;
             if (by_key_guid && !e.guid.empty())
                 if (const auto it = by_key_guid->find(lower(e.guid)); it != by_key_guid->end()) keyed = &it->second;
-            if (!keyed && by_item_id)
-                if (const auto it = by_item_id->find(e.id); it != by_item_id->end()) keyed = &it->second;
+            const uint32_t item = src.key_member.empty() ? e.id : e.key;  // loot: its own id; stations: the item that builds it
+            if (!keyed && by_item_id && (src.key_member.empty() || item))   // no item: the name rules
+                if (const auto it = by_item_id->find(item); it != by_item_id->end()) keyed = &it->second;
             if (keyed) {
                 std::string id = *keyed;
                 if (taken.count(id)) {

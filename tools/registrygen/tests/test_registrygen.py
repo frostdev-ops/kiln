@@ -543,15 +543,16 @@ class Repository(unittest.TestCase):
     def test_r1_registries(self):
         m = rg.load(REPO)
         self.assertEqual(m.errors, [])
-        # R1's five; later waves add registries of their own (each pinned by its own test below)
-        self.assertLessEqual({"balance", "drops", "items", "loot", "recipes"}, set(m.registries))
+        # R1's five and dev.32's; later waves add registries of their own (each pinned by its own test below)
+        self.assertLessEqual({"balance", "drops", "items", "loot", "recipes", "skills", "stations"}, set(m.registries))
         for r in m.registries.values():
             for f in r.rows:
                 self.assertIn(f.applies, ("now", "worldLoad", "restart"), f.qualified)
                 self.assertIn(f.spec.get("joinedClient"), rg.JOINED_CLIENT, f.qualified)
         # experimental 0.x; items 0.1.1 since 31.x (block and comfort apply now: an earlier applies, additive)
-        self.assertEqual({n: r.version for n, r in m.registries.items() if n in ("balance", "drops", "items", "loot", "recipes")},
-                         {"balance": "0.1.0", "drops": "0.1.0", "items": "0.1.1", "loot": "0.1.0", "recipes": "0.1.0"})
+        self.assertEqual({n: r.version for n, r in m.registries.items() if n in ("balance", "drops", "items", "loot", "recipes", "skills", "stations")},
+                         {"balance": "0.1.0", "drops": "0.1.0", "items": "0.1.1", "loot": "0.1.0", "recipes": "0.1.0", "skills": "0.1.0",
+                          "stations": "0.1.0"})
 
     def test_dev32_creatures_arsenals_and_perks(self):
         """dev.32 R2a: creatures (with their arsenals) and perks, experimental 0.1.0; pets and taming read a creature's kind,

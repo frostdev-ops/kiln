@@ -29,9 +29,9 @@
 [KILNX031]Kiln.Registry.CreatureEntry.Id.get -> Kiln.Registry.RegistryId
 [KILNX031]Kiln.Registry.CreatureEntry.Kind.get -> Kiln.Registry.CreatureKind
 [KILNX031]Kiln.Registry.CreatureEntry.Level.get -> int
+[KILNX031]Kiln.Registry.CreatureEntry.Level.set -> void
 [KILNX031]Kiln.Registry.CreatureEntry.LevelMax.get -> int
 [KILNX031]Kiln.Registry.CreatureEntry.LevelMax.set -> void
-[KILNX031]Kiln.Registry.CreatureEntry.Level.set -> void
 [KILNX031]Kiln.Registry.CreatureEntry.Loot.get -> Kiln.Registry.CreatureLoot!
 [KILNX031]Kiln.Registry.CreatureEntry.Registry.get -> string!
 [KILNX031]Kiln.Registry.CreatureEntry.Resist.get -> Kiln.Registry.CreatureResistances!
@@ -71,8 +71,8 @@
 [KILNX031]Kiln.Registry.CreatureLoot
 [KILNX031]Kiln.Registry.CreatureLoot.Disabled.get -> bool
 [KILNX031]Kiln.Registry.CreatureLoot.Disabled.set -> void
-[KILNX031]Kiln.Registry.CreatureLootSlots
 [KILNX031]Kiln.Registry.CreatureLoot.Slots.get -> Kiln.Registry.CreatureLootSlots!
+[KILNX031]Kiln.Registry.CreatureLootSlots
 [KILNX031]Kiln.Registry.CreatureLootSlots.Max.get -> int
 [KILNX031]Kiln.Registry.CreatureLootSlots.Max.set -> void
 [KILNX031]Kiln.Registry.CreatureLootSlots.Min.get -> int
@@ -186,3 +186,29 @@
 [KILNX031]Kiln.Registry.RegistryStage.Arsenals.get -> Kiln.Registry.RegistryEntries<Kiln.Registry.ArsenalEntry!>!
 [KILNX031]Kiln.Registry.RegistryStage.Creatures.get -> Kiln.Registry.RegistryEntries<Kiln.Registry.CreatureEntry!>!
 [KILNX031]Kiln.Registry.RegistryStage.Perks.get -> Kiln.Registry.RegistryEntries<Kiln.Registry.PerkEntry!>!
+[KILNX031]Kiln.Registry.RegistryStage.Skills.get -> Kiln.Registry.RegistryEntries<Kiln.Registry.SkillNodeEntry!>!
+[KILNX031]Kiln.Registry.RegistryStage.Stations.get -> Kiln.Registry.RegistryEntries<Kiln.Registry.StationEntry!>!
+[KILNX031]Kiln.Registry.SkillNodeClass
+[KILNX031]Kiln.Registry.SkillNodeClass.Mage = 1 -> Kiln.Registry.SkillNodeClass
+[KILNX031]Kiln.Registry.SkillNodeClass.Neutral = 3 -> Kiln.Registry.SkillNodeClass
+[KILNX031]Kiln.Registry.SkillNodeClass.Ranger = 2 -> Kiln.Registry.SkillNodeClass
+[KILNX031]Kiln.Registry.SkillNodeClass.Warrior = 0 -> Kiln.Registry.SkillNodeClass
+[KILNX031]Kiln.Registry.SkillNodeEntry
+[KILNX031]Kiln.Registry.SkillNodeEntry.Class.get -> Kiln.Registry.SkillNodeClass
+[KILNX031]Kiln.Registry.SkillNodeEntry.Cost.get -> int
+[KILNX031]Kiln.Registry.SkillNodeEntry.Cost.set -> void
+[KILNX031]Kiln.Registry.SkillNodeEntry.Id.get -> Kiln.Registry.RegistryId
+[KILNX031]Kiln.Registry.SkillNodeEntry.Kind.get -> Kiln.Registry.SkillNodeKind
+[KILNX031]Kiln.Registry.SkillNodeEntry.MaxLevel.get -> int
+[KILNX031]Kiln.Registry.SkillNodeEntry.Registry.get -> string!
+[KILNX031]Kiln.Registry.SkillNodeEntry.Unlocks.get -> Kiln.Registry.RegistryId?
+[KILNX031]Kiln.Registry.SkillNodeKind
+[KILNX031]Kiln.Registry.SkillNodeKind.Active = 2 -> Kiln.Registry.SkillNodeKind
+[KILNX031]Kiln.Registry.SkillNodeKind.Attribute = 1 -> Kiln.Registry.SkillNodeKind
+[KILNX031]Kiln.Registry.SkillNodeKind.Passive = 3 -> Kiln.Registry.SkillNodeKind
+[KILNX031]Kiln.Registry.SkillNodeKind.Root = 0 -> Kiln.Registry.SkillNodeKind
+[KILNX031]Kiln.Registry.StationEntry
+[KILNX031]Kiln.Registry.StationEntry.Id.get -> Kiln.Registry.RegistryId
+[KILNX031]Kiln.Registry.StationEntry.Item.get -> Kiln.Registry.RegistryId?
+[KILNX031]Kiln.Registry.StationEntry.Npc.get -> bool
+[KILNX031]Kiln.Registry.StationEntry.Registry.get -> string!

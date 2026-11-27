@@ -1164,15 +1164,20 @@ server layer sends a snapshot without it, and the client first removes the previ
 read only at world load is not retroactively consumed by systems that already read it. Per-field visibility and
 `clients` choices are in [the registry guide](../modding/registries/README.md#what-a-joined-client-sees).
 
-**Skill-tree costs are not registry fields.** A pack's `skills/*.json` / `gameTree` definitions and the game's native
-skill-tree construction are computed independently on each side, not transferred by item/recipe ContentSync. If a
-server changes a node from cost 3 to cost 0 while a player is joined, the player's existing tree can still show 3;
-server acceptance and the displayed cost can disagree for that connection. Rejoin with the same updated skill pack
-on the client (restart too if its boot data was already committed). Rejoining without the matching client files is
-not a sync mechanism. Use `clients: "mod"`, with the matching pack on both sides; `clients: "kiln"` alone does not
-supply a new native tree. ContentSync's separate gamedata `skills` layers are not a promise to rebuild a client's
-already constructed native tree either. Shadow-node unlock-state messages are separate from rebuilding that tree.
-See [skills](skills.md).
+**The game's skill nodes' costs** are a registry field since 0.2.0-dev.32 (`skills.cost`): the registry's edit is a layer of
+kiln.gamedata's `skills` slot of that node (the same slot as a pack's `"skills": {"0x4475e8dd": {"costs": 0}}`, which lies
+below it), and the content sync sends it with kiln.gamedata's other sections. The game's skill tree never copies a node: its
+node map points into the tree resource, so the server's next unlock, join check and respec count the new cost at once, and a
+Kiln client that received the slot writes it into its own resource, which its screen and its own point count read. A vanilla
+client keeps its own costs on its screen; the server's unlock check decides.
+
+**Nodes a mod adds are not.** A pack's `skills/*.json` / `gameTree` definitions (Kiln nodes, their cost included) and the
+expanded tree kiln.skills builds from them are computed independently on each side, not transferred by ContentSync. If a
+server changes a Kiln node's defined cost from 3 to 0 while a player is joined, the player's existing tree can still show
+3; server acceptance and the displayed cost can disagree for that connection. Rejoin with the same updated skill pack on
+the client (restart too if its boot data was already committed). Rejoining without the matching client files is not a sync
+mechanism. Use `clients: "mod"`, with the matching pack on both sides; `clients: "kiln"` alone does not supply a new tree.
+Shadow-node unlock-state messages are separate from rebuilding that tree. See [skills](skills.md).
 
 ## Kiln clients get definitions (`"clients": "kiln"`, A5)
 A mod whose manifest says `"clients": "kiln"` does not have to be installed on players' games: the server's content

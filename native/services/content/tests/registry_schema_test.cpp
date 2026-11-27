@@ -29,9 +29,9 @@ static std::vector<Refusal> parse(const Schema& s, const char* doc, Batch* b) {
 
 int main() {
     const Schema s = generated_schema();
-    // ---- the five R1 registries and dev.32's creatures, arsenals and perks, every row (later waves add theirs)
+    // ---- the five R1 registries and dev.32's creatures, arsenals, perks, skills and stations, every row (later waves add theirs)
     CHECK(s.registries.size() == std::size(gen::kRegistries));
-    for (const char* r : {"items", "recipes", "loot", "drops", "balance", "creatures", "arsenals", "perks"}) CHECK(s.registry(r) != nullptr);
+    for (const char* r : {"items", "recipes", "loot", "drops", "balance", "creatures", "arsenals", "perks", "skills", "stations"}) CHECK(s.registry(r) != nullptr);
     // pets and taming read a creature's kind (read-only) and its template id; an arsenal's attacks are a list of structs
     const FieldSpec* kind = s.registry("creatures")->field("kind");
     CHECK(kind && kind->read_only && kind->type == FieldType::Enum && kind->enum_values.size() == 4);

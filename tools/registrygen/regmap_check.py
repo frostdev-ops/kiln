@@ -387,7 +387,7 @@ def check(root, db):
                 else:
                     entry_root = el["name"]
                     res.layouts[entry_root] = el.get("layout")
-            for member in ("name", "guid", "id"):
+            for member in ("name", "guid", "id", "keyMember"):
                 if e.get(member) and entry_root and db.path(entry_root, e[member])[1]:
                     res.errors.append(f"{name}: entries.{member} {e[member]}: {db.path(entry_root, e[member])[1]}")
             if "withComponent" in e:
@@ -398,6 +398,8 @@ def check(root, db):
                     for c in wc:
                         if db.component(str(c)) is None:
                             res.errors.append(f"{name}: entries.withComponent {c}: not a component type of the type source")
+        if e.get("keyMember") and e.get("key") != "items":
+            res.errors.append(f"{name}: entries.keyMember goes with \"key\": \"items\"")
         for path, spec_row in specs.items():
             q = f"{name}.{path}"
             row = rows.get(path)

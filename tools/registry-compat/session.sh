@@ -62,7 +62,8 @@ step python3 -I "$C" diff --before "$O1" --after "$F1" --allow "$BAL" \
   --allow-field recipes:Material_T1_Factory_String_SpinningWheel.craftingDuration \
   --allow-field templates:Enemy_Vukah_Melee.Enemy01BehaviorState.combatCommitmentSetup.view.range \
   --allow-field arsenals:e30312e7-9749-4329-8bfd-469a295747b5.attacks[0].description.maxRange \
-  --allow-field perks:Perk_Armor_Fog.perkArmorSetup.distribution.fog
+  --allow-field perks:Perk_Armor_Fog.perkArmorSetup.distribution.fog \
+  --allow-field skills:0x4475e8dd.costs
 step python3 -I "$C" diff --before "$O1" --after "$OUTD/full/dump-3.json" --allow "$BAL" --allow-field items:Material_T1_Plant_Fibre.maxStackSize
 step python3 -I "$C" diff --before "$F1" --after "$OUTD/full/dump-4.json"
 say "session over: $([[ $rc == 0 ]] && echo PASS || echo FAIL)"

@@ -239,6 +239,10 @@ void id_table_lists_reference_tables(const std::string& dir) {
         v.add("keen::Perk", g(900), {{"debugName", "Perk_Strong"}});
         json& reg = v.values[g(100)];
         reg["inputCategories"] = json::array({{{"debugName", "Wood"}, {"inputCategoryId", 77}}});
+        // dev.32: the stations (keyed by GUID) and the skill nodes (no GUID: "#<node id>") are schema registries too
+        v.add("keen::WorkshopRegistryResource", g(500),
+              {{"workshops", json::array({{{"isNpc", false}, {"workshopGuid", g(501)}, {"workshopId", 0x4da88f73}, {"item", 0}, {"itemRef", "none"}}})}});
+        v.add("keen::SkillTreeResource", g(600), {{"nodes", json::array({{{"id", 0x4475e8dd}, {"costs", 3}, {"maxLevel", 0}}})}});
         return v;
     };
     const std::string rel = "ids-server-" + kExe + ".json";
@@ -253,6 +257,10 @@ void id_table_lists_reference_tables(const std::string& dir) {
         check(t["registries"].contains("inputCategories") && t["registries"]["inputCategories"].size() == 1,
               what + " lists the input categories in the build's id table: " + t["registries"].dump().substr(0, 300));
         check(t["registries"].contains("items") && t["registries"].contains("drops"), what + " keeps every schema registry");
+        check(t["registries"].contains("stations") && t["registries"]["stations"].value(g(501), "") == "game:station_4da88f73" &&
+                  t["registries"].contains("skills") && t["registries"]["skills"].value("#" + std::to_string(0x4475e8ddu), "") == "game:skill_4475e8dd",
+              what + " lists the stations and the skill nodes: " + t["registries"].value("skills", json::object()).dump() + " " +
+                  t["registries"].value("stations", json::object()).dump());
     }
 }
 

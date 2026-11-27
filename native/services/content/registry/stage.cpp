@@ -1363,12 +1363,21 @@ std::vector<BootResource> Runner::run(const OldWritesFn& old_fn, const std::vect
     if (rolled) d.stage_notes.insert(d.stage_notes.end(), rollback_notes.begin(), rollback_notes.end());
     // review: a start (not a rollback) against the plan the last world ran on. A narrower level range or a shorter build-zone
     // list than that world's changes what its saves hold, and nothing can be refused for it (without the edit the value is
-    // the game's, narrower still): a warning. The other classes are judged against the value without the registry, as above.
+    // the game's, narrower still): a warning. The other classes are judged against the value without the registry, as above,
+    // and (review-registry-r3a) a warning class against that plan too where this start's own value gets no warning: a skill
+    // node's cost lowered for that world and taken back up now puts characters who spent their points at it over them (the
+    // game's join check resets their tree), though against the game's value the start may still lower it.
     if (src && !rolled && !world_plan.empty())
         judge_against(plan_values(world_plan), [&](const FieldRef& ref, const std::string&, const saves::Verdict& v) {
-            if (v.decision != saves::Decision::Refuse) return;
-            d.stage_notes.push_back({ref, v.cls, "warn", against_text(v.text, world_plan, "which the last world ran on") +
-                                                         " (nothing to refuse: without this start's value the game's applies, narrower still)"});
+            if (v.decision == saves::Decision::Refuse) {
+                d.stage_notes.push_back({ref, v.cls, "warn", against_text(v.text, world_plan, "which the last world ran on") +
+                                                             " (nothing to refuse: without this start's value the game's applies, narrower still)"});
+                return;
+            }
+            if (v.decision != saves::Decision::Warn) return;
+            if (const auto it = r.fields.find(ref); it != r.fields.end() && has_registry_row(it->second))
+                if (saves::judge(ref.registry, ref.field, saves::before_registry(it->second), it->second.result)) return;  // its own note
+            d.stage_notes.push_back({ref, v.cls, "warn", against_text(v.text, world_plan, "which the last world ran on")});
         });
     if (rolled) {
         // exactly what changed back: every value of the plan rolled away from, and of this start, that differs

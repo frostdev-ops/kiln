@@ -522,6 +522,41 @@ Ghidra 12.1.2 decompiles of the current exes; the game's reflection (`tools/kfc 
   | Dexterity | `4be83310-…` |
   | Endurance | `6bd1a147-…` |
 
+### The skills registry (dev.32; server 26430253 `f0d824be…`, client 26430625 `5d9ef2f1…`) **[refl] [data] [dis] [lab]**
+What schema/registry/skills.json and regmap/common/skills.json rest on.
+- **Entries.** The one `SkillTreeResource` (`108ac23f-…`, 78,424 bytes) holds `nodes` (243 `keen::SkillTreeNode` of 140
+  bytes) and `links` (312). A node has no debug name and no GUID member: `id` (`+0x00`, a `SkillNodeId` = FNV-1a-32 of the
+  editor's node GUID) is its 32-bit id, so a node is `game:skill_<id>` (kiln.gamedata's `skill_<id>`, the catalogs' name).
+  The node layout is the same on both exes: `costs` u16 `+0x84`, `type` u8 enum `+0x86` (Root, Attribute, ActiveSkill,
+  PassiveSkill), `classAlignment` u8 enum `+0x87` (Warrior, Mage, Ranger, Neutral), `maxLevel` u8 `+0x88`, `levelIndex` u8
+  `+0x89`, `activeSkillUnlock` `+0x28` with `activeSkillUnlockRef` `+0x18`. Data: costs 0 (12 nodes, the roots), 1 (124),
+  2 (40), 3 (43), 4 (16), 5 (8); maxLevel 0 (152) or 3 (91); 5 nodes unlock an ability item.
+- **When the game reads `costs`.** The world's `g38_skilltree::SkillTree` builds its node map once per world (the loader
+  above), and the map's values are pointers into the resource's data (`+0x20`), never copies: NodeById returns the node
+  inside the resource. PointsSpent (`0x9222f0` [`0xe7b170`]) reads each unlocked node's `costs` through it at the unlock
+  check, the join check and a respec; kiln.skills' tree dump reads the cost the same way (NodeById, `t_tree`). So a write of
+  a node's `costs` in the resource the tree was built from is what the next unlock, join and respec count: read now.
+  **[lab]** registry-proof-test (dev.32): the game's own PointsSpent over a scratch tree holding only the probed node
+  (GameTree.Simulate) and the tree's NodeById cost follow a registry write at once (the proof's `effects`). kiln.gamedata's
+  `skills` section has always written the same member (`"skills": {"0x4475e8dd": {"costs": 0}}`, Free Airborne
+  Architect).
+- **Which bytes.** kiln.gamedata's skills entries point into the resource kiln.assets resolves at the world's start: the
+  game's own, or, when a mod adds nodes through kiln.skills, the expanded copy kiln.skills serves before the world's loader
+  runs (kiln.assets resolves the override). A world built before the override was served would hold the old bytes; kiln.skills
+  serves it before a world's tree loads (skills.md "When it takes effect").
+- **A joined client.** The client builds its own tree from its own resource with the same loader (`0xec6be0`), its node map
+  pointing into that resource. The content sync sends kiln.gamedata's skills slots that differ from the game's (packs.cpp's
+  export: `skills` section, the registry's layer included, gd_registry_slot registers it), and a Kiln client writes them into
+  its resource: its screen and its own PointsSpent read the new cost. A vanilla client keeps its own costs (its screen
+  shows them; the server's unlock check decides).
+- **Saves.** A character's save keeps unlocked node ids and levels, never costs. The join check (`0xe00b0`) counts the
+  unlocked nodes' costs against the character's points: a raised cost can put a saved character over them, and the game
+  resets the whole tree for free at that join (registry/saves.cpp `skillTree`, warn). `maxLevel` and the links stay
+  read-only (a saved level above a lowered maxLevel, or a node cut off from a root, resets the whole tree too).
+- **Not mapped.** The nodes' config values (`configValues`: 151 nodes hold the amount config `0x0a0c87e7` in five storage
+  kinds, Sint32, Float, ScaledFloat, ScaledSint32, ScaledUint32) and links have no Kiln field yet: kiln.gamedata's `skills`
+  section edits them by path.
+
 ### Perks **[data]**
 365 `Perk` resources, listed by `PerkCollectionResource`. Two kinds:
 - simple attribute buffs with `damageModifier`/`perkArmorSetup` and no program, e.g. `Perk_Damage_Ice`;

@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "comment": "an old data pack: below the registry (D1); since dev.32 also old gamedata sections the creatures, arsenals and perks registries layer on",
+  "comment": "an old data pack: below the registry (D1); since dev.32 also old gamedata sections the creatures, arsenals, perks and skills registries layer on",
   "items": {
     "Material_T1_Wood_Logs": {
       "maxStackSize": {
@@ -27,6 +27,11 @@
       "perkArmorSetup.distribution.fog": {
         "mul": 2
       }
+    }
+  },
+  "skills": {
+    "0x4475e8dd": {
+      "costs": 2
     }
   }
 }

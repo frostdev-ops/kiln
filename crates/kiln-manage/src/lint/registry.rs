@@ -41,6 +41,8 @@ fn fields() -> &'static Fields {
             include_str!("../../../../schema/registry/creatures.json"),
             include_str!("../../../../schema/registry/arsenals.json"),
             include_str!("../../../../schema/registry/perks.json"),
+            include_str!("../../../../schema/registry/skills.json"),
+            include_str!("../../../../schema/registry/stations.json"),
         ] {
             let doc: serde_json::Value = serde_json::from_str(text).expect("shipped registry schema");
             visit(&mut fields, doc["registry"].as_str().expect("registry name"), "", &doc["fields"], false);

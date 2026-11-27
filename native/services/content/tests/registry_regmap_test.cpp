@@ -176,11 +176,12 @@ int main(int argc, char** argv) {
         std::stringstream ss;
         ss << f.rdbuf();
         const auto doc = map::json::parse(ss.str(), nullptr, false);
-        CHECK(!doc.is_discarded() && doc["cases"].size() >= 8);
+        CHECK(!doc.is_discarded() && doc["cases"].size() >= 10);
         for (const auto& c : doc["cases"]) {
             map::EntrySource src;
             const auto& s = c["src"];
             src.unnamed = s.value("unnamed", ""), src.name_from = s.value("nameFrom", ""), src.key = s.value("key", "");
+            src.key_member = s.value("keyMember", "");
             map::Aliases al;
             const std::string reg = c["registry"];
             const map::json pinned = c["aliases"].value("pinned", map::json::object()), removed = c["aliases"].value("removed", map::json::object());
@@ -188,7 +189,7 @@ int main(int argc, char** argv) {
             for (const auto& [id, b] : removed.items()) al.removed[reg + "|" + id] = b;
             std::vector<map::GameEntry> es;
             for (const auto& e : c["entries"]) {
-                map::GameEntry x{e["guid"], e["name"], e["id"].get<uint32_t>(), {}};
+                map::GameEntry x{e["guid"], e["name"], e["id"].get<uint32_t>(), {}, e.value("keyId", 0u)};
                 const map::json named = e.value("namedBy", map::json::array());
                 for (const auto& t : named) x.named_by.push_back(t);
                 es.push_back(x);
@@ -338,7 +339,6 @@ int main(int argc, char** argv) {
                 CHECK(ok);
             }
             CHECK(one.mapping("items", "fuel.burnTime", &why) == Mapping::Unproven && why.find("no game code reads") != std::string::npos);
-            CHECK(one.mapping("recipes", "station", &why) == Mapping::Unproven && why.find("no stations registry") != std::string::npos);
             // dev.32 (lane registry-r2a, lab-proven on f0d824be, mirrored on the client): every creatures and arsenals row, a perk's
             // value (both kinds) and armour; the perk damage bonus stays off with its reason (its read time is not traced)
             for (const auto& [reg, field] : {std::pair{"creatures", "kind"}, {"creatures", "level"}, {"creatures", "faction"}, {"creatures", "scale"},
@@ -351,7 +351,16 @@ int main(int argc, char** argv) {
                 CHECK(ok);
             }
             CHECK(one.mapping("perks", "damage.ice", &why) == Mapping::Unproven && why.find("damage bonus is not traced") != std::string::npos);
-            CHECK(mapped == static_cast<int>(std::size(gen::kFields)) - 16 && unproven == 16);
+            // dev.32 (lane registry-r3a): recipes.station names a stations id now, and the skills and stations rows are proven
+            // (skills.cost by its live round trip, the read-only rows from the base)
+            for (const auto& [reg, field] : {std::pair{"recipes", "station"}, {"skills", "cost"}, {"skills", "maxLevel"}, {"skills", "kind"},
+                                             {"skills", "class"}, {"skills", "unlocks"}, {"stations", "item"}, {"stations", "npc"}}) {
+                const bool ok = one.mapping(reg, field, &why) == Mapping::Mapped;
+                if (!ok) std::printf("  %s: %s.%s: %s\n", side, reg, field, why.c_str());
+                CHECK(ok);
+            }
+            // unproven: items.fuel.burnTime and the 14 perks.damage rows
+            CHECK(mapped == static_cast<int>(std::size(gen::kFields)) - 15 && unproven == 15);
             if (std::string(side) == "client") {
                 // review3 N4: row for row only where the client's layout of the registry's root type is the server's (a
                 // later client layout may differ legitimately: those rows are unproven); never ok where the server is not

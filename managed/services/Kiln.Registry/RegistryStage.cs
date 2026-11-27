@@ -48,6 +48,12 @@ public sealed class RegistryStage
     public RegistryEntries<ArsenalEntry> Arsenals { get { Context.Ensure(); return new(this, "arsenals", static (id, cells) => new(id, cells)); } }
     /// <summary>Perks (what a perk on an item grants), by Kiln id: the ids <see cref="ItemEntry.Perks"/> holds.</summary>
     public RegistryEntries<PerkEntry> Perks { get { Context.Ensure(); return new(this, "perks", static (id, cells) => new(id, cells)); } }
+    /// <summary>The skill tree's nodes, by Kiln id (game:skill_&lt;node id&gt;): their cost; levels, kind, class and the ability they
+    /// unlock read-only. Nodes a mod adds through Kiln.Skills are not entries.</summary>
+    public RegistryEntries<SkillNodeEntry> Skills { get { Context.Ensure(); return new(this, "skills", static (id, cells) => new(id, cells)); } }
+    /// <summary>The crafting stations, by Kiln id (the id of the item that builds each one). Read-only; a recipe names its
+    /// station (recipes.station).</summary>
+    public RegistryEntries<StationEntry> Stations { get { Context.Ensure(); return new(this, "stations", static (id, cells) => new(id, cells)); } }
     /// <summary>The singleton balance table. Its restart fields are editable only at game start.</summary>
     public BalanceEntry Balance { get { Context.Ensure(); return new(new("game:balance"), Cells("balance", "game:balance")); } }
     /// <summary>Authors new entries in the add pass. Entry creation is GameStart-only; later native points report RestartRequired.</summary>

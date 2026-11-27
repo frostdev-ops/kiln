@@ -28,6 +28,9 @@ Adding a registry (schema, mapping, back-ends, proof, tests, and the pitfalls th
                "nameFrom": "",                // drop tables: "<component>.<member>": the templates that use the entry name it
                "key": "",                     // loot: "items": the entry has the id of the item with its 32-bit id;
                                               // creatures: "templates": the id of the template with its GUID
+               "keyMember": "",               // stations: with "key": "items", the member whose 32-bit item id names the
+                                              // entry (the item that builds it); none, or an item no items entry has: the
+                                              // name rules ("unnamed")
                "withComponent": [] },         // creatures: only the templates holding one of these components (by type name)
   "rows": {
     "maxStack": { "paths": ["maxStackSize"], "conv": "int", "read": "worldLoad", "backend": "live", "clientNeeds": true,

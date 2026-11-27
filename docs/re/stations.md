@@ -1319,3 +1319,34 @@ readers on any thread get that copy. No hook, no write, no message.
 - the remaining time against the game's own HUD (the arithmetic is the game's, statically);
 - the station inventories in the client world (outputs), and the server's speed setting reaching the client;
 - the copy's cost with many stations (at most 1000 rows of 200 bytes and 1 recipe lookup per recipe per copy).
+
+## 15. The stations registry (dev.32) [data][refl][kiln]
+
+What the `stations` registry and `recipes.station` rest on (server 26430253 `f0d824be…`, client 26430625 `5d9ef2f1…`;
+reflection of both exes, data decoded with `tools/kfc` from the server's archive; schema/registry/stations.json,
+regmap/common/stations.json).
+
+- **Entries.** `keen::WorkshopRegistryResource` (one resource, `3baba1c2-…`, 5,328 bytes) holds three arrays: `npcs` (0
+  elements on this build), `workshops` (51) and `craftingProps` (51). A Kiln station is one element of `workshops`
+  (`keen::WorkshopResource`, 56 bytes: `isNpc` `+0x00`, `ignoreInJournalUi` `+0x01`, `workshopGuid` `+0x04`, `workshopId`
+  `+0x14` (a `HashKey32`), `name` `+0x18` (a loca tag), `item` `+0x1c`, `itemRef` `+0x20`, the upgrade masks `+0x30..`).
+  The layout is the same on both exes (`regmap_check.py --exe`: every row resolves on both). 11 of the 51 are villagers'
+  (`isNpc`); 7 have no item (the flame altar's two, the farm bed's and four others).
+- **Ids.** A workshop has no debug name. Its `item` names the item that builds it (a villager's: the villager's item), so a
+  station takes that item's Kiln id (regmap entries `"key": "items", "keyMember": "item"`): `game:craftingstation_workbench`
+  (`0x4da88f73`), `game:prop_production_t1_forge` (`0x8dca2c49`), `game:npc_crafter_blacksmith01` (`0x41bf48ce`); one
+  without an item is `game:station_<workshopId>` (`game:station_b326e042`, the altar's). No two stations share an item on
+  this build. Its 32-bit id stays `workshopId`: recipes name a station by it.
+- **When the game reads it.** The workshop registry (`workshop::WorkshopRegistry`) copies the records into its own hash
+  map (inline 0x38-byte records, docs/re/content.md section 7; its map is sized from the resource at load,
+  docs/re/building.md 2.4): read once at start. Both fields are read-only and `restart`.
+- **`recipes.station`.** `keen::RecipeInfo.workshopId` (`+0x24`) and `workshopGuid` (`+0x14`). Of the server's 2,542
+  recipes, 2,485 name one of 45 workshops by `workshopId`; every recipe's `workshopGuid` is all zeros on this build, so
+  the reference resolves by the 32-bit id; 57 recipes name none (the player's own crafting): `null`. RecipeFinishLoading
+  sorts recipes into per-workshop lists once (docs/re/content.md section 2): read once, read-only, `restart`.
+- **Templates and stations.** 117 templates carry `CraftingInteraction` and 119 `Crafting`; they name 46 workshops
+  (`workshopId 0` on 28 of them: the player's own menu). A workshop may have many templates (the workbench 17, a
+  villager's station up to 9 NPC templates), so a station is not a template, and the crafting stock (the
+  `InventoryCraftingStock` component of 10 templates: the five Magic chests and five refilling plants) and the area
+  deposit switch (its `canReceiveAreaDeposit`) are templates' data, not a station's: no station field maps them (see
+  docs/kiln/modding/registries/README.md "Stations, recipes and the base's storage").

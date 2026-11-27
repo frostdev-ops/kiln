@@ -178,6 +178,13 @@ public static partial class RegistrySchema
         new(0x00080017, "perks.damage.stone", RegistryFieldType.Int, null, RegistryApplies.WorldLoad, RegistryOps.Number, 0.0, 1000000.0, 0, null, null, null, null, false, false, 0, null, 0, "0.1.0") { JoinedClient = "unknown" },
         new(0x00080018, "perks.damage.metal", RegistryFieldType.Int, null, RegistryApplies.WorldLoad, RegistryOps.Number, 0.0, 1000000.0, 0, null, null, null, null, false, false, 0, null, 0, "0.1.0") { JoinedClient = "unknown" },
         new(0x00080019, "perks.damage.explosion", RegistryFieldType.Int, null, RegistryApplies.WorldLoad, RegistryOps.Number, 0.0, 1000000.0, 0, null, null, null, null, false, false, 0, null, 0, "0.1.0") { JoinedClient = "unknown" },
+        new(0x00090001, "skills.cost", RegistryFieldType.Int, null, RegistryApplies.Now, RegistryOps.Number, 0.0, 65535.0, 0, null, null, null, null, false, false, 0, null, 0, "0.1.0") { JoinedClient = "now" },
+        new(0x00090002, "skills.maxLevel", RegistryFieldType.Int, null, RegistryApplies.Now, RegistryOps.None, 0.0, 7.0, 0, null, null, null, null, true, false, 0, null, 0, "0.1.0") { JoinedClient = "serverOnly" },
+        new(0x00090003, "skills.kind", RegistryFieldType.Enum, null, RegistryApplies.Now, RegistryOps.None, null, null, 0, new[] { "root", "attribute", "active", "passive" }, null, null, null, true, false, 0, null, 0, "0.1.0") { JoinedClient = "serverOnly" },
+        new(0x00090004, "skills.class", RegistryFieldType.Enum, null, RegistryApplies.Now, RegistryOps.None, null, null, 0, new[] { "warrior", "mage", "ranger", "neutral" }, null, null, null, true, false, 0, null, 0, "0.1.0") { JoinedClient = "serverOnly" },
+        new(0x00090005, "skills.unlocks", RegistryFieldType.Ref, null, RegistryApplies.Now, RegistryOps.None, null, null, 0, null, "items", null, null, true, true, 0, null, 0, "0.1.0") { JoinedClient = "serverOnly" },
+        new(0x000a0001, "stations.item", RegistryFieldType.Ref, null, RegistryApplies.Restart, RegistryOps.None, null, null, 0, null, "items", null, null, true, true, 0, null, 0, "0.1.0") { JoinedClient = "serverOnly" },
+        new(0x000a0002, "stations.npc", RegistryFieldType.Bool, null, RegistryApplies.Restart, RegistryOps.None, null, null, 0, null, null, null, null, true, false, 0, null, 0, "0.1.0") { JoinedClient = "serverOnly" },
     };
 
     private static readonly global::System.Collections.Generic.Dictionary<string, string> s_versions = new()
@@ -190,5 +197,7 @@ public static partial class RegistrySchema
         ["arsenals"] = "0.1.0",
         ["creatures"] = "0.1.0",
         ["perks"] = "0.1.0",
+        ["skills"] = "0.1.0",
+        ["stations"] = "0.1.0",
     };
 }

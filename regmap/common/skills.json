@@ -1,0 +1,70 @@
+{
+  "regmap": 1,
+  "registry": "skills",
+  "entries": {
+    "kind": "array",
+    "resourceType": "keen::SkillTreeResource",
+    "array": "nodes",
+    "id": "id",
+    "unnamed": "skill_%08x"
+  },
+  "rows": {
+    "cost": {
+      "paths": [
+        "costs"
+      ],
+      "conv": "int",
+      "read": "now",
+      "backend": "live",
+      "clientNeeds": true,
+      "evidence": "docs/re/abilities.md section 4: the skill tree's NodeById maps each node id to the node inside the resource's data, and PointsSpent reads the node's costs through it at the unlock check, the join check and a respec; lab: the game's PointsSpent on a scratch tree follows a registry write (registry-proof-test effects)"
+    },
+    "maxLevel": {
+      "paths": [
+        "maxLevel"
+      ],
+      "conv": "int",
+      "read": "now",
+      "backend": "none",
+      "evidence": "docs/re/abilities.md section 4: the level check and the unlock handler read maxLevel through NodeById"
+    },
+    "kind": {
+      "paths": [
+        "type"
+      ],
+      "conv": "enum",
+      "values": {
+        "root": "Root",
+        "attribute": "Attribute",
+        "active": "ActiveSkill",
+        "passive": "PassiveSkill"
+      },
+      "read": "now",
+      "backend": "none"
+    },
+    "class": {
+      "paths": [
+        "classAlignment"
+      ],
+      "conv": "enum",
+      "values": {
+        "warrior": "Warrior",
+        "mage": "Mage",
+        "ranger": "Ranger",
+        "neutral": "Neutral"
+      },
+      "read": "now",
+      "backend": "none"
+    },
+    "unlocks": {
+      "paths": [
+        "activeSkillUnlock",
+        "activeSkillUnlockRef"
+      ],
+      "conv": "ref",
+      "read": "now",
+      "backend": "none",
+      "evidence": "docs/re/abilities.md section 4: 5 nodes unlock an ability item"
+    }
+  }
+}

@@ -36,6 +36,37 @@ public sealed class RegistryContextTests
         Assert.Equal(RegistryContextError.Closed, Assert.Throws<RegistryContextException>(() => item.MaxStack = 20).Code);
     }
 
+    // dev.32: the skills and stations registries are typed entries like the others: a node's cost reads and edits, its kind and
+    // unlocked ability read; a station is read-only (no setter), its item a Kiln id.
+    [Fact]
+    public void SkillsAndStationsAreTypedEntries()
+    {
+        var context = new RegistryContext(Mod(), RegistryEntryPoint.GameStart, RegistryPhase.Alter, null, "test-code",
+            (registry, _, field) => (registry, field) switch
+            {
+                ("skills", "cost") => "3", ("skills", "kind") => "\"active\"", ("skills", "class") => "\"neutral\"",
+                ("stations", "npc") => "true", ("stations", "item") => "\"game:npc_crafter_blacksmith01\"", _ => "null",
+            }, (_, _) => new[] { "game:skill_4475e8dd" });
+        using var scope = context.Enter();
+        var registry = DataRegistry.For(context);
+        var node = registry.Skills["game:skill_4475e8dd"];
+        Assert.Equal(3, node.Cost);
+        Assert.Equal(SkillNodeKind.Active, node.Kind);
+        Assert.Equal(SkillNodeClass.Neutral, node.Class);
+        Assert.Null(node.Unlocks);
+        node.Cost = 0;
+        Assert.Equal(0, node.Cost);
+        var station = registry.Stations["game:npc_crafter_blacksmith01"];
+        Assert.True(station.Npc);
+        Assert.Equal(new RegistryId("game:npc_crafter_blacksmith01"), station.Item);
+        Assert.Null(typeof(StationEntry).GetProperty(nameof(StationEntry.Npc))!.SetMethod);
+        var ir = JsonNode.Parse(context.CaptureIr()!)!;
+        var edit = Assert.Single(ir["edits"]!.AsArray())!;
+        Assert.Equal("skills", edit["registry"]!.GetValue<string>());
+        Assert.Equal("cost", edit["field"]!.GetValue<string>());
+        Assert.Equal(0, edit["op"]!.GetValue<int>());
+    }
+
     [Fact]
     public void UnloadedOwnerFailsBeforeAnyBackendAccess()
     {

@@ -1,7 +1,7 @@
 # Adding a registry (maintainer guide)
 
-For Kiln maintainers who add the next registry (skills, stations, NPCs, ...) to the ones that ship today (items,
-recipes, loot, drops, balance; since dev.32 creatures, arsenals and perks). It says what a new registry gets for free, the steps in order, every pitfall the first
+For Kiln maintainers who add the next registry (NPCs, pets, ...) to the ones that ship today (items,
+recipes, loot, drops, balance; since dev.32 creatures, arsenals, perks, skills and stations). It says what a new registry gets for free, the steps in order, every pitfall the first
 five hit and the fix that is in the code now, and when a new registry is done. Mod-facing docs are
 [modding/registries/README.md](modding/registries/README.md); the native tables are [services/registry.md](services/registry.md);
 the mapping and its proof are [regmap/README.md](../../regmap/README.md) and [sigport.md](sigport.md#the-registry-proof-kilnctl-regproof).
@@ -113,7 +113,11 @@ current server and client exes, every row resolves and type-checks.
   `~<GUID hex>` clash suffixes given once and kept, a removed entry refuses every edit naming it. Ids are lower case.
 - A new rule (no GUID, names taken from another resource, an id shared with another registry like loot's `key: "items"`)
   goes in `map::assign_ids` (regmap.cpp) **and** its Python twin (`regmap_ids.py`, `regmap_entries.py`), with cases in
-  `native/services/content/tests/registry_ids_cases.json` that both run. kilnctl compares the two implementations
+  `native/services/content/tests/registry_ids_cases.json` that both run. dev.32's stations took one: `"keyMember": "item"`
+  beside `"key": "items"` names an entry by the items id of the item its member names (the item that builds the station),
+  while its 32-bit id stays its own (`workshopId`, what recipes name); an entry without an item falls back to `unnamed`.
+  The id needs only `keyId` in the entries file (`regmap_entries.py`) and `GameEntry::key` natively. Also add the registry
+  to `regmap_check.py` `compute_aliases`'s list (after items when it takes their ids) and to `regmap_entries.py`. kilnctl compares the two implementations
   (`pins_hold_ids_are_unique_and_both_implementations_agree`, ids.rs).
 - The per-build id table must list every registry and the reference tables (P12). `Model::list_all` (model.cpp:898)
   iterates the schema registries plus `templates`, `perks`, `inputCategories`; a new reference-only table goes in that
@@ -170,6 +174,14 @@ entry point is `RestartRequired`, never applied (owner ruling 2026-11-22 on entr
   registries.cpp). Without it every live field is refused "this registry has no live back-end" (:726). A registry
   kiln.content has no store kind for yet needs one first: entries in the world (`find_entry`, :165) and the store's
   writable field schema come from it.
+- **A registry over one of kiln.gamedata's sections** (templates, sequences, buffs, perks, skills: dev.32's `skills`) needs no
+  new store kind: add it to `gd_section_of` (registry_live.cpp). Its entry is found by the 32-bit id the stage's id table gives
+  the Kiln id (`g.in->nums`), and `bind_gd_scalar` takes each plain row's slot from `gd_registry_slot` (gamedata_packs.cpp:
+  the member at the row's path below the section's entry, `GD_KIND_BASE + section`, registered as a pack's slot is), so a
+  data pack's section layer of the same member lies below the registry's, and the content sync sends the registry's layer
+  (`gd_export` needs the slot's `SlotInfo`). Lists, references and configs over a section have no binder yet. Host tests
+  define `gd_registry_slot` over made-up memory (registry_live_test.cpp) and give it a store kind the fixture's `reg()` does
+  not index (the fixture clamps it, as registries.cpp does).
 - Writes go through the store's layers (packs < registry < code) with compare-before-write: a slot another writer changed
   after Kiln's layer stays with that writer for the world and is reported "another writer" (store.cpp:519-538, ruling
   2026-11-22 5:22 PM).
@@ -185,7 +197,8 @@ clamps saved copies into, a list a saved index points into) and add its case to 
 warn or report (README "Edits that change existing saves"), with a `registry_saves` test. Restart fields are judged at the
 stage (`stage.cpp` `compose_checked`), live scalar fields at each write over the value under them (`registry_live.cpp`
 `save_check`; a new entry's first values are not judged), and every field of a rollback's plan also against the plan it rolls
-away from (`stage.cpp`, whole plan); a field read only at use or for new copies needs nothing.
+away from (`stage.cpp`, whole plan); a start's fields are judged against the plan the last world ran on too (a Refuse or Warn
+verdict there is a warning where the start's own value has none: P59); a field read only at use or for new copies needs nothing.
 
 ### 2.8b Registries over kiln.gamedata's sections (dev.32: creatures, arsenals, perks)
 
@@ -244,7 +257,9 @@ The lab writes the evidence kilnctl judges (regmap/README.md "The producer"):
   sampled").
 - Live fields: `mods/tests/registry-proof-test/RegistryProofTestMod.cs` lists the live registries (`Live`), enumerates their
   entries through `Content.*` (`RegistryOf`) and reads raw bytes by resource (`ResourceOf`). A new live registry needs
-  an entry there. Phase 1 runs at the world's first content ready; phase 2 (`RegistryProofTestMod.Later.cs`) runs once the
+  an entry there; a registry over a kiln.gamedata section has no Content registry to enumerate and gets its own sampler
+  (`RegistryProofTestMod.Skills.cs`: entries from the id table's `#<id>` keys, raw reads through `Content.Skills`, and the
+  read time as an effect, the game's own PointsSpent and NodeById over the written cost). Phase 1 runs at the world's first content ready; phase 2 (`RegistryProofTestMod.Later.cs`) runs once the
   world runs: it loads drop tables the way the game does for a player (`LoadDropTables`: a few of the game's loot containers
   spawned next to a container of the lab's world, or at the lab world's spot when it has none, whose default_inventory
   program acquires their tables), samples the drop
@@ -384,6 +399,16 @@ Each row: the symptom we saw, why, the fix that is in now, and the code or test 
 | P50 | (dev.32) a code writer through kiln.gamedata's set on a creature, arsenal or perk kept the template's name and member path in registry.json's writer row | name_code_writer found the entry only among kiln.content's registries and items' config slots | a gamedata-section registry's entry is found by the Kiln id's GUID (`gd_section_entry`) and its slot's id, so the row names the mod and `creatures[<id>].<field>` | `registry_live.cpp` `name_code_writer`; `registry_gd_live_test` `creature_code_writer_in_kiln_words` |
 | P51 | (dev.32) a format-2 EML journal write into a template went unnamed on every creature field; then (review) every creature field said "<package> wrote this field" for a write of the template's model | the journal names a template's members by their published place (`components[12].value...`), the rows by component type, so no path overlapped; the journal cannot say which component a place is | any write in the component list names the creature whole (`archive_paths_of`, `kTemplateComponents`): "wrote this entry", registry.json `"named": "entry"`, never a miss and never a field it did not write | `registry/archive_journal.cpp` `name_archive_writers`; `registry_writers_test` (creature rows, "the creature is named whole") |
 | P53 | (dev.32 review) a data pack with only creatures, arsenals or perks edits got no KL213 clients guidance | kiln-manage's lint embeds each registry schema by name and knew only the first five | the three schemas embedded; a test reads `schema/registry/` and fails for a schema the lint does not hold | `crates/kiln-manage/src/lint/registry.rs`; lint tests `registry_clients_knows_every_shipped_registry`, `registry_only_clients_guidance_tracks_the_edited_fields` |
+
+### dev.32 (skills, stations)
+
+| # | Symptom | Cause | Fix | Where |
+|---|---|---|---|---|
+| P55 | `recipes.station` read null for every recipe although 2,485 name a station | the recipes' station GUID is all zeros on this build: the reference resolves by the 32-bit id only, so the stations entries' 32-bit id must be the station's own (`workshopId`), not the item that names it | names from `keyMember` (the item), numbers from `id` (the station) | `registry_model_test` `values` (recipes.station), `registry_ids_cases.json` "stations take the id of the item..." |
+| P56 | every back-end test of a new registry's live row refused "Unmapped" | `regmap_fixture.sh` set only the record's rows ok, and a new registry's rows are in the record only after its lab proof | the fixture enables every row of regmap/common too | `native/services/content/tests/regmap_fixture.sh` |
+| P57 | the registry's live read of a read-only field in a running world fails (UNAVAILABLE) | the live back-end binds only live rows; read-only rows come from the base (proof.cpp `read_only`, the stage's base) | expected for the proof: read-only rows are proven from the base, and the producer samples only live rows of a gamedata-backed registry. A mod's read of a read-only field in a running world reads the base since P52 | `RegistryProofTestMod.Skills.cs` |
+| P58 | a node of the game's skill tree changed in the resource but the game's tree did not follow (the fear; not seen: the dev.32 lab showed the game's PointsSpent and NodeById follow a registry write, 3 -> 4, with no mod nodes served) | kiln.skills serves an expanded copy of the tree when mods add nodes; a world whose tree was built before the copy was served would hold the old bytes | kiln.gamedata resolves the resource at the world's start, after kiln.skills serves it; the proof producer's effect reads the cost back through the game's NodeById and PointsSpent (a lab with mod nodes would show the served-copy case) | docs/re/abilities.md "The skills registry" |
+| P59 | a start that took a lowered `skills.cost` back up (1 for the last world, 2 now, the game's 3) got no saves warning, while characters who spent their points at 1 get the game's free tree reset at their next join | warning classes were judged only against the value without the registry (3 -> 2: lower); only Refuse classes were judged against the plan the last world ran on | a Warn verdict against that plan is a warning too, where the start's own value has no verdict of its own (one note per field). Not covered: a start where no mod has registry content (no base is read), and a live change's revert (never judged) | `stage.cpp` (start against the last world's plan); `registry_stage_test` `a_start_raising_a_skill_cost_over_the_last_worlds_warns` |
 
 Regmap reasons are player-facing (P31's rule for records): `regmap_check.py:324-330`. A reason must say what is not
 known in Kiln words, without nested parentheses (kiln.content wraps it in parentheses).

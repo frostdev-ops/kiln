@@ -95,15 +95,27 @@ TreeView world() {
                     {"inputItemCategory", {{"category", 0}, {"categoryRef", "none"}, {"count", 0}}}};
     };
     json recipes = json::array();
-    recipes.push_back({{"debugName", "Craft_Planks"}, {"recipeGuid", g(101)}, {"recipeId", 5001},
+    recipes.push_back({{"debugName", "Craft_Planks"}, {"recipeGuid", g(101)}, {"recipeId", 5001}, {"workshopId", 0x4da88f73},
+                       {"workshopGuid", "00000000-0000-0000-0000-000000000000"},  // the game names a recipe's station by its id only
                        {"input", json::array({input_item(1, 3)})}, {"output", json::array({{{"item", 1002}, {"itemRef", g(2)}, {"count", 1}}})},
                        {"craftingDuration", 2.5}, {"knowledgeRequirement", {{"knowledgeOrQueryId", 0}, {"compareValue", 0}}}});
-    recipes.push_back({{"debugName", "Craft_Stew"}, {"recipeGuid", g(102)}, {"recipeId", 5002},
+    recipes.push_back({{"debugName", "Craft_Stew"}, {"recipeGuid", g(102)}, {"recipeId", 5002}, {"workshopId", 0},
+                       {"workshopGuid", "00000000-0000-0000-0000-000000000000"},  // the player's own crafting: no station
                        {"input", json::array({{{"itemStack", {{"item", 0}, {"itemRef", "none"}, {"count", 0}}},
                                                {"inputItemCategory", {{"category", 77}, {"categoryRef", "none"}, {"count", 4}}}}})},
                        {"output", json::array({{{"item", 1004}, {"itemRef", g(4)}, {"count", 2}}})},
                        {"craftingDuration", 10.0}, {"knowledgeRequirement", {{"knowledgeOrQueryId", 99}, {"compareValue", 1}}}});
     v.add("keen::RecipeRegistryResource", g(100), {{"recipes", recipes}, {"inputCategories", json::array({{{"inputCategoryId", 77}}})}});
+    // dev.32: the stations (named by the item that builds them; none: station_<id>) and the skill tree's nodes (no names, no GUIDs)
+    v.add("keen::WorkshopRegistryResource", g(500),
+          {{"workshops", json::array({{{"isNpc", false}, {"workshopGuid", g(501)}, {"workshopId", 0x4da88f73}, {"item", 1002}, {"itemRef", g(2)}},
+                                      {{"isNpc", false}, {"workshopGuid", g(502)}, {"workshopId", 0xb326e042}, {"item", 0}, {"itemRef", "none"}},
+                                      {{"isNpc", true}, {"workshopGuid", g(503)}, {"workshopId", 0xc86873f9}, {"item", 1004}, {"itemRef", g(4)}}})}});
+    v.add("keen::SkillTreeResource", g(600),
+          {{"nodes", json::array({{{"id", 0x4475e8dd}, {"costs", 3}, {"maxLevel", 0}, {"type", "ActiveSkill"}, {"classAlignment", "Neutral"},
+                                   {"activeSkillUnlock", 1002}, {"activeSkillUnlockRef", g(2)}},
+                                  {{"id", 0x8efcc472}, {"costs", 0}, {"maxLevel", 3}, {"type", "Root"}, {"classAlignment", "Mage"},
+                                   {"activeSkillUnlock", 0}, {"activeSkillUnlockRef", "none"}}})}});
     v.add("keen::LootableItemsResource", g(200),
           {{"items", json::array({{{"itemId", 1001}, {"stackSizeMin", 1}, {"stackSizeMax", 4}}, {{"itemId", 1002}, {"stackSizeMin", 1}, {"stackSizeMax", 1}}})}});
     v.add("keen::ecs::DefaultInventoryResource", g(300),
@@ -163,6 +175,11 @@ void entries_and_ids(const std::string& dir) {
     check(ids_of(*f.m, "loot") == "game:material_t1_wood_logs,game:sword_t1", "loot keyed by the item's 32-bit id: " + ids_of(*f.m, "loot"));
     check(ids_of(*f.m, "drops") == "game:lootcontainer_enemy_a,game:drops_0000012d", "drop tables named after the template that uses them, else by GUID: " + ids_of(*f.m, "drops"));
     check(ids_of(*f.m, "balance") == "game:balance", "the one balance table: " + ids_of(*f.m, "balance"));
+    check(ids_of(*f.m, "stations") == "game:sword_t1,game:station_b326e042,game:item_000003ec",
+          "stations take the id of the item that builds them, else station_<id>: " + ids_of(*f.m, "stations"));
+    check(ids_of(*f.m, "skills") == "game:skill_4475e8dd,game:skill_8efcc472", "skill nodes by their node id: " + ids_of(*f.m, "skills"));
+    const auto* station = f.m->find("stations", "game:sword_t1");
+    check(station && station->num == 0x4da88f73 && station->guid == g(501), "a station's number is its own 32-bit id (what recipes name), not its item's");
     const auto* e = f.m->find("items", "GAME:SWORD_T1");
     check(e && e->num == 1002 && e->guid == g(2) && e->name == "Sword_T1", "find: case-insensitive, with GUID, number and name");
 }
@@ -186,6 +203,17 @@ void values(const std::string& dir) {
           "inventoryWalk: the root's stacks, then each child group's: " + walk.text_of());
     check(f.val("balance", "game:balance", "xpPerLevel").text_of() == "[1000,2000,3000,4000,5000]", "a list of ints");
     check(f.val("balance", "game:balance", "levelCap") == Value::integer(50), "balance int");
+    // dev.32: a recipe's station by the station's 32-bit id (the recipe's station GUID is empty); none: null
+    check(f.val("recipes", "game:craft_planks", "station") == Value::text("game:sword_t1"), "recipes.station names the stations id");
+    check(f.val("recipes", "game:craft_stew", "station").kind == Value::None, "a recipe without a station: none");
+    check(f.val("stations", "game:sword_t1", "item") == Value::text("game:sword_t1") && f.val("stations", "game:station_b326e042", "item").kind == Value::None,
+          "stations.item: the items id, none without one");
+    check(f.val("stations", "game:item_000003ec", "npc") == Value::boolean(true) && f.val("stations", "game:sword_t1", "npc") == Value::boolean(false), "stations.npc");
+    check(f.val("skills", "game:skill_4475e8dd", "cost") == Value::integer(3) && f.val("skills", "game:skill_8efcc472", "maxLevel") == Value::integer(3), "skills ints");
+    check(f.val("skills", "game:skill_4475e8dd", "kind") == Value::text("active") && f.val("skills", "game:skill_8efcc472", "class") == Value::text("mage"),
+          "skills enums: the game's names as Kiln's");
+    check(f.val("skills", "game:skill_4475e8dd", "unlocks") == Value::text("game:sword_t1") && f.val("skills", "game:skill_8efcc472", "unlocks").kind == Value::None,
+          "skills.unlocks: the ability item's id, none without one");
     std::string why;
     const auto* items = f.m->entries("items", &why);
     check(!f.m->value("items", 0, "noSuchField", &why) && why.find("not in the schema") != std::string::npos, "an unknown field: " + why);
@@ -484,13 +512,42 @@ void notes_count_the_entries_read(const std::string& dir) {
     check(notes > 0, "the entry read whole has fields without a value (an unset armor)");
 }
 
+// dev.32: a selector's traits over skills (active: the node unlocks an ability) and a where on recipes.station (a stations id)
+// pick the entries a data pack means; composed over the decoded base.
+void skills_and_stations_selectors(const std::string& dir) {
+    Fixture f(dir);
+    std::vector<ModInput> mods(1);
+    mods[0].id = "testmod";
+    Batch b;
+    std::vector<Refusal> refused;
+    std::string err;
+    const json doc = {{"ir", 1}, {"mod", "testmod"}, {"stage", "alter"}, {"source", "content/a.json"},
+                      {"edits", json::array({{{"registry", "skills"}, {"select", {{"id", "*"}, {"has", json::array({"active"})}}}, {"field", "cost"}, {"op", 0}},
+                                             {{"registry", "recipes"}, {"select", {{"id", "*"}, {"where", {{"station", "game:sword_t1"}}}}},
+                                              {"field", "duration"}, {"op", {{"mul", 0.5}}}}})}};
+    check(parse_batch(doc, f.schema, &b, &refused, &err) && refused.empty(), "the batch parses: " + err);
+    mods[0].batches.push_back(b);
+    const model::Need need = model::needs_of(f.schema, mods);
+    check(need.traits.count("skills") && need.fields.at("recipes").count("station"), "needs: the skills traits, and the station the where reads");
+    BaseModel base;
+    f.m->fill(need, &base);
+    const Result r = compose(f.schema, base, {}, mods);
+    const auto active = r.fields.find(FieldRef{"skills", "game:skill_4475e8dd", "cost"});
+    check(active != r.fields.end() && active->second.result == Value::integer(0), "the active node (it unlocks an ability) costs 0");
+    check(!r.fields.count(FieldRef{"skills", "game:skill_8efcc472", "cost"}), "the root is not active: untouched");
+    const auto planks = r.fields.find(FieldRef{"recipes", "game:craft_planks", "duration"});
+    check(planks != r.fields.end() && planks->second.result == Value::number(1.25), "the station's recipe: 2.5 s x 0.5");
+    check(!r.fields.count(FieldRef{"recipes", "game:craft_stew", "duration"}), "a recipe of no station: untouched");
+}
+
 int main(int argc, char** argv) {
     const std::string dir = argc > 1 ? argv[1] : "regmap";
     int failed = 0;
     const std::pair<const char*, void (*)(const std::string&)> groups[] = {
         {"byte_array_bounds", byte_array_bounds}, {"single_scalar_structs", single_scalar_structs}, {"entries_and_ids", entries_and_ids}, {"values", values}, {"needs_and_compose", needs_and_compose},
         {"encode_writes", encode_writes},     {"id_table", id_table}, {"live_bytes", live_bytes}, {"notes_per_field", notes_per_field},
-        {"notes_count_the_entries_read", notes_count_the_entries_read}, {"creatures_arsenals_perks", creatures_arsenals_perks}};
+        {"notes_count_the_entries_read", notes_count_the_entries_read}, {"creatures_arsenals_perks", creatures_arsenals_perks},
+        {"skills_and_stations_selectors", skills_and_stations_selectors}};
     for (const auto& [name, fn] : groups) {
         try {
             fn(dir);

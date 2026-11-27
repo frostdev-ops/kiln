@@ -1,0 +1,41 @@
+{
+  "$schema": "../registry-schema.schema.json",
+  "registrySchema": 1,
+  "registry": "stations",
+  "typeName": "Station",
+  "version": "0.1.0",
+  "stability": "experimental",
+  "experimentalId": "KILNX031",
+  "doc": "The game's crafting stations: the workbench, the production stations and the crafters' stations of the villagers. A recipe names its station (recipes.station), so a station's recipes are the recipes that name it.",
+  "ids": {
+    "game": "game:<the station's item>",
+    "mod": "(none yet)",
+    "rule": "A station has the id of the item that builds or offers it (the workbench is game:craftingstation_workbench, the forge game:prop_production_t1_forge, the blacksmith game:npc_crafter_blacksmith01). A station without an item is game:station_<its 32-bit station id as 8 hex digits>. When two stations would get the same id, the one that held it first keeps it and the other is <id>~<first 8 hex digits of its GUID>."
+  },
+  "traits": {
+    "npc": "a villager's station (npc)"
+  },
+  "fields": {
+    "item": {
+      "type": "ref",
+      "registry": "items",
+      "readOnly": true,
+      "optional": true,
+      "applies": "restart",
+      "doc": "The item that builds the station (a villager's station: the villager's item); absent for the stations of the flame altar and a few others without one.",
+      "joinedClient": "serverOnly"
+    },
+    "npc": {
+      "type": "bool",
+      "readOnly": true,
+      "applies": "restart",
+      "doc": "The station is a villager's (a crafter or a trader), not one the player builds.",
+      "joinedClient": "serverOnly"
+    }
+  },
+  "entry": {
+    "add": false,
+    "remove": false
+  },
+  "raw": "refused"
+}

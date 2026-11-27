@@ -1,0 +1,16 @@
+{
+  // The skills and stations registries (Kiln 0.2.0-dev.32, experimental KILNX031). Kiln ids only: a skill node is
+  // game:skill_<its node id>, a station has the id of the item that builds it. docs/kiln/modding/registries/skills.md,
+  // stations.md.
+  "format": 1,
+  "registry": {
+    "alter": [
+      // Airborne Architect (the glider build node) costs nothing.
+      { "registry": "skills", "select": { "id": "game:skill_4475e8dd" }, "field": "cost", "op": 0 },
+      // Every node that unlocks an ability costs one point less, never less than nothing (the trait "active").
+      { "registry": "skills", "select": { "id": "*", "has": ["active"] }, "field": "cost", "op": { "add": -1, "min": 0 } },
+      // A station's recipes are the recipes that name it: every forge recipe takes half as long.
+      { "registry": "recipes", "select": { "id": "*", "where": { "station": "game:prop_production_t1_forge" } }, "field": "duration", "op": { "mul": 0.5 } }
+    ]
+  }
+}
