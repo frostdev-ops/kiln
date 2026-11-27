@@ -789,4 +789,28 @@ public sealed unsafe class NpcDialogTests : IDisposable
         r = NpcSpeechEngine.SetTopics(Ramone, "b", Enumerable.Range(0, 6).Select(i => new NpcTopic($"b{i}", $"B's {i}")).ToArray());
         Assert.True(r.Ok && r.Reason is null, r.ToString());
     }
+
+    [Fact]
+    public void The_hosts_own_player_gets_its_pick_once_its_character_exists()
+    {
+        // review: in a hosted world or single player, an override set before this game's own character existed (a mod's
+        // OnLoad or world start) asked for nobody here, and the host's own screen got no pick until it reported an open
+        var local = EntityId.None;
+        NpcSpeechEngine.LocalPlayerHook = () => local;
+        var calls = new List<EntityId>();
+        var plea = Npcs.MenuLine(Ramone);
+        plea.Pick = SpeechPick.By(ctx =>
+        {
+            calls.Add(ctx.Player);
+            return 0;
+        });
+        plea.Replace("Feed me first.");
+        NpcSpeechEngine.Tick();
+        Assert.DoesNotContain(Snapshot(), c => c.StartsWith($"next {Ramone.Value} ", StringComparison.Ordinal));
+        Assert.Empty(calls);                                             // never asked for no one
+        local = Local;                                                   // the host's character spawned
+        NpcSpeechEngine.Tick();
+        Assert.Contains($"next {Ramone.Value} 2 0", Snapshot());
+        Assert.Equal([Local], calls);
+    }
 }

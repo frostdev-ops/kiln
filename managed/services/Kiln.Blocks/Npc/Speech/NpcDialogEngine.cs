@@ -139,8 +139,10 @@ internal static partial class NpcSpeechEngine
 
     internal static SpeechPeer PeerOf(NetPeer p) => new(p.Id, p.Player, p.HasChannel(DialogChannel), p);
 
-    /// <summary>The peer's player now (EntityId.None until its character exists, and for a lab peer).</summary>
-    private static EntityId PlayerOf(SpeechPeer p) => PlayerOfHook?.Invoke(p) ?? (p.Net is NetPeer np ? np.Player : p.Player);
+    /// <summary>The peer's player now (EntityId.None until its character exists, and for a lab peer); this game's own
+    /// player for <see cref="LocalTarget"/>.</summary>
+    private static EntityId PlayerOf(SpeechPeer p) =>
+        p.Local ? LocalPlayer() : PlayerOfHook?.Invoke(p) ?? (p.Net is NetPeer np ? np.Player : p.Player);
 
     /// <summary>Tests: host picks waiting for a client's character.</summary>
     internal static int WaitingForPlayers
@@ -385,18 +387,20 @@ internal static partial class NpcSpeechEngine
             if (!Deciding.TryGetValue((npc, kind), out eff!)) return;
         if (eff.Pick.Choose is not { } choose) return;
         var targets = new List<SpeechPeer>();
-        if (to is null || to.Local)
-            if (SpeechNative.Loaded && LocalPlayer() is { IsNone: false } local) targets.Add(LocalTarget with { Player = local });
+        // this game's own player (a hosted world's host, single player, a joined client's own mod), when this game shows
+        // lines; then the host's Kiln clients
         IEnumerable<SpeechPeer> peers = to is null ? DialogPeers().Where(p => p.Dialog) : to.Local ? [] : [to];
+        if ((to is null || to.Local) && SpeechNative.Loaded) peers = peers.Prepend(LocalTarget);
         foreach (var peer in peers)
         {
             var player = PlayerOf(peer);
             if (player.IsNone)
             {
-                // a client that became ready before its character exists: ask once it does (never for no one), also when
-                // the override began or a Refresh asked while it had none
+                // a client that became ready before its character exists (or this game's own player, still loading): ask
+                // once it does (never for no one), also when the override began or a Refresh asked while it had none
                 lock (Gate)
-                    if (!Waiting.Any(x => x.Npc == npc && x.Kind == kind && x.To.Id == peer.Id)) Waiting.Add((npc, kind, peer, Clock() + WaitMs));
+                    if (!Waiting.Any(x => x.Npc == npc && x.Kind == kind && x.To.Id == peer.Id && x.To.Local == peer.Local))
+                        Waiting.Add((npc, kind, peer, Clock() + WaitMs));
             }
             else targets.Add(peer with { Player = player });
         }
