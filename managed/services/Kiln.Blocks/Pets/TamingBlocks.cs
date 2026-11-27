@@ -114,7 +114,11 @@ internal static partial class Compiler
 internal static class TamingCompiler
 {
     /// <summary>Registers a definition with Kiln.Taming as the mod's (tests replace it).</summary>
-    internal static Action<TamingDefinition, string> Register { get; set; } = (d, mod) => TamingRuntime.Define(d, mod);
+    internal static Action<TamingDefinition, string> Register { get; set; } = (d, mod) =>
+    {
+        // a refusal (DefinitionInUse) is logged by Commit as the mod's problem
+        if (TamingRuntime.Define(d, mod) is { Ok: false } r) throw new InvalidOperationException(r.Reason);
+    };
 
     /// <summary>Whether the game's item catalog is readable here now (tests replace it). On a dedicated server content is
     /// ready before Kiln.Items reads the catalog (lab 11-27: a game item was "not there" at content ready and readable 20 s

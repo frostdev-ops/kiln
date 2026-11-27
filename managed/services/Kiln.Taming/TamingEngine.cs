@@ -187,17 +187,18 @@ internal sealed class TamingEngine
                 throw new ArgumentException($"\"{c}\" is not a creatures registry id (game:<name>, my-mod:<name>, lower case; a trailing * for a prefix)", nameof(d));
     }
 
-    internal void Define(TamingDefinition d, string mod)
+    internal TamingDefinitionResult Define(TamingDefinition d, string mod)
     {
         Validate(d);
         if (_defs.TryGetValue(d.Id, out var old))
         {
-            if (old.Mod != mod) throw new InvalidOperationException($"DefinitionInUse: {d.Id} is mod {old.Mod}'s");
+            if (old.Mod != mod) return new(false, $"DefinitionInUse: {d.Id} is mod {old.Mod}'s", old.Def);
             if (!Same(old.Def, d) && _attempts.Values.Any(a => a.Def.Id == d.Id && !Terminal(a.State)))
-                throw new InvalidOperationException($"DefinitionInUse: {d.Id} has attempts running; it changes when they end");
+                return new(false, $"DefinitionInUse: {d.Id} has attempts running; it changes when they end", old.Def);
         }
         _defs[d.Id] = (d, mod);
         Publish();
+        return new(true, null, d);
     }
 
     /// <summary>Any thread: the published copy.</summary>

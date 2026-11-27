@@ -201,4 +201,22 @@ public sealed class TamingApiShapeTests
         Assert.Equal((TimeSpan.FromSeconds(45), TimeSpan.FromSeconds(90)), (json[0].InactivityTimeout, json[0].MaxAttemptDuration));
         Assert.Throws<ArgumentException>(() => TamingEngine.Validate(d with { InactivityTimeout = TimeSpan.FromSeconds(301) }));
     }
+
+    // ---- C3: Taming.Define answers with a result, as Pets.Define does ----
+
+    [Fact]
+    public void Define_answers_DefinitionInUse_as_a_result_and_keeps_the_running_definition()
+    {
+        var f = new TamingFixture().With(FeedTwice());
+        Assert.True(f.Engine.Define(FeedTwice(), "mod-a").Ok);   // the same one again
+        _ = f.Begin();
+        var other = Def(new WeakenStep(0.5));
+        var r = f.Engine.Define(other, "mod-a");
+        Assert.False(r.Ok);
+        Assert.Equal(TamingRefusal.DefinitionInUse, r.Refusal);
+        Assert.Equal(2, f.Engine.Definition("mod-a:wolf")!.Steps.Count);
+        Assert.Equal(TamingRefusal.DefinitionInUse, f.Engine.Define(FeedTwice(), "mod-b").Refusal);   // another mod's id
+        Assert.Equal(typeof(TamingDefinitionResult), typeof(Taming).GetMethod(nameof(Taming.Define))!.ReturnType);
+        Assert.Equal(TamingRefusal.DefinitionInUse, new TamingDefinitionResult(false, "DefinitionInUse: x", null).Refusal);
+    }
 }

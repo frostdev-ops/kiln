@@ -31,15 +31,17 @@ public static class Taming
     /// <summary>True when attempts can run here (a server).</summary>
     public static bool Available => TamingCaps.StepsOn();
 
-    /// <summary>Registers a taming as the calling mod's. The same definition again is fine; another one under the same id
-    /// replaces it unless attempts of it run (<c>DefinitionInUse</c>, an <see cref="InvalidOperationException"/>). A
-    /// definition is data: a mod declares it when it loads, before any world runs (only the attempts need one); it holds
-    /// for every world of the process until the mod unloads.</summary>
+    /// <summary>Registers a taming as the calling mod's, and answers as <see cref="Pets.Define"/> does. The same definition
+    /// again is Ok; another one under the same id replaces it unless attempts of it run. A definition is data: a mod
+    /// declares it when it loads, before any world runs (only the attempts need one); it holds for every world of the
+    /// process until the mod unloads.</summary>
+    /// <returns>Ok with the registered definition; else Ok false: <c>DefinitionInUse</c> (attempts of it run, or the id is
+    /// another mod's), with the definition that stays.</returns>
     /// <exception cref="ArgumentException">A value is out of its range, or the id is not the calling mod's
     /// (<c>&lt;mod id&gt;:&lt;name&gt;</c>).</exception>
-    /// <exception cref="InvalidOperationException">Not on the tick thread, the id is another mod's, or attempts of it run.</exception>
+    /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>
     [TickThreadOnly]
-    public static void Define(TamingDefinition definition)
+    public static TamingDefinitionResult Define(TamingDefinition definition)
     {
         ArgumentNullException.ThrowIfNull(definition);
         Services.RequireTickThread("Taming.Define");
@@ -47,22 +49,21 @@ public static class Taming
         var mod = ModContext.CurrentMod?.Info.Id;
         if (mod is not null && !definition.Id.StartsWith(mod.ToLowerInvariant() + ":", StringComparison.Ordinal))
             throw new ArgumentException($"taming definition ids of mod {mod} start with \"{mod.ToLowerInvariant()}:\", not \"{definition.Id}\"", nameof(definition));
-        TamingRuntime.Define(definition, mod ?? "kiln");
+        return TamingRuntime.Define(definition, mod ?? "kiln");
     }
 
     /// <summary>Reads tamings from JSON (one definition, or an array of them; docs/kiln/modding/taming.md) and registers
     /// each as <see cref="Define"/> does. Item ids are the items registry's (<c>game:material_t1_wood_logs</c>) or an item
     /// id (<c>0xb59dfc2c</c>); creatures are creatures registry ids.</summary>
-    /// <returns>The definitions registered.</returns>
+    /// <returns>The answer of each definition, in the JSON's order.</returns>
     /// <exception cref="ArgumentException">The JSON is not a taming, with the path of the first field that is wrong (an item
     /// id the game's items, not readable yet or not on this build, do not have: <c>ItemUnknown</c>; a mod's own items are
     /// named by a <c>TamingBlock</c> of Kiln.Blocks).</exception>
     [TickThreadOnly]
-    public static IReadOnlyList<TamingDefinition> DefineJson(string json)
+    public static IReadOnlyList<TamingDefinitionResult> DefineJson(string json)
     {
         var defs = TamingJson.Read(json, TamingJson.GameItems);
-        foreach (var d in defs) Define(d);
-        return defs;
+        return defs.Select(Define).ToArray();
     }
 
     /// <summary>The definition registered under <paramref name="id"/>, or null. Any thread, as Kiln.Pets'
@@ -155,4 +156,15 @@ public static class Taming
         TamingCaps.Require(Capability);
         return TamingRuntime.Engine;
     }
+}
+
+/// <summary>The answer of <see cref="Taming.Define"/>, as <see cref="PetDefinitionResult"/> is of <see cref="Pets.Define"/>.
+/// Since 0.2.0-dev.32.</summary>
+/// <param name="Ok">True when the definition is registered (or the same one was already).</param>
+/// <param name="Reason">Why not, in words for a log: its first word is <see cref="Refusal"/> (<c>DefinitionInUse</c>).</param>
+/// <param name="Definition">The registered definition (the one that stays, when refused).</param>
+public sealed record TamingDefinitionResult(bool Ok, string? Reason, TamingDefinition? Definition) : IKilnResult
+{
+    /// <summary>Why not, as a value: <see cref="TamingRefusal.None"/> when <see cref="Ok"/>.</summary>
+    public TamingRefusal Refusal => RefusalWords.Of(Ok, Reason, TamingRefusal.None, TamingRefusal.Other);
 }

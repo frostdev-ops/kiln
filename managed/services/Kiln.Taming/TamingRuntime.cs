@@ -108,15 +108,16 @@ internal static class TamingRuntime
     }
 
     /// <summary>A mod's definition; its definitions go when it unloads (their running attempts fail DefinitionGone).</summary>
-    internal static void Define(TamingDefinition d, string mod)
+    internal static TamingDefinitionResult Define(TamingDefinition d, string mod)
     {
-        Engine.Define(d, mod);
+        var r = Engine.Define(d, mod);
         if (ModContext.CurrentMod is { } ctx && ctx.Info.Id == mod && Watched.Add(mod))
             ctx.Retiring += () =>
             {
                 Watched.Remove(mod);
                 _engine?.RemoveMod(mod);
             };
+        return r;
     }
 
     /// <summary>The service tick (every step).</summary>

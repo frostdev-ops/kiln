@@ -472,8 +472,8 @@ static Kiln.Taming.Available.get -> bool
 static Kiln.Taming.Begin(Kiln.PlayerRef player, Kiln.EntityRef target, string! definition, Kiln.TamingRequest! request) -> System.Threading.Tasks.Task<Kiln.TamingResult!>!
 static Kiln.Taming.Cancel(Kiln.PlayerRef player, Kiln.TameAttemptId attempt, Kiln.TamingRequest! request) -> System.Threading.Tasks.Task<Kiln.TamingResult!>!
 static Kiln.Taming.Choices(Kiln.PlayerRef player, Kiln.TameAttemptId attempt) -> Kiln.TamingChoicesResult!
-static Kiln.Taming.Define(Kiln.TamingDefinition! definition) -> void
-static Kiln.Taming.DefineJson(string! json) -> System.Collections.Generic.IReadOnlyList<Kiln.TamingDefinition!>!
+static Kiln.Taming.Define(Kiln.TamingDefinition! definition) -> Kiln.TamingDefinitionResult!
+static Kiln.Taming.DefineJson(string! json) -> System.Collections.Generic.IReadOnlyList<Kiln.TamingDefinitionResult!>!
 static Kiln.Taming.Definition(string! id) -> Kiln.TamingDefinition?
 static Kiln.Taming.Definitions.get -> System.Collections.Generic.IReadOnlyList<Kiln.TamingDefinition!>!
 static Kiln.Taming.Inspect(Kiln.TameAttemptId attempt) -> Kiln.TamingProgress?
@@ -511,3 +511,20 @@ virtual Kiln.TamingStep.EqualityContract.get -> System.Type!
 virtual Kiln.TamingStep.Equals(Kiln.TamingStep? other) -> bool
 virtual Kiln.TamingStep.PrintMembers(System.Text.StringBuilder! builder) -> bool
 ~override Kiln.TameAttemptId.Equals(object obj) -> bool
+Kiln.TamingDefinitionResult
+Kiln.TamingDefinitionResult.<Clone>$() -> Kiln.TamingDefinitionResult!
+Kiln.TamingDefinitionResult.Deconstruct(out bool Ok, out string? Reason, out Kiln.TamingDefinition? Definition) -> void
+Kiln.TamingDefinitionResult.Definition.get -> Kiln.TamingDefinition?
+Kiln.TamingDefinitionResult.Definition.init -> void
+Kiln.TamingDefinitionResult.Equals(Kiln.TamingDefinitionResult? other) -> bool
+Kiln.TamingDefinitionResult.Ok.get -> bool
+Kiln.TamingDefinitionResult.Ok.init -> void
+Kiln.TamingDefinitionResult.Reason.get -> string?
+Kiln.TamingDefinitionResult.Reason.init -> void
+Kiln.TamingDefinitionResult.Refusal.get -> Kiln.TamingRefusal
+Kiln.TamingDefinitionResult.TamingDefinitionResult(bool Ok, string? Reason, Kiln.TamingDefinition? Definition) -> void
+override Kiln.TamingDefinitionResult.Equals(object? obj) -> bool
+override Kiln.TamingDefinitionResult.GetHashCode() -> int
+override Kiln.TamingDefinitionResult.ToString() -> string!
+static Kiln.TamingDefinitionResult.operator !=(Kiln.TamingDefinitionResult? left, Kiln.TamingDefinitionResult? right) -> bool
+static Kiln.TamingDefinitionResult.operator ==(Kiln.TamingDefinitionResult? left, Kiln.TamingDefinitionResult? right) -> bool
