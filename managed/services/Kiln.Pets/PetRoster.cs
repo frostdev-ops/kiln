@@ -109,6 +109,13 @@ internal sealed partial class PetRoster
 
     internal bool IsHostile(CharacterKey a, CharacterKey b) => _hostile.Contains(PetTargetRule.Pair(a, b));
 
+    /// <summary>The characters declared hostile to <paramref name="c"/>.</summary>
+    internal IReadOnlyList<CharacterKey> HostileTo(CharacterKey c) =>
+        _hostile.Where(p => p.Item1 == c || p.Item2 == c).Select(p => p.Item1 == c ? p.Item2 : p.Item1).ToList();
+
+    /// <summary>Every declared pair, once each (the test kit lists them).</summary>
+    internal IReadOnlyList<(CharacterKey A, CharacterKey B)> HostilePairs => _hostile.ToList();
+
     private string? DefaultTargetCheck(PetState p, EntityRef target)
     {
         var def = p.Snapshot ?? PetsRuntime.Definition(p.Definition);

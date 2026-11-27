@@ -598,6 +598,7 @@ static Kiln.Pets.Dismiss(Kiln.PlayerRef owner, Kiln.PetId pet, Kiln.PetRequest! 
 static Kiln.Pets.Get(Kiln.PetId pet) -> Kiln.PetSnapshot?
 static Kiln.Pets.Grant(Kiln.CharacterKey owner, string! definition, Kiln.PetRequest! request) -> System.Threading.Tasks.Task<Kiln.PetResult!>!
 static Kiln.Pets.Grant(Kiln.PlayerRef owner, string! definition, Kiln.PetRequest! request) -> System.Threading.Tasks.Task<Kiln.PetResult!>!
+static Kiln.Pets.HostileTo(Kiln.CharacterKey character) -> System.Collections.Generic.IReadOnlyList<Kiln.CharacterKey>!
 static Kiln.Pets.IsHostile(Kiln.CharacterKey a, Kiln.CharacterKey b) -> bool
 static Kiln.Pets.Of(Kiln.CharacterKey owner) -> System.Collections.Generic.IReadOnlyList<Kiln.PetSnapshot!>!
 static Kiln.Pets.Of(Kiln.PlayerRef player) -> System.Collections.Generic.IReadOnlyList<Kiln.PetSnapshot!>!

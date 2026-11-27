@@ -6,3 +6,12 @@ Kiln.TestKit.HarnessNpcSpeech.MenuLinesOf(Kiln.EntityId npc, string! language = 
 Kiln.TestKit.HarnessNpcSpeech.RepliesTo(Kiln.EntityId player, string! language = "en-us") -> System.Collections.Generic.IReadOnlyList<(Kiln.EntityId Npc, string! Text)>!
 Kiln.TestKit.HarnessNpcSpeech.PickTopic(Kiln.EntityId npc, string! topicId, Kiln.EntityId player) -> bool
 Kiln.TestKit.HarnessNpcSpeech.TopicsOf(Kiln.EntityId npc, string! language = "en-us") -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.TestKit.HarnessPets
+Kiln.TestKit.HarnessPets.Bodies.get -> System.Collections.Generic.IReadOnlyList<Kiln.EntityRef>!
+Kiln.TestKit.HarnessPets.Down(Kiln.PetId pet) -> void
+Kiln.TestKit.HarnessPets.HostilePairs.get -> System.Collections.Generic.IReadOnlyList<(Kiln.CharacterKey A, Kiln.CharacterKey B)>!
+Kiln.TestKit.HarnessPets.Join(Kiln.CharacterKey character, Kiln.WorldPosition at = default(Kiln.WorldPosition), int level = 10) -> Kiln.PlayerRef
+Kiln.TestKit.HarnessPets.Leave(Kiln.CharacterKey character) -> void
+Kiln.TestKit.HarnessPets.Of(Kiln.CharacterKey character) -> System.Collections.Generic.IReadOnlyList<Kiln.PetSnapshot!>!
+Kiln.TestKit.KilnHarness.Pets.get -> Kiln.TestKit.HarnessPets!
+static Kiln.TestKit.HarnessPets.Character(int n) -> Kiln.CharacterKey

@@ -220,6 +220,16 @@ public static partial class Pets
     [ServerOnly, TickThreadOnly, RequiresCapability(Caps.Records)]
     public static bool IsHostile(CharacterKey a, CharacterKey b) => Roster("Pets.IsHostile").IsHostile(a, b);
 
+    /// <summary>The characters declared hostile to <paramref name="character"/> (<see cref="SetHostile"/>), in no set order:
+    /// a mod lists its duels (to end them, to show them), a test checks them. Server tick thread.</summary>
+    /// <exception cref="ArgumentException">No character (none, or an account-only key).</exception>
+    [ServerOnly, TickThreadOnly, RequiresCapability(Caps.Records)]
+    public static IReadOnlyList<CharacterKey> HostileTo(CharacterKey character)
+    {
+        if (character.IsNone || character.IsAccountOnly) throw new ArgumentException("hostility is between characters", nameof(character));
+        return Roster("Pets.HostileTo").HostileTo(character);
+    }
+
     // ---- helpers ----
 
     private static PetRoster Roster(string api)

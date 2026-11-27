@@ -104,6 +104,7 @@ for this pet; the down itself cannot be refused. `PetDownedEvent` comes only aft
     Task<PetResult> CancelRevive(PlayerRef owner, PetId pet, Guid reviveRequest, PetRequest request);
     Task<PetResult> Release(PlayerRef owner, PetId pet, PetRequest request);   // pets.records
     void SetHostile(CharacterKey a, CharacterKey b, bool hostile); bool IsHostile(CharacterKey a, CharacterKey b); // pets.fight
+    IReadOnlyList<CharacterKey> HostileTo(CharacterKey character);           // the declared duels of a character
 }
 ```
 
@@ -370,6 +371,10 @@ Each row's name is a public constant of `Pets` (`Capabilities.Is(Pets.SummonCapa
 
 ## Tests
 
+- A mod's own tests (Kiln.TestKit): `kiln.Pets` is the real roster on the kit's world. `Join(character)` puts an owner in
+  game and gives the `PlayerRef` its requests name, each step runs the roster, `Bodies` and `Of(character)` read the
+  pets, `Down(pet)` lands a lethal hit, and `HostilePairs` lists the pairs `Pets.SetHostile` declared. There are no game
+  bodies, no walking and no save receipts.
 - Managed, offline: `managed/tests/Kiln.Pets.Tests` (definitions, the life table, receipts, the broker's leases on the
   kit's broker, following, the target rule, revive, the view and the bar); `Kiln.Blocks.Tests/PetBlockTests.cs`;
   `Kiln.Saves.Tests/ServiceCharactersTests.cs`.
