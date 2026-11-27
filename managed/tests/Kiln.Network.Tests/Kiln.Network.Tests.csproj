@@ -26,5 +26,7 @@
   <ItemGroup>
     <!-- The admin commands' tick-thread hop after a guard request (SteamGuardRelayTests drives it on a real scheduler). -->
     <Compile Include="../../../mods/Kiln.Admin/OpsTick.cs" Link="AdminOpsTick.cs" />
+    <!-- Who may drive lab bot players over labbot:control (LabBotControlPeersTests): lab peers only. -->
+    <Compile Include="../../../mods/tests/labbot-test/ControlPeers.cs" Link="LabBotControlPeers.cs" />
   </ItemGroup>
 </Project>

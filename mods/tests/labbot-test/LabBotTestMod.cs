@@ -19,6 +19,7 @@
 //                                so two lines added in one step show only the second; "since" = a line number from an
 //                                earlier answer
 // Lab only: LabBots answers KilnUnavailableException off a lab server; the mod then answers every op with that error.
+// Requests count only from a lab peer (ControlPeers): one from a player's game connection is dropped unanswered.
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Kiln;
@@ -42,6 +43,7 @@ public sealed record Reply(string Json) : INetMessage<Reply>
 public sealed class LabBotTestMod : Mod
 {
     private NetChannel? _chan;
+    private readonly HashSet<uint> _refusedPeers = [];
 
     // the server's chat lines as they appear (newest inbox line, polled in Pre and Post): number, reader mask, text
     private readonly List<(long N, uint Mask, uint Connection, string Text)> _lines = [];
@@ -79,6 +81,12 @@ public sealed class LabBotTestMod : Mod
 
     private void Handle(string json, NetPeer sender)
     {
+        if (ControlPeers.Refusal(sender) is { } refused)
+        {
+            // never answered (a player learns nothing from it), logged once per connection
+            if (_refusedPeers.Add(sender.Id)) Log.Warn($"labbot-test: request refused: {refused}");
+            return;
+        }
         JsonObject rq;
         try { rq = JsonNode.Parse(json) as JsonObject ?? throw new JsonException("not an object"); }
         catch (JsonException e)
