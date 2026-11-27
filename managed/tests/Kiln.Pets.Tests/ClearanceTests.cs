@@ -132,22 +132,34 @@ public sealed class ClearanceTests : IDisposable
     }
 
     /// <summary>The game creatures Kiln calibrated (tools/pets-clearance, gate C6, on a dedicated lab server): the creature, its
-    /// scale, its body as measured (walker radius and height, collider width and height) and the pair that passed.</summary>
+    /// scale, its body as measured (walker radius and height, collider width and height) and the pair that passed and vouches
+    /// for the body (no gap or headroom one cell narrower or lower than it left unmeasured). Spider Mama, the Vukah Bonehunter
+    /// and the Drak'Dal Hunter (2 m wide) stalled in the 1.5 m gap HorizontalSpace 0.5 takes, so they walk open ground only.</summary>
     public static TheoryData<string, double, double, double, double, double, double, double> Calibrated => new()
     {
         { "game:enemy_vukah_melee", 1, 0, 2, 1, 2, 0.5, 2 },
+        { "game:enemy_lizardpeopledrak03_elite_melee", 1, 0, 2, 1, 2, 0.5, 2 },
+        { "game:enemy_fogger_soldier01", 1, 0, 2, 1, 2, 0.5, 2 },
+        { "game:enemy_fog_predator", 1, 0, 2, 1, 2, 0.5, 2 },
         { "game:enemy_vukah_melee_elite_armored", 1, 0, 2, 1, 2.5, 0.5, 3 },
+        { "game:enemy_vukah_melee_elite_unarmored_wip", 1, 0, 2, 1, 2.5, 0.5, 3 },
+        { "game:base_enemy_vukah_melee_elite_hookpte", 1, 0, 2, 1, 2.5, 0.5, 3 },
         { "game:enemy_wildbeast_wolf_earlygame", 1, 0, 2, 1, 1, 0.5, 2 },
         { "game:enemy_wildbeast_wolf_earlygame", 1.5, 0, 2, 1, 1, 2, 3 },
         { "game:enemy_wildbeast_wolf_hook_ag2", 1, 0, 2, 1, 1, 0.5, 2 },
         { "game:enemy_wildbeast_boar", 1, 0, 2, 1, 1, 0.5, 2 },
+        { "game:enemy_wildbeast_boar", 1.5, 0, 2, 1, 1, 0.5, 3 },
         { "game:enemy_fogger_wildbeast_infestedboar", 1, 0, 2, 1, 1.5, 0.5, 2 },
         { "game:enemy_wildbeast_sabertooth", 1, 0, 2, 1, 1, 0.5, 2 },
         { "game:enemy_scavenger_hound", 1, 0, 2, 1, 1, 0.5, 2 },
+        { "game:enemy_scavenger_hound", 1.5, 0, 2, 1, 1, 0.5, 2 },
         { "game:enemy_skeleton_hound", 1, 0, 2, 1, 1, 0.5, 2 },
         { "game:enemy_wildbeast_spiderant_melee", 1, 0, 2, 1, 1, 0.5, 2 },
-        { "game:enemy_wildbeast_spiderant_huge_hookpte", 1, 0, 2, 2, 2, 0.5, 2 },
+        { "game:enemy_wildbeast_spiderant_huge_hookpte", 1, 0, 2, 2, 2, 2, 3 },
+        { "game:enemy_vukah_ranger_elite_hive_tyrant", 1, 0, 2, 2, 2, 2, 3 },
+        { "game:enemy_lizardpeopledrak02_ranger", 1, 0, 2, 2, 2, 2, 3 },
         { "game:enemy_wildbeast_rat_hook", 1, 0, 2, 0.75, 0.75, 0.5, 2 },
+        { "game:enemy_wildbeast_rat_coldheights_variation_hook", 1, 0, 2, 0.75, 0.75, 0.5, 2 },
     };
 
     [Theory]
@@ -158,7 +170,8 @@ public sealed class ClearanceTests : IDisposable
         PetClearance.ResetForTests();   // the real shipped resource
         PetClearance.SourcesOn = true;
         PetClearance.GameBuild = () => Build;
-        PetClearance.BodyOf = _ => new PetClearanceBody(walkerRadius, walkerHeight, colliderWidth, colliderHeight);
+        // not a walker's body: only the creature's own profile can answer (no body profile stands in for it)
+        PetClearance.BodyOf = _ => new PetClearanceBody(walkerRadius, walkerHeight, colliderWidth, colliderHeight) { Walker = false };
         PetClearance.ServerFile = () => ServerFile;
         PetClearance.ModFolder = id => Path.Combine(_dir, "mods", id);
         PetClearance.Clock = () => _clock;
@@ -171,6 +184,62 @@ public sealed class ClearanceTests : IDisposable
         PetClearance.GameBuild = () => Build + 1;
         Assert.Null(PetClearance.For(def, out why));
         Assert.Contains("was measured on game build 1287369", why);
+    }
+
+    /// <summary>The bodies Kiln ships a body profile for (scale 1, game build 1287369): three or more walking creatures with
+    /// the body calibrated, every one with the pair (collider 1 x 2: 300 of the game's walking enemy templates; 1 x 1: 31;
+    /// 2 x 2: 8; 1 x 2.5: 3).</summary>
+    public static TheoryData<double, double, double, double, double, double> CalibratedBodies => new()
+    {
+        { 0, 2, 1, 2, 0.5, 2 },
+        { 0, 2, 1, 1, 0.5, 2 },
+        { 0, 2, 1, 2.5, 0.5, 3 },
+        { 0, 2, 2, 2, 2, 3 },
+    };
+
+    [Theory]
+    [MemberData(nameof(CalibratedBodies))]
+    public void Kiln_ships_a_body_profile_for_every_walking_creature_of_each_calibrated_body(double walkerRadius, double walkerHeight,
+        double colliderWidth, double colliderHeight, double h, double v)
+    {
+        PetClearance.ResetForTests();   // the real shipped resource
+        PetClearance.SourcesOn = true;
+        PetClearance.GameBuild = () => Build;
+        var body = new PetClearanceBody(walkerRadius, walkerHeight, colliderWidth, colliderHeight);
+        PetClearance.BodyOf = _ => body;
+        PetClearance.ServerFile = () => ServerFile;
+        PetClearance.ModFolder = id => Path.Combine(_dir, "mods", id);
+        PetClearance.Clock = () => _clock;
+        // a creature Kiln never calibrated on its own, with that body
+        var def = new PetDefinition { Id = "mod-a:pet", Creature = "game:enemy_scavenger_melee01" };
+        Assert.Equal(new PetClearanceProfile(h, v), PetClearance.For(def, out var why));
+        Assert.Null(why);
+        // not at another scale, not for a body that does not walk, not with another template scale, not after a game update
+        Assert.Null(PetClearance.For(def with { Level = new PetLevelPolicy { Scale = 2 } }, out _));
+        PetClearance.BodyOf = _ => body with { Walker = false };
+        Assert.Null(PetClearance.For(def, out _));
+        PetClearance.BodyOf = _ => body with { TemplateScale = 1.3 };
+        Assert.Null(PetClearance.For(def, out _));
+        PetClearance.BodyOf = _ => body;
+        PetClearance.GameBuild = () => Build + 1;
+        Assert.Null(PetClearance.For(def, out _));
+    }
+
+    [Fact]
+    public void Kiln_ships_no_body_profile_where_the_calibrated_creatures_disagreed()
+    {
+        // 1 x 1 at scale 1.5: the hound, the boar and the wolf chose three pairs; a 0.75 m rat body: two creatures only
+        PetClearance.ResetForTests();
+        PetClearance.SourcesOn = true;
+        PetClearance.GameBuild = () => Build;
+        PetClearance.ServerFile = () => ServerFile;
+        PetClearance.ModFolder = id => Path.Combine(_dir, "mods", id);
+        PetClearance.Clock = () => _clock;
+        var def = new PetDefinition { Id = "mod-a:pet", Creature = "game:enemy_scavenger_melee01" };
+        PetClearance.BodyOf = _ => new PetClearanceBody(0, 2, 1, 1);
+        Assert.Null(PetClearance.For(def with { Level = new PetLevelPolicy { Scale = 1.5 } }, out _));
+        PetClearance.BodyOf = _ => new PetClearanceBody(0, 2, 0.75, 0.75);
+        Assert.Null(PetClearance.For(def, out _));
     }
 
     // ---- the answer ----
