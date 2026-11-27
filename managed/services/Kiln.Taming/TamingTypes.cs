@@ -80,10 +80,14 @@ public sealed record TamingDefinition
     public double RangeMeters { get; init; } = 3;
     /// <summary>The latest weaken threshold must hold until the tame.</summary>
     public bool RequireThresholdUntilCommit { get; init; } = true;
-    /// <summary>Seconds of simulation without an applied step before the attempt expires (1 to 300).</summary>
-    public double InactivitySeconds { get; init; } = 30;
-    /// <summary>The longest an attempt lasts (at least the inactivity, at most 3600 s).</summary>
-    public double MaxAttemptSeconds { get; init; } = 300;
+    /// <summary>How long in simulation without an applied step before the attempt expires (1 to 300 s; JSON:
+    /// <c>inactivitySeconds</c>).</summary>
+    public TimeSpan InactivityTimeout { get; init; } = TimeSpan.FromSeconds(30);
+    /// <summary>The longest an attempt lasts (at least the inactivity, at most 3600 s; JSON: <c>maxAttemptSeconds</c>).</summary>
+    public TimeSpan MaxAttemptDuration { get; init; } = TimeSpan.FromSeconds(300);
+    // the engine's and the JSON reader's names, in seconds (internal)
+    internal double InactivitySeconds { get => InactivityTimeout.TotalSeconds; init => InactivityTimeout = Seconds.Of(value); }
+    internal double MaxAttemptSeconds { get => MaxAttemptDuration.TotalSeconds; init => MaxAttemptDuration = Seconds.Of(value); }
     /// <summary>What happens to paid steps when the attempt ends without a tame.</summary>
     public TamingRefundPolicy Refund { get; init; } = TamingRefundPolicy.NonRefundable;
     /// <summary>The Kiln.Pets definition (<see cref="PetDefinition.Id"/>) a tame binds: when the tame commits, the owner's
@@ -155,11 +159,17 @@ public enum TamingState
 /// <param name="Refund">The refund's receipt (null: not given back: the step was not refundable, or nothing was taken).</param>
 public sealed record TamingRefund(CostReceipt Paid, CostReceipt? Refund);
 
-/// <summary>An attempt as it is now (immutable copy). Since 0.2.0-dev.32.</summary>
+/// <summary>An attempt as it is now (immutable copy). Its times are simulation time (the game's own world clock, from its
+/// zero; a paused world's stands still). Since 0.2.0-dev.32.</summary>
 public sealed record TamingProgress(TameAttemptId Id, PlayerRef Owner, ulong WorldEpoch, ulong CharacterSession, EntityRef Target, string Definition,
-    TamingState State, int CompletedSteps, int TotalSteps, ulong Revision, Guid StepChallenge, double StartedAtSimSeconds,
-    double LastProgressAtSimSeconds, double ExpiresAtSimSeconds, IReadOnlyList<CostReceipt> Spent)
+    TamingState State, int CompletedSteps, int TotalSteps, ulong Revision, Guid StepChallenge, TimeSpan StartedAt,
+    TimeSpan LastProgressAt, TimeSpan ExpiresAt, IReadOnlyList<CostReceipt> Spent)
 {
+    // in seconds (internal)
+    internal double StartedAtSimSeconds => StartedAt.TotalSeconds;
+    internal double LastProgressAtSimSeconds => LastProgressAt.TotalSeconds;
+    internal double ExpiresAtSimSeconds => ExpiresAt.TotalSeconds;
+
     /// <summary>The refunds made at the end (empty while it runs, and for a non-refundable definition).</summary>
     public IReadOnlyList<TamingRefund> Refunds { get; init; } = [];
     /// <summary>A cancel was asked while a cost was being paid: it ends when the cost settled.</summary>

@@ -116,8 +116,8 @@ Kiln.ReviveBlock.CancelOnMovement.get -> bool
 Kiln.ReviveBlock.CancelOnMovement.init -> void
 Kiln.ReviveBlock.CancelOnObservedOwnerDamage.get -> bool
 Kiln.ReviveBlock.CancelOnObservedOwnerDamage.init -> void
-Kiln.ReviveBlock.ChannelSeconds.get -> double
-Kiln.ReviveBlock.ChannelSeconds.init -> void
+Kiln.ReviveBlock.ChannelDuration.get -> System.TimeSpan
+Kiln.ReviveBlock.ChannelDuration.init -> void
 Kiln.ReviveBlock.Cost.get -> Kiln.ReviveCostBlock?
 Kiln.ReviveBlock.Cost.init -> void
 Kiln.ReviveBlock.Equals(Kiln.ReviveBlock? other) -> bool
@@ -157,10 +157,10 @@ Kiln.TamingBlock.<Clone>$() -> Kiln.TamingBlock!
 Kiln.TamingBlock.Creatures.get -> System.Collections.Generic.IReadOnlyList<Kiln.PartRef<Kiln.CreatureBlock!>!>!
 Kiln.TamingBlock.Creatures.init -> void
 Kiln.TamingBlock.Equals(Kiln.TamingBlock? other) -> bool
-Kiln.TamingBlock.InactivitySeconds.get -> double
-Kiln.TamingBlock.InactivitySeconds.init -> void
-Kiln.TamingBlock.MaxAttemptSeconds.get -> double
-Kiln.TamingBlock.MaxAttemptSeconds.init -> void
+Kiln.TamingBlock.InactivityTimeout.get -> System.TimeSpan
+Kiln.TamingBlock.InactivityTimeout.init -> void
+Kiln.TamingBlock.MaxAttemptDuration.get -> System.TimeSpan
+Kiln.TamingBlock.MaxAttemptDuration.init -> void
 Kiln.TamingBlock.Pet.get -> Kiln.PartRef<Kiln.PetBlock!>?
 Kiln.TamingBlock.Pet.init -> void
 Kiln.TamingBlock.RangeMeters.get -> double

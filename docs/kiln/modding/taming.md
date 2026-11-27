@@ -128,7 +128,7 @@ else if (r.Refusal == TamingRefusal.CommitDeferred) { /* every step paid: Taming
 |---|---|
 | the steps and their costs | takes each cost exactly from the selected slot, once per request id, and receipts it |
 | `Refund`: keep paid steps (default), give them back on a failure that is not the player's, or hold them in escrow until the tame | settles the policy at the end, refunds each receipt once, never refunds an uncertain one |
-| `InactivitySeconds`, `MaxAttemptSeconds`, `RangeMeters` | runs them in simulation time, settles a cost in flight before it ends an attempt |
+| `InactivityTimeout`, `MaxAttemptDuration` (JSON `inactivitySeconds`, `maxAttemptSeconds`), `RangeMeters` | runs them in simulation time, settles a cost in flight before it ends an attempt |
 | `Creatures` | refuses others (`TemplateMismatch`) before any cost |
 | `Pet`, `RemoveTarget`, `SummonPet` | holds the roster slot from Begin, refuses a full roster before the last cost, grants the record, then removes the wild body and summons the pet |
 | cancel `TamingBeginningEvent`, `TamingAdvancingEvent`, `TamingCommittingEvent` | spends nothing for a canceled step; the token stays valid |

@@ -128,10 +128,10 @@ public sealed record PetSnapshot
     /// <summary>The request id of the revive channel running (the one <see cref="Pets.CancelRevive"/> names); null when
     /// none.</summary>
     public Guid? ReviveRequest { get; init; }
-    /// <summary>Seconds of the channel done.</summary>
-    public double ReviveElapsed { get; init; }
-    /// <summary>Seconds the channel takes.</summary>
-    public double ReviveDuration { get; init; }
+    /// <summary>How much of the channel is done (simulation time).</summary>
+    public TimeSpan ReviveElapsed { get; init; }
+    /// <summary>How long the channel takes.</summary>
+    public TimeSpan ReviveDuration { get; init; }
 }
 
 /// <summary>A request that changes a pet, in the one request shape of Kiln.Pets and Kiln.Taming (<see cref="TamingRequest"/>):

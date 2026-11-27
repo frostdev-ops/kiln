@@ -206,12 +206,12 @@ Kiln.PetMovementPolicy.GroundSearchMeters.init -> void
 Kiln.PetMovementPolicy.Mode.get -> Kiln.PetMovementMode
 Kiln.PetMovementPolicy.Mode.init -> void
 Kiln.PetMovementPolicy.PetMovementPolicy() -> void
-Kiln.PetMovementPolicy.RepathSeconds.get -> double
-Kiln.PetMovementPolicy.RepathSeconds.init -> void
+Kiln.PetMovementPolicy.RepathInterval.get -> System.TimeSpan
+Kiln.PetMovementPolicy.RepathInterval.init -> void
 Kiln.PetMovementPolicy.RunDistance.get -> double
 Kiln.PetMovementPolicy.RunDistance.init -> void
-Kiln.PetMovementPolicy.StuckSeconds.get -> double
-Kiln.PetMovementPolicy.StuckSeconds.init -> void
+Kiln.PetMovementPolicy.StuckAfter.get -> System.TimeSpan
+Kiln.PetMovementPolicy.StuckAfter.init -> void
 Kiln.PetOrder
 Kiln.PetOrder.Attack = 2 -> Kiln.PetOrder
 Kiln.PetOrder.Follow = 0 -> Kiln.PetOrder
@@ -340,8 +340,8 @@ Kiln.PetRevivePolicy.CancelOnMovement.get -> bool
 Kiln.PetRevivePolicy.CancelOnMovement.init -> void
 Kiln.PetRevivePolicy.CancelOnObservedOwnerDamage.get -> bool
 Kiln.PetRevivePolicy.CancelOnObservedOwnerDamage.init -> void
-Kiln.PetRevivePolicy.ChannelSeconds.get -> double
-Kiln.PetRevivePolicy.ChannelSeconds.init -> void
+Kiln.PetRevivePolicy.ChannelDuration.get -> System.TimeSpan
+Kiln.PetRevivePolicy.ChannelDuration.init -> void
 Kiln.PetRevivePolicy.Cost.get -> Kiln.PetCostDefinition?
 Kiln.PetRevivePolicy.Cost.init -> void
 Kiln.PetRevivePolicy.Equals(Kiln.PetRevivePolicy? other) -> bool
@@ -395,9 +395,9 @@ Kiln.PetSnapshot.RequestedOrder.get -> Kiln.PetOrder
 Kiln.PetSnapshot.RequestedOrder.init -> void
 Kiln.PetSnapshot.RequestedTarget.get -> Kiln.EntityRef
 Kiln.PetSnapshot.RequestedTarget.init -> void
-Kiln.PetSnapshot.ReviveDuration.get -> double
+Kiln.PetSnapshot.ReviveDuration.get -> System.TimeSpan
 Kiln.PetSnapshot.ReviveDuration.init -> void
-Kiln.PetSnapshot.ReviveElapsed.get -> double
+Kiln.PetSnapshot.ReviveElapsed.get -> System.TimeSpan
 Kiln.PetSnapshot.ReviveElapsed.init -> void
 Kiln.PetSnapshot.ReviveRequest.get -> System.Guid?
 Kiln.PetSnapshot.ReviveRequest.init -> void
@@ -455,10 +455,10 @@ Kiln.PetViewEntry.RecoveryAnchor.get -> Kiln.WorldPosition?
 Kiln.PetViewEntry.RecoveryAnchor.init -> void
 Kiln.PetViewEntry.RequestedOrder.get -> Kiln.PetOrder
 Kiln.PetViewEntry.RequestedOrder.init -> void
-Kiln.PetViewEntry.ReviveDurationMs.get -> uint
-Kiln.PetViewEntry.ReviveDurationMs.init -> void
-Kiln.PetViewEntry.ReviveElapsedMs.get -> uint
-Kiln.PetViewEntry.ReviveElapsedMs.init -> void
+Kiln.PetViewEntry.ReviveDuration.get -> System.TimeSpan
+Kiln.PetViewEntry.ReviveDuration.init -> void
+Kiln.PetViewEntry.ReviveElapsed.get -> System.TimeSpan
+Kiln.PetViewEntry.ReviveElapsed.init -> void
 Kiln.PetViewEntry.ReviveRequest.get -> System.Guid?
 Kiln.PetViewEntry.ReviveRequest.init -> void
 Kiln.PetViewEntry.ShowBar.get -> bool

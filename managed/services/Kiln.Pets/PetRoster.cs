@@ -56,7 +56,7 @@ internal sealed class PetState
         Health = Life == PetLife.Downed ? 0 : Body is not null ? Health : HealthOf(HealthFraction, LastHealthMax),
         HealthMax = Body is not null ? HealthMax : LastHealthMax,
         StateRevision = StateRevision, DurableRevision = DurableRevision, LastCommit = LastCommit,
-        ReviveRequest = ReviveOperation, ReviveElapsed = ReviveElapsed, ReviveDuration = ReviveDuration,
+        ReviveRequest = ReviveOperation, ReviveElapsed = Seconds.Of(ReviveElapsed), ReviveDuration = Seconds.Of(ReviveDuration),
     };
 
     /// <summary>ceil(max x fraction), as revive and summon restore it (a share stored as 0.55 of 100 is 55, not 56).</summary>
@@ -172,7 +172,7 @@ internal sealed partial class PetRoster
                 Body = p.Body is { } b ? new PetBodyViewKey(b.Entity.Id.Value, b.Generation) : null,
                 RecoveryAnchor = v.Presence == PetPresence.RecoveryAnchor ? v.RecoveryAnchor : null, RequestedOrder = v.RequestedOrder,
                 Level = v.Level, Current = v.Health, Maximum = v.HealthMax, ReviveRequest = v.ReviveRequest,
-                ReviveElapsedMs = (uint)Math.Clamp(v.ReviveElapsed * 1000, 0, uint.MaxValue), ReviveDurationMs = (uint)Math.Clamp(v.ReviveDuration * 1000, 0, uint.MaxValue),
+                ReviveElapsed = PetViewCodec.Millis(v.ReviveElapsed), ReviveDuration = PetViewCodec.Millis(v.ReviveDuration),
                 StateRevision = v.StateRevision, DurableRevision = v.DurableRevision, ShowBar = hud.Bar, ShowMarker = hud.RecoveryMarker,
             });
         }

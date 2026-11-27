@@ -234,8 +234,8 @@ internal sealed class TamingEngine
     // ------------------------------------------------------------------------------------------- views ------------
 
     private TamingProgress View(Attempt a) =>
-        new(a.Id, a.Owner, a.Epoch, a.Session, a.Target, a.Def.Id, a.State, a.Completed, a.Def.Steps.Count, a.Revision, a.Challenge, a.Started,
-            a.LastProgress, Math.Min(a.LastProgress + a.Def.InactivitySeconds, a.Started + a.Def.MaxAttemptSeconds), a.Spent.ToArray())
+        new(a.Id, a.Owner, a.Epoch, a.Session, a.Target, a.Def.Id, a.State, a.Completed, a.Def.Steps.Count, a.Revision, a.Challenge, Seconds.Of(a.Started),
+            Seconds.Of(a.LastProgress), Seconds.Of(Math.Min(a.LastProgress + a.Def.InactivitySeconds, a.Started + a.Def.MaxAttemptSeconds)), a.Spent.ToArray())
         {
             Refunds = a.Refunds.ToArray(),
             CancelRequested = a.CancelRequested,

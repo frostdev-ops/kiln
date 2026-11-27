@@ -37,7 +37,7 @@ public sealed class TamingSampleMod : Mod
             Taming.Define(new TamingDefinition
             {
                 Id = "taming-sample:dog", Creatures = ["game:animal_wildlife_dog_*"], Steps = [new NativeStep(1), new NativeStep(1)],
-                InactivitySeconds = 120, MaxAttemptSeconds = 600,
+                InactivityTimeout = TimeSpan.FromSeconds(120), MaxAttemptDuration = TimeSpan.FromMinutes(10),
             });
         };
         Events.On<TamingStepChangedEvent>(e => Log.Info($"{e.After.Definition}: step {e.After.CompletedSteps}/{e.After.TotalSteps}, paid {e.Receipts.Sum(r => r.Taken)}"));
@@ -117,7 +117,7 @@ public sealed class TamingSampleMod : Mod
     {
         var who = Player(c);
         var p = Taming.Inspect(Attempt(who).Id) ?? throw new CommandException("the taming is over");
-        c.Reply($"{p.Definition}: {p.State}, step {p.CompletedSteps}/{p.TotalSteps}, expires at {p.ExpiresAtSimSeconds:0} s, paid {p.Spent.Count}");
+        c.Reply($"{p.Definition}: {p.State}, step {p.CompletedSteps}/{p.TotalSteps}, expires at {p.ExpiresAt.TotalSeconds:0} s, paid {p.Spent.Count}");
         if (NativeTaming.Available && NativeTaming.Read(p.Target.Id) is { } n)
             c.Reply($"the game: {n.Phase}, {n.Progress}/{n.Required} step(s)");
     }

@@ -157,9 +157,9 @@ public static class PetsClient
             d.FillRect(row.X, row.Y, row.X + row.Width, row.Y + row.BarHeight, new Color(0, 0, 0, 160), 3);
             var fill = row.Entry.Life == PetLife.Downed ? new Color(150, 60, 60, 220) : new Color(70, 190, 90, 230);
             d.FillRect(row.X, row.Y, row.X + row.Width * row.Fraction, row.Y + row.BarHeight, fill, 3);
-            if (row.Entry.Transition == PetTransition.Reviving && row.Entry.ReviveDurationMs > 0)
+            if (row.Entry.Transition == PetTransition.Reviving && row.Entry.ReviveDuration > TimeSpan.Zero)
             {
-                var p = Math.Clamp((float)row.Entry.ReviveElapsedMs / row.Entry.ReviveDurationMs, 0f, 1f);
+                var p = Math.Clamp((float)(row.Entry.ReviveElapsed / row.Entry.ReviveDuration), 0f, 1f);
                 d.FillRect(row.X, row.Y + row.BarHeight, row.X + row.Width * p, row.Y + row.BarHeight + 2 * f.Scale, new Color(80, 200, 255, 230));
             }
             d.Text(row.X + 4 * f.Scale, row.Y + 1, $"{row.Entry.Label}  {row.Entry.Current}/{row.Entry.Maximum}  {row.Status}", new Color(240, 240, 240, 255), 12 * f.Scale);

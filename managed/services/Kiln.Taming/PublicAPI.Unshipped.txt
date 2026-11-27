@@ -55,11 +55,11 @@ Kiln.NativeTamingState.BaitTemplate.get -> System.Guid
 Kiln.NativeTamingState.BaitTemplate.init -> void
 Kiln.NativeTamingState.Creature.get -> Kiln.EntityId
 Kiln.NativeTamingState.Creature.init -> void
-Kiln.NativeTamingState.Deconstruct(out Kiln.EntityId Creature, out bool Tameable, out int Progress, out int Required, out Kiln.NativeTamingPhase Phase, out Kiln.EntityId Bait, out System.Guid BaitTemplate, out double SensorRangeMeters, out double EatSeconds) -> void
-Kiln.NativeTamingState.EatSeconds.get -> double
-Kiln.NativeTamingState.EatSeconds.init -> void
+Kiln.NativeTamingState.Deconstruct(out Kiln.EntityId Creature, out bool Tameable, out int Progress, out int Required, out Kiln.NativeTamingPhase Phase, out Kiln.EntityId Bait, out System.Guid BaitTemplate, out double SensorRangeMeters, out System.TimeSpan EatDuration) -> void
+Kiln.NativeTamingState.EatDuration.get -> System.TimeSpan
+Kiln.NativeTamingState.EatDuration.init -> void
 Kiln.NativeTamingState.Equals(Kiln.NativeTamingState? other) -> bool
-Kiln.NativeTamingState.NativeTamingState(Kiln.EntityId Creature, bool Tameable, int Progress, int Required, Kiln.NativeTamingPhase Phase, Kiln.EntityId Bait, System.Guid BaitTemplate, double SensorRangeMeters, double EatSeconds) -> void
+Kiln.NativeTamingState.NativeTamingState(Kiln.EntityId Creature, bool Tameable, int Progress, int Required, Kiln.NativeTamingPhase Phase, Kiln.EntityId Bait, System.Guid BaitTemplate, double SensorRangeMeters, System.TimeSpan EatDuration) -> void
 Kiln.NativeTamingState.Phase.get -> Kiln.NativeTamingPhase
 Kiln.NativeTamingState.Phase.init -> void
 Kiln.NativeTamingState.Progress.get -> int
@@ -184,10 +184,10 @@ Kiln.TamingDefinition.Creatures.init -> void
 Kiln.TamingDefinition.Equals(Kiln.TamingDefinition? other) -> bool
 Kiln.TamingDefinition.Id.get -> string!
 Kiln.TamingDefinition.Id.init -> void
-Kiln.TamingDefinition.InactivitySeconds.get -> double
-Kiln.TamingDefinition.InactivitySeconds.init -> void
-Kiln.TamingDefinition.MaxAttemptSeconds.get -> double
-Kiln.TamingDefinition.MaxAttemptSeconds.init -> void
+Kiln.TamingDefinition.InactivityTimeout.get -> System.TimeSpan
+Kiln.TamingDefinition.InactivityTimeout.init -> void
+Kiln.TamingDefinition.MaxAttemptDuration.get -> System.TimeSpan
+Kiln.TamingDefinition.MaxAttemptDuration.init -> void
 Kiln.TamingDefinition.Pet.get -> string?
 Kiln.TamingDefinition.Pet.init -> void
 Kiln.TamingDefinition.RangeMeters.get -> double
@@ -222,16 +222,16 @@ Kiln.TamingProgress.CharacterSession.get -> ulong
 Kiln.TamingProgress.CharacterSession.init -> void
 Kiln.TamingProgress.CompletedSteps.get -> int
 Kiln.TamingProgress.CompletedSteps.init -> void
-Kiln.TamingProgress.Deconstruct(out Kiln.TameAttemptId Id, out Kiln.PlayerRef Owner, out ulong WorldEpoch, out ulong CharacterSession, out Kiln.EntityRef Target, out string! Definition, out Kiln.TamingState State, out int CompletedSteps, out int TotalSteps, out ulong Revision, out System.Guid StepChallenge, out double StartedAtSimSeconds, out double LastProgressAtSimSeconds, out double ExpiresAtSimSeconds, out System.Collections.Generic.IReadOnlyList<Kiln.CostReceipt!>! Spent) -> void
+Kiln.TamingProgress.Deconstruct(out Kiln.TameAttemptId Id, out Kiln.PlayerRef Owner, out ulong WorldEpoch, out ulong CharacterSession, out Kiln.EntityRef Target, out string! Definition, out Kiln.TamingState State, out int CompletedSteps, out int TotalSteps, out ulong Revision, out System.Guid StepChallenge, out System.TimeSpan StartedAt, out System.TimeSpan LastProgressAt, out System.TimeSpan ExpiresAt, out System.Collections.Generic.IReadOnlyList<Kiln.CostReceipt!>! Spent) -> void
 Kiln.TamingProgress.Definition.get -> string!
 Kiln.TamingProgress.Definition.init -> void
 Kiln.TamingProgress.Equals(Kiln.TamingProgress? other) -> bool
-Kiln.TamingProgress.ExpiresAtSimSeconds.get -> double
-Kiln.TamingProgress.ExpiresAtSimSeconds.init -> void
+Kiln.TamingProgress.ExpiresAt.get -> System.TimeSpan
+Kiln.TamingProgress.ExpiresAt.init -> void
 Kiln.TamingProgress.Id.get -> Kiln.TameAttemptId
 Kiln.TamingProgress.Id.init -> void
-Kiln.TamingProgress.LastProgressAtSimSeconds.get -> double
-Kiln.TamingProgress.LastProgressAtSimSeconds.init -> void
+Kiln.TamingProgress.LastProgressAt.get -> System.TimeSpan
+Kiln.TamingProgress.LastProgressAt.init -> void
 Kiln.TamingProgress.Owner.get -> Kiln.PlayerRef
 Kiln.TamingProgress.Owner.init -> void
 Kiln.TamingProgress.Refunds.get -> System.Collections.Generic.IReadOnlyList<Kiln.TamingRefund!>!
@@ -240,13 +240,13 @@ Kiln.TamingProgress.Revision.get -> ulong
 Kiln.TamingProgress.Revision.init -> void
 Kiln.TamingProgress.Spent.get -> System.Collections.Generic.IReadOnlyList<Kiln.CostReceipt!>!
 Kiln.TamingProgress.Spent.init -> void
-Kiln.TamingProgress.StartedAtSimSeconds.get -> double
-Kiln.TamingProgress.StartedAtSimSeconds.init -> void
+Kiln.TamingProgress.StartedAt.get -> System.TimeSpan
+Kiln.TamingProgress.StartedAt.init -> void
 Kiln.TamingProgress.State.get -> Kiln.TamingState
 Kiln.TamingProgress.State.init -> void
 Kiln.TamingProgress.StepChallenge.get -> System.Guid
 Kiln.TamingProgress.StepChallenge.init -> void
-Kiln.TamingProgress.TamingProgress(Kiln.TameAttemptId Id, Kiln.PlayerRef Owner, ulong WorldEpoch, ulong CharacterSession, Kiln.EntityRef Target, string! Definition, Kiln.TamingState State, int CompletedSteps, int TotalSteps, ulong Revision, System.Guid StepChallenge, double StartedAtSimSeconds, double LastProgressAtSimSeconds, double ExpiresAtSimSeconds, System.Collections.Generic.IReadOnlyList<Kiln.CostReceipt!>! Spent) -> void
+Kiln.TamingProgress.TamingProgress(Kiln.TameAttemptId Id, Kiln.PlayerRef Owner, ulong WorldEpoch, ulong CharacterSession, Kiln.EntityRef Target, string! Definition, Kiln.TamingState State, int CompletedSteps, int TotalSteps, ulong Revision, System.Guid StepChallenge, System.TimeSpan StartedAt, System.TimeSpan LastProgressAt, System.TimeSpan ExpiresAt, System.Collections.Generic.IReadOnlyList<Kiln.CostReceipt!>! Spent) -> void
 Kiln.TamingProgress.Target.get -> Kiln.EntityRef
 Kiln.TamingProgress.Target.init -> void
 Kiln.TamingProgress.Token.get -> Kiln.TamingToken!

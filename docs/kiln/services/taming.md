@@ -52,8 +52,8 @@ Fields and bounds:
 | `Creatures` | - | at least one id |
 | `RangeMeters` | 3 | 1 to 8 |
 | `RequireThresholdUntilCommit` | true | the latest weaken threshold holds for every later step and the tame |
-| `InactivitySeconds` | 30 | 1 to 300 |
-| `MaxAttemptSeconds` | 300 | at least the inactivity, at most 3600 |
+| `InactivityTimeout` (JSON `inactivitySeconds`) | 30 s | 1 to 300 s |
+| `MaxAttemptDuration` (JSON `maxAttemptSeconds`) | 300 s | at least the inactivity, at most 3600 s |
 | `Refund` | `NonRefundable` | `NonRefundable`, `RefundOnFail`, `Escrow` |
 | `Pet` | null | a Kiln.Pets definition id |
 | `RemoveTarget` | true | with a pet |
@@ -105,7 +105,7 @@ Limits (Kiln's policy, not the game's):
 | `Committed` | tamed |
 | `Canceled` | canceled |
 | `Failed` | a failure, in a word: `BodyGone`, `OwnerLeft`, `WorldEnded`, `DefinitionGone`, `UncertainCommit`, `PartialCostCommitted`, `Refused: ...` |
-| `Expired` | `InactivitySeconds`, `MaxAttemptSeconds` |
+| `Expired` | the cause names what ran out: `InactivitySeconds` (`InactivityTimeout`), `MaxAttemptSeconds` (`MaxAttemptDuration`) |
 
 **Timeouts** run on the game's own 60 Hz world clock (each step adds what the clock advanced in it, as Kiln.Pets' timers:
 a dedicated server steps 15 to 25 times a second, so a step is not 1/60 s; a paused world's clock stands still).

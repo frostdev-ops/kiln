@@ -19,8 +19,9 @@ public sealed record ReviveBlock
 {
     /// <summary>False: Kiln's revive is off for this pet (the mod releases it, or revives it its own way).</summary>
     public bool Allowed { get; init; } = true;
-    /// <summary>Seconds the owner channels, 0.1..60.</summary>
-    public double ChannelSeconds { get; init; } = 3;
+    /// <summary>How long the owner channels, 0.1..60 s (JSON: <c>channelSeconds</c>, a number of seconds).</summary>
+    [JsonPropertyName("channelSeconds"), JsonConverter(typeof(Seconds.Json))]
+    public TimeSpan ChannelDuration { get; init; } = TimeSpan.FromSeconds(3);
     /// <summary>Metres between owner and anchor while channelling, 1..8.</summary>
     public double RangeMeters { get; init; } = 3;
     /// <summary>The share of its maximum health the pet comes back with, more than 0 and at most 1.</summary>
@@ -33,6 +34,9 @@ public sealed record ReviveBlock
     public bool CancelOnMovement { get; init; } = true;
     /// <summary>Metres, 0.1..2.</summary>
     public double MaxOwnerDisplacement { get; init; } = 0.75;
+
+    // the compiler's name, in seconds (internal)
+    internal double ChannelSeconds { get => ChannelDuration.TotalSeconds; init => ChannelDuration = Seconds.Of(value); }
 }
 
 /// <summary>
@@ -40,7 +44,7 @@ public sealed record ReviveBlock
 /// its movement and protects it; this block says what it is and every choice about it.
 /// <code>
 /// var wolf = Blocks.Define("wolf", new CreatureBlock { Body = Bodies.Vukah });
-/// Blocks.Define("wolf-pet", new PetBlock { Creature = wolf, Name = "Companion", Revive = new ReviveBlock { ChannelSeconds = 3 } });
+/// Blocks.Define("wolf-pet", new PetBlock { Creature = wolf, Name = "Companion", Revive = new ReviveBlock { ChannelDuration = TimeSpan.FromSeconds(3) } });
 /// Blocks.Define("hound", new PetBlock { Creature = "game:enemy_wildbeast_wolf_earlygame" });   // a game creature, by its creatures-registry id
 /// </code>
 /// Its id is <c>&lt;mod id&gt;:&lt;name&gt;</c>; <see cref="Pets"/> takes it. A pet on a game creature asks nothing of players' games.

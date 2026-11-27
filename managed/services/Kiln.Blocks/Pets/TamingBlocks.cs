@@ -6,6 +6,7 @@
 // service stays as it is; this is a typed front-end over it. Every choice in it is the mod's. docs/kiln/modding/taming.md.
 using System.Globalization;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 
 namespace Kiln;
 
@@ -75,10 +76,17 @@ public sealed record TamingBlock : IBlock
     public double RangeMeters { get; init; } = 3;
     /// <summary>The latest weaken threshold holds until the tame (default true).</summary>
     public bool RequireThresholdUntilCommit { get; init; } = true;
-    /// <summary>Seconds of simulation without an applied step before the attempt expires, 1..300 (default 30).</summary>
-    public double InactivitySeconds { get; init; } = 30;
-    /// <summary>The longest an attempt lasts, from <see cref="InactivitySeconds"/> to 3600 s (default 300).</summary>
-    public double MaxAttemptSeconds { get; init; } = 300;
+    /// <summary>How long in simulation without an applied step before the attempt expires, 1..300 s (default 30; JSON:
+    /// <c>inactivitySeconds</c>).</summary>
+    [JsonPropertyName("inactivitySeconds"), JsonConverter(typeof(Seconds.Json))]
+    public TimeSpan InactivityTimeout { get; init; } = TimeSpan.FromSeconds(30);
+    /// <summary>The longest an attempt lasts, from <see cref="InactivityTimeout"/> to 3600 s (default 300; JSON:
+    /// <c>maxAttemptSeconds</c>).</summary>
+    [JsonPropertyName("maxAttemptSeconds"), JsonConverter(typeof(Seconds.Json))]
+    public TimeSpan MaxAttemptDuration { get; init; } = TimeSpan.FromSeconds(300);
+    // the compiler's names, in seconds (internal)
+    internal double InactivitySeconds { get => InactivityTimeout.TotalSeconds; init => InactivityTimeout = Seconds.Of(value); }
+    internal double MaxAttemptSeconds { get => MaxAttemptDuration.TotalSeconds; init => MaxAttemptDuration = Seconds.Of(value); }
     /// <summary>What happens to paid steps when the attempt ends without a tame (default non-refundable).</summary>
     public TamingRefundPolicy Refund { get; init; } = TamingRefundPolicy.NonRefundable;
     /// <summary>With a pet: the tamed wild body is removed once the pet record is made (default true).</summary>

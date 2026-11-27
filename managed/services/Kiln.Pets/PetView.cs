@@ -42,10 +42,10 @@ public sealed record PetViewEntry
     public int Maximum { get; init; }
     /// <summary>The revive channel running (its request id, for a cancel); null when none.</summary>
     public Guid? ReviveRequest { get; init; }
-    /// <summary>Milliseconds of the channel done.</summary>
-    public uint ReviveElapsedMs { get; init; }
-    /// <summary>Milliseconds the channel takes.</summary>
-    public uint ReviveDurationMs { get; init; }
+    /// <summary>How much of the channel is done (whole milliseconds: the wire's).</summary>
+    public TimeSpan ReviveElapsed { get; init; }
+    /// <summary>How long the channel takes (whole milliseconds).</summary>
+    public TimeSpan ReviveDuration { get; init; }
     /// <summary>Its state revision.</summary>
     public ulong StateRevision { get; init; }
     /// <summary>Its durable revision.</summary>
@@ -91,6 +91,12 @@ internal static class PetViewCodec
 
     private const byte HasBody = 1, HasAnchor = 2, HasRevive = 4, Bar = 8, Marker = 16;
 
+    // a duration on the wire: whole milliseconds, 0..uint.MaxValue
+    private static uint Ms(TimeSpan t) => (uint)Math.Clamp(Math.Floor(t.TotalMilliseconds), 0, uint.MaxValue);
+
+    /// <summary>A duration as the wire carries it (whole milliseconds), so a view entry is the same before and after it.</summary>
+    internal static TimeSpan Millis(TimeSpan t) => TimeSpan.FromMilliseconds(Ms(t));
+
     public static byte[] Write(PetOwnerView v)
     {
         if (v.Entries.Count > MaxEntries) throw new ArgumentException($"at most {MaxEntries} pets in a view");
@@ -115,7 +121,7 @@ internal static class PetViewCodec
             if (x.ReviveRequest is { } op)
             {
                 op.TryWriteBytes(id);
-                e.Raw(id).UInt32(x.ReviveElapsedMs).UInt32(x.ReviveDurationMs);
+                e.Raw(id).UInt32(Ms(x.ReviveElapsed)).UInt32(Ms(x.ReviveDuration));
             }
             e.UInt64(x.StateRevision).UInt64(x.DurableRevision);
             if (e.Length > MaxEntryBytes) throw new ArgumentException($"a pet entry is at most {MaxEntryBytes} bytes");
@@ -195,7 +201,7 @@ internal static class PetViewCodec
                 {
                     Id = new PetId(id), Definition = def, Label = label, Life = (PetLife)life, Presence = (PetPresence)presence,
                     Transition = (PetTransition)transition, RequestedOrder = (PetOrder)order, Body = body, RecoveryAnchor = anchor, Level = level,
-                    Current = cur, Maximum = max, ReviveRequest = revive, ReviveElapsedMs = elapsed, ReviveDurationMs = duration,
+                    Current = cur, Maximum = max, ReviveRequest = revive, ReviveElapsed = TimeSpan.FromMilliseconds(elapsed), ReviveDuration = TimeSpan.FromMilliseconds(duration),
                     StateRevision = state, DurableRevision = durable, ShowBar = (flags & Bar) != 0, ShowMarker = (flags & Marker) != 0,
                 });
             }

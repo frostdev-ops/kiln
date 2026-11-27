@@ -145,6 +145,54 @@ public sealed class ApiShapeTests
         Assert.Contains("\"name\":\"Rex\"", PetsRuntime.CanonicalJson(d));
         Assert.Equal(("name", "a name is 1 to 64 UTF-8 bytes"), PetDefinitionRules.Check(d with { Name = "" }));
     }
+
+    // ---- C2: durations are TimeSpan (JSON keeps its seconds) ----
+
+    [Fact]
+    public void No_public_duration_of_Pets_or_Taming_is_a_double_of_seconds()
+    {
+        var types = typeof(Pets).Assembly.GetExportedTypes().Concat(typeof(Taming).Assembly.GetExportedTypes())
+            .Concat([typeof(PetBlock), typeof(ReviveBlock), typeof(TamingBlock), typeof(TamingStepBlock)]);
+        var doubles = types.SelectMany(t => t.GetProperties(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly)
+                .Where(p => p.PropertyType == typeof(double) && (p.Name.EndsWith("Seconds", StringComparison.Ordinal) || p.Name.EndsWith("Elapsed", StringComparison.Ordinal) || p.Name.EndsWith("Duration", StringComparison.Ordinal)))
+                .Select(p => $"{t.Name}.{p.Name}"))
+            .Concat(types.SelectMany(t => t.GetProperties().Where(p => p.PropertyType == typeof(uint) && p.Name.EndsWith("Ms", StringComparison.Ordinal)).Select(p => $"{t.Name}.{p.Name}")))
+            .ToList();
+        Assert.Empty(doubles);
+    }
+
+    [Fact]
+    public void A_definitions_durations_are_TimeSpan_and_its_JSON_keeps_seconds()
+    {
+        var d = new PetDefinition
+        {
+            Id = "mod-a:wolf", Creature = "game:enemy_wildbeast_wolf",
+            Movement = new PetMovementPolicy { RepathInterval = TimeSpan.FromSeconds(1.5), StuckAfter = TimeSpan.FromSeconds(7) },
+            Revive = new PetRevivePolicy { ChannelDuration = TimeSpan.FromSeconds(2) },
+        };
+        Assert.Equal(TimeSpan.FromSeconds(0.5), new PetMovementPolicy().RepathInterval);
+        Assert.Equal(TimeSpan.FromSeconds(5), new PetMovementPolicy().StuckAfter);
+        Assert.Equal(TimeSpan.FromSeconds(3), new PetRevivePolicy().ChannelDuration);
+        var json = System.Text.Json.Nodes.JsonNode.Parse(PetsRuntime.CanonicalJson(d))!;
+        Assert.Equal(1.5, json["movement"]!["repathSeconds"]!.GetValue<double>());
+        Assert.Equal(7, json["movement"]!["stuckSeconds"]!.GetValue<double>());
+        Assert.Equal(2, json["revive"]!["channelSeconds"]!.GetValue<double>());
+        Assert.Equal(("revive.channelSeconds", "61 is outside 0.1..60 s"), PetDefinitionRules.Check(d with { Revive = new PetRevivePolicy { ChannelDuration = TimeSpan.FromSeconds(61) } }));
+    }
+
+    [Fact]
+    public void A_views_revive_progress_is_TimeSpan_and_crosses_the_wire_in_milliseconds()
+    {
+        var e = new PetViewEntry
+        {
+            Id = new PetId(Guid.NewGuid()), Definition = "mod-a:wolf", Label = "Rex", Transition = PetTransition.Reviving, ReviveRequest = Guid.NewGuid(),
+            ReviveElapsed = TimeSpan.FromSeconds(1.5), ReviveDuration = TimeSpan.FromSeconds(3),
+        };
+        var back = PetViewCodec.Read(PetViewCodec.Write(new PetOwnerView(1, 2, 3, [e])), out var error);
+        Assert.Null(error);
+        Assert.Equal(e, back!.Entries[0]);
+        Assert.Equal(TimeSpan.FromMilliseconds(1500), back.Entries[0].ReviveElapsed);
+    }
 }
 
 /// <summary>Kiln.Pets' facade on a roster of the test's (a fake world and store) and a tick thread that is the test's.</summary>

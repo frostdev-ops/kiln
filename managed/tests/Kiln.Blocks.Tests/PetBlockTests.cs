@@ -55,6 +55,20 @@ public sealed class PetBlockTests : IDisposable
         Assert.ThrowsAny<System.Text.Json.JsonException>(() => BlockJson.Parse<PetBlock>("""{ "creature": "game:enemy_wildbeast_wolf", "caps": { "livePerCharacter": 2 } }"""));
     }
 
+    // API-SHAPE-2 C2: durations are TimeSpan in C#; blocks/*.json keeps its seconds
+    [Fact]
+    public void Json_seconds_become_TimeSpan_durations()
+    {
+        var p = BlockJson.Parse<PetBlock>("""
+            { "creature": "game:enemy_wildbeast_wolf", "movement": { "repathSeconds": 1.25, "stuckSeconds": 8 }, "revive": { "channelSeconds": 4.5 } }
+            """);
+        Assert.Equal((TimeSpan.FromSeconds(1.25), TimeSpan.FromSeconds(8), TimeSpan.FromSeconds(4.5)), (p.Movement.RepathInterval, p.Movement.StuckAfter, p.Revive.ChannelDuration));
+        Assert.ThrowsAny<System.Text.Json.JsonException>(() => BlockJson.Parse<PetBlock>("""{ "creature": "game:enemy_wildbeast_wolf", "revive": { "channelSeconds": "3" } }"""));
+        Assert.ThrowsAny<System.Text.Json.JsonException>(() => BlockJson.Parse<PetBlock>("""{ "creature": "game:enemy_wildbeast_wolf", "revive": { "channelSeconds": 1e300 } }"""));
+        var t = BlockJson.Parse<TamingBlock>("""{ "creatures": ["game:enemy_wildbeast_wolf"], "steps": [ { "kind": "native" } ], "inactivitySeconds": 45, "maxAttemptSeconds": 90 }""");
+        Assert.Equal((TimeSpan.FromSeconds(45), TimeSpan.FromSeconds(90)), (t.InactivityTimeout, t.MaxAttemptDuration));
+    }
+
     [Fact]
     public void Every_choice_is_the_mods()
     {
@@ -84,8 +98,8 @@ public sealed class PetBlockTests : IDisposable
         {
             Creature = "game:enemy_wildbeast_wolf", Name = "Companion",
             Level = new PetLevelPolicy { Mode = PetLevelMode.OwnerAtSummon, Level = 4, Scale = 1.5 },
-            Movement = new PetMovementPolicy { FollowDistance = 4, RepathSeconds = 1, RunDistance = 9, CatchUpDistance = 40, StuckSeconds = 6, GroundSearchMeters = 2 },
-            Revive = new ReviveBlock { ChannelSeconds = 5, RangeMeters = 2, HealthFraction = 0.25, CancelOnMovement = false, MaxOwnerDisplacement = 1 },
+            Movement = new PetMovementPolicy { FollowDistance = 4, RepathInterval = TimeSpan.FromSeconds(1), RunDistance = 9, CatchUpDistance = 40, StuckAfter = TimeSpan.FromSeconds(6), GroundSearchMeters = 2 },
+            Revive = new ReviveBlock { ChannelDuration = TimeSpan.FromSeconds(5), RangeMeters = 2, HealthFraction = 0.25, CancelOnMovement = false, MaxOwnerDisplacement = 1 },
             Downed = new PetDownedPolicy { Outcome = PetDownedOutcome.Absent },
         });
         var block = BlockJson.Parse<PetBlock>("""
@@ -153,12 +167,12 @@ public sealed class PetBlockTests : IDisposable
             "level.level" => ok with { Level = new PetLevelPolicy { Level = 256 } },
             "level.scale" => ok with { Level = new PetLevelPolicy { Scale = 9 } },
             "movement.followDistance" => ok with { Movement = new PetMovementPolicy { FollowDistance = 0.5 } },
-            "movement.repathSeconds" => ok with { Movement = new PetMovementPolicy { RepathSeconds = 0 } },
+            "movement.repathSeconds" => ok with { Movement = new PetMovementPolicy { RepathInterval = TimeSpan.Zero } },
             "movement.runDistance" => ok with { Movement = new PetMovementPolicy { FollowDistance = 8, RunDistance = 5 } },
             "movement.catchUpDistance" => ok with { Movement = new PetMovementPolicy { CatchUpDistance = 200 } },
-            "movement.stuckSeconds" => ok with { Movement = new PetMovementPolicy { StuckSeconds = double.NaN } },
+            "movement.stuckSeconds" => ok with { Movement = new PetMovementPolicy { StuckAfter = TimeSpan.FromSeconds(31) } },
             "movement.groundSearchMeters" => ok with { Movement = new PetMovementPolicy { GroundSearchMeters = 9 } },
-            "revive.channelSeconds" => ok with { Revive = new ReviveBlock { ChannelSeconds = 61 } },
+            "revive.channelSeconds" => ok with { Revive = new ReviveBlock { ChannelDuration = TimeSpan.FromSeconds(61) } },
             "revive.rangeMeters" => ok with { Revive = new ReviveBlock { RangeMeters = 0.5 } },
             "revive.healthFraction" => ok with { Revive = new ReviveBlock { HealthFraction = 0 } },
             "revive.maxOwnerDisplacement" => ok with { Revive = new ReviveBlock { MaxOwnerDisplacement = 3 } },

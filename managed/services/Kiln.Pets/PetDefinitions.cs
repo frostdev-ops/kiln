@@ -4,6 +4,7 @@
 // default for a mod that does not say (players protected, a bodyless recovery anchor). Kiln.Pets never references
 // Kiln.Blocks: the block lowers onto these records.
 using System.Globalization;
+using System.Text.Json.Serialization;
 
 namespace Kiln;
 
@@ -47,19 +48,26 @@ public sealed record PetMovementPolicy
     public PetMovementMode Mode { get; init; } = PetMovementMode.QueryInput;
     /// <summary>Metres from the owner where the pet stops, 1..10.</summary>
     public double FollowDistance { get; init; } = 3;
-    /// <summary>Seconds between new routes while the owner moves, 0.1..5.</summary>
-    public double RepathSeconds { get; init; } = 0.5;
+    /// <summary>How often a new route is asked while the owner moves, 0.1..5 s (JSON: <c>repathSeconds</c>).</summary>
+    [JsonPropertyName("repathSeconds"), JsonConverter(typeof(Seconds.Json))]
+    public TimeSpan RepathInterval { get; init; } = TimeSpan.FromSeconds(0.5);
     /// <summary>Farther than this many metres the pet runs instead of walking: at least <see cref="FollowDistance"/>, at most 30.</summary>
     public double RunDistance { get; init; } = 10;
     /// <summary>Farther than this many metres (10..160) the pet is put next to its owner on safe ground, when
     /// <see cref="AllowCatchUp"/>.</summary>
     public double CatchUpDistance { get; init; } = 60;
-    /// <summary>Seconds without progress (1..30) after which a stuck pet catches up, when <see cref="AllowCatchUp"/>.</summary>
-    public double StuckSeconds { get; init; } = 5;
+    /// <summary>How long without progress (1..30 s) before a stuck pet catches up, when <see cref="AllowCatchUp"/> (JSON:
+    /// <c>stuckSeconds</c>).</summary>
+    [JsonPropertyName("stuckSeconds"), JsonConverter(typeof(Seconds.Json))]
+    public TimeSpan StuckAfter { get; init; } = TimeSpan.FromSeconds(5);
     /// <summary>How far, in metres (0.5..8), Kiln looks up and down for ground around a catch-up spot.</summary>
     public double GroundSearchMeters { get; init; } = 4;
     /// <summary>Whether a far or stuck pet is put next to its owner. Off: it stops and waits.</summary>
     public bool AllowCatchUp { get; init; } = true;
+
+    // the follower's and the checks' names, in seconds (internal)
+    internal double RepathSeconds { get => RepathInterval.TotalSeconds; init => RepathInterval = Seconds.Of(value); }
+    internal double StuckSeconds { get => StuckAfter.TotalSeconds; init => StuckAfter = Seconds.Of(value); }
 }
 
 /// <summary>A cost of so many items of one kind. Since 0.2.0-dev.32.</summary>
@@ -74,8 +82,9 @@ public sealed record PetRevivePolicy
     /// <summary>False: a downed pet of this definition cannot be revived by <c>Pets.Revive</c> (the mod releases it,
     /// or revives it its own way). Default true.</summary>
     public bool Allowed { get; init; } = true;
-    /// <summary>Seconds of simulation time the owner channels, 0.1..60.</summary>
-    public double ChannelSeconds { get; init; } = 3;
+    /// <summary>How long, in simulation time, the owner channels: 0.1..60 s (JSON: <c>channelSeconds</c>).</summary>
+    [JsonPropertyName("channelSeconds"), JsonConverter(typeof(Seconds.Json))]
+    public TimeSpan ChannelDuration { get; init; } = TimeSpan.FromSeconds(3);
     /// <summary>Metres between the owner and the recovery anchor during the channel, 1..8.</summary>
     public double RangeMeters { get; init; } = 3;
     /// <summary>The share of its maximum health the pet comes back with, more than 0 and at most 1.</summary>
@@ -88,6 +97,9 @@ public sealed record PetRevivePolicy
     public bool CancelOnMovement { get; init; } = true;
     /// <summary>Metres, 0.1..2.</summary>
     public double MaxOwnerDisplacement { get; init; } = 0.75;
+
+    // the roster's name, in seconds (internal)
+    internal double ChannelSeconds { get => ChannelDuration.TotalSeconds; init => ChannelDuration = Seconds.Of(value); }
 }
 
 /// <summary>Who players may fight through pets. Since 0.2.0-dev.32.</summary>

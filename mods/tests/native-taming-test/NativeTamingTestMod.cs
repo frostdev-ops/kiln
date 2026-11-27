@@ -155,7 +155,7 @@ public sealed class NativeTamingTestMod : Mod
             Obs($"startle setting: {TryGet(() => Settings.Get("tamingStartleRepercussion")?.ToString())}; {Offer(dog)}");
             Obs($"rows: {string.Join("; ", new[] { "taming.native", "kiln.taming", "taming.steps", "taming.native_observe" }.Select(r => $"{r} {Capabilities.Get(r).State} {Capabilities.Get(r).ReasonText}"))}");
             var read = TryGet(() => NativeTaming.Read(dog)?.ToString());
-            Check(TryRead(dog) is { Tameable: true, Required: 2, Phase: NativeTamingPhase.Wild } r && r.BaitTemplate == DogBaitGuid && Math.Abs(r.SensorRangeMeters - 8.5) < 1e-6 && Math.Abs(r.EatSeconds - 16) < 1e-6,
+            Check(TryRead(dog) is { Tameable: true, Required: 2, Phase: NativeTamingPhase.Wild } r && r.BaitTemplate == DogBaitGuid && Math.Abs(r.SensorRangeMeters - 8.5) < 1e-6 && Math.Abs(r.EatDuration.TotalSeconds - 16) < 1e-6,
                 $"NativeTaming.Read of the wild dog (its template's setup by reflection): {read}");
             var p0 = World.Position(dog);
             var d0 = World.ReadBytes(dog, "DynamicWildlife") is { } raw0 ? Convert.ToHexString(raw0) : "-";

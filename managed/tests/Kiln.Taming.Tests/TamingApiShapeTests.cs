@@ -169,4 +169,23 @@ public sealed class TamingApiShapeTests
         var seen = Task.Run(() => (f.Engine.Definition("mod-a:wolf"), f.Engine.Definitions.Count)).Result;
         Assert.Equal(("mod-a:wolf", 1), (seen.Item1!.Id, seen.Count));
     }
+
+    // ---- C2: durations are TimeSpan; JSON keeps its seconds ----
+
+    [Fact]
+    public void A_definitions_timeouts_and_an_attempts_times_are_TimeSpan()
+    {
+        var d = Def(new WeakenStep(0.5)) with { InactivityTimeout = TimeSpan.FromSeconds(60), MaxAttemptDuration = TimeSpan.FromMinutes(5) };
+        Assert.Equal(TimeSpan.FromSeconds(30), Def(new WeakenStep(0.5)).InactivityTimeout);
+        Assert.Equal(TimeSpan.FromSeconds(300), Def(new WeakenStep(0.5)).MaxAttemptDuration);
+        var f = new TamingFixture().With(d);
+        var p = f.Begin().Progress!;
+        Assert.Equal(TimeSpan.FromSeconds(100), p.StartedAt);
+        Assert.Equal(TimeSpan.FromSeconds(160), p.ExpiresAt);
+        Assert.Equal(p.StartedAt, p.LastProgressAt);
+        var json = TamingJson.Read("""{ "id": "mod-a:pup", "creatures": ["game:animal_wildlife_dog_*"], "steps": [ { "kind": "native" } ], "inactivitySeconds": 45, "maxAttemptSeconds": 90 }""",
+            (_, _) => ItemId.None);
+        Assert.Equal((TimeSpan.FromSeconds(45), TimeSpan.FromSeconds(90)), (json[0].InactivityTimeout, json[0].MaxAttemptDuration));
+        Assert.Throws<ArgumentException>(() => TamingEngine.Validate(d with { InactivityTimeout = TimeSpan.FromSeconds(301) }));
+    }
 }

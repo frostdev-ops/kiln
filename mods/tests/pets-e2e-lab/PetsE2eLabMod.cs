@@ -331,7 +331,7 @@ public sealed partial class PetsE2eLabMod : Mod
         ["life"] = s.Life.ToString(), ["presence"] = s.Presence.ToString(), ["transition"] = s.Transition.ToString(),
         ["order"] = s.RequestedOrder.ToString(), ["target"] = s.RequestedTarget.Id.Value, ["body"] = s.Body.Id.Value,
         ["health"] = s.Health, ["healthMax"] = s.HealthMax, ["wants"] = s.WantsSummoned, ["rev"] = s.StateRevision,
-        ["durable"] = s.DurableRevision, ["reviveOp"] = s.ReviveRequest?.ToString(), ["reviveElapsed"] = R(s.ReviveElapsed),
+        ["durable"] = s.DurableRevision, ["reviveOp"] = s.ReviveRequest?.ToString(), ["reviveElapsed"] = R(s.ReviveElapsed.TotalSeconds),
     };
 
     private static Player? OwnerOf(CharacterKey key) =>
@@ -462,7 +462,7 @@ public sealed partial class PetsE2eLabMod : Mod
             Id = Mule, Creature = "game:enemy_wildbeast_wolf_earlygame", Name = "Mule",
             Revive = new PetRevivePolicy
             {
-                ChannelSeconds = 0.5, RangeMeters = 8, Cost = new PetCostDefinition(twigs.Id, 1),
+                ChannelDuration = TimeSpan.FromSeconds(0.5), RangeMeters = 8, Cost = new PetCostDefinition(twigs.Id, 1),
                 CancelOnMovement = false, CancelOnObservedOwnerDamage = false,
             },
             Limits = new PetLimits { LivePerCharacter = 3 },

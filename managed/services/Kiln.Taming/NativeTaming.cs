@@ -34,10 +34,13 @@ public enum NativeTamingPhase
 /// <param name="BaitTemplate">Its favourite bait's template (what <see cref="NativeTaming.PlaceBait"/> places); empty
 /// when it has none.</param>
 /// <param name="SensorRangeMeters">How far it senses a bait.</param>
-/// <param name="EatSeconds">How long it eats one bait (a petting must start before it is done).</param>
+/// <param name="EatDuration">How long it eats one bait (a petting must start before it is done).</param>
 public sealed record NativeTamingState(EntityId Creature, bool Tameable, int Progress, int Required, NativeTamingPhase Phase, EntityId Bait,
-    Guid BaitTemplate, double SensorRangeMeters, double EatSeconds)
+    Guid BaitTemplate, double SensorRangeMeters, TimeSpan EatDuration)
 {
+    // in seconds (internal)
+    internal double EatSeconds => EatDuration.TotalSeconds;
+
     /// <summary>The game's raw state byte (wildlife::State), for logs.</summary>
     public int RawState { get; init; }
 
@@ -349,7 +352,7 @@ internal static class NativeTamingRuntime
             _ => NativeTamingPhase.Wild,
         };
         var bait = BinaryPrimitives.ReadUInt32LittleEndian(d.AsSpan(Bait));
-        return new NativeTamingState(creature, setup.Tameable, d[Progress], steps, phase, new EntityId(bait), setup.Bait, setup.SensorMeters, setup.EatSeconds)
+        return new NativeTamingState(creature, setup.Tameable, d[Progress], steps, phase, new EntityId(bait), setup.Bait, setup.SensorMeters, Seconds.Of(setup.EatSeconds))
         {
             RawState = state,
         };
