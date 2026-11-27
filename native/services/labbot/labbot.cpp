@@ -69,10 +69,11 @@ struct Functions {
 
 struct Layout {
     int64_t session_current = -1, session_buffers = -1, session_stride = -1;
+    int64_t gs_sockets = -1, sockets_machines = -1, machine_stride = -1;
     int64_t gs_session = -1, gs_machines = -1, gs_records = -1, rec_stride = -1, rec_state = -1, rec_peer = -1,
             rec_entity = -1, rec_perms = -1;
     int64_t gs_save2 = -1, save2_slots = -1, save_handle = -1, save_state = -1, save_status = -1, save_has_entity = -1,
-            save_version = -1;
+            save_version = -1, save_upload = -1;
     int64_t gs_groups = -1, gs_groups_count = -1, group_stride = -1;
 } Ly;
 labbot::SnapLayout g_snap;
@@ -276,14 +277,19 @@ struct GameEngine final : labbot::Engine {
     uintptr_t gs = 0;
     std::string seen;  // what in_snapshot found (diagnostics)
 
+    // What a client's Login finds when it arrives: the session lists its machine and player, and SyncSockets (the first
+    // step of ServerReceive) made the machine's sockets. The machine slot and the player record are AddPlayer's own
+    // first step (0x7abbe0: admit the machine, make the record with the login's name and character).
     bool in_snapshot(const SnapEntry& e) override {
         const uintptr_t cur = current_buffer(session_of(gs));
         const int pub = cur ? guarded_has(reinterpret_cast<const uint8_t*>(cur), e) : -1;
-        const bool machine = machine_slot_peer(gs, e.machine_index) == e.machine;
-        const bool record = rd<uint32_t>(record_addr(gs, e.slot)) == e.player;
-        seen = std::string("published ") + (pub > 0 ? "yes" : pub == 0 ? "no" : "unreadable") + ", machine slot " +
-               (machine ? "yes" : "no") + ", player record " + (record ? "yes" : "no");
-        return pub > 0 && machine && record;
+        const uintptr_t set = rd<uintptr_t>(gs + static_cast<uintptr_t>(Ly.gs_sockets));
+        const uintptr_t table = valid_ptr(set) ? rd<uintptr_t>(set + static_cast<uintptr_t>(Ly.sockets_machines)) : 0;
+        const bool sockets = valid_ptr(table) &&
+                             rd<uint32_t>(table + static_cast<uintptr_t>(Ly.machine_stride) * (e.machine_index & 0x7f)) == e.machine;
+        seen = std::string("published ") + (pub > 0 ? "yes" : pub == 0 ? "no" : "unreadable") + ", machine sockets " +
+               (sockets ? "yes" : "no");
+        return pub > 0 && sockets;
     }
     bool add_player(uint32_t machine, const uint8_t* login) override { return call_add_player(gs, machine, login); }
     labbot::RecordView record(uint32_t slot) override {
@@ -309,6 +315,7 @@ struct GameEngine final : labbot::Engine {
         v.readable = read_mem(p + Ly.save_handle, &v.handle, 4) && read_mem(p + Ly.save_version, &v.version, 4) &&
                      read_mem(p + Ly.save_state, &v.state, 1) && read_mem(p + Ly.save_status, &v.status, 1) &&
                      read_mem(p + Ly.save_has_entity, &v.has_entity, 1);
+        if (Ly.save_upload >= 0) v.upload_capacity = rd<uint64_t>(p + static_cast<uintptr_t>(Ly.save_upload) + 0x10);  // {data, size, capacity}
         return v;
     }
     bool save_receive(uint32_t player, const std::vector<uint8_t>& message, bool* final_requested) override {
@@ -390,6 +397,11 @@ void step_bots(uintptr_t gs) {
         if (live(s)) s.bot.step(eng, now, g_login);
         const Phase after = s.bot.phase;
         pub_set(i, s.bot.entry, s.bot.injected());
+        if (after == Phase::Loading && s.logged == Phase::LoggingIn) {
+            const labbot::SaveView sv = eng.save(s.bot.entry.slot);
+            logf(KILN_LOG_INFO, "labbot: bot %u '%s': the server took its character upload (its upload buffer holds %llu bytes)", s.id,
+                 s.bot.name.c_str(), static_cast<unsigned long long>(sv.upload_capacity));
+        }
         if (after != s.logged) {
             const int level = after == Phase::Failed ? KILN_LOG_ERROR : KILN_LOG_INFO;
             logf(level, "labbot: bot %u '%s' %s -> %s%s%s (slot %u, machine 0x%x, player 0x%x, entity %u, record state %u)", s.id,
@@ -697,14 +709,15 @@ bool resolve() {
         sym("labbot/Save2Receive", &F.save2_receive) && sym("net/MachineLogin", &F.machine_login) &&
         sym("saves/RequestServerSave", &F.request_save) && sym("labbot/ArrayReserve", &F.array_reserve) &&
         cst("labbot/session.current", &Ly.session_current) && cst("labbot/session.buffers", &Ly.session_buffers) &&
-        cst("labbot/session.stride", &Ly.session_stride) && cst("net/gs.session", &Ly.gs_session) &&
+        cst("labbot/session.stride", &Ly.session_stride) && cst("net/gs.session", &Ly.gs_session) && cst("net/gs.sockets", &Ly.gs_sockets) &&
+        cst("net/sockets.machines", &Ly.sockets_machines) && cst("net/machine.stride", &Ly.machine_stride) &&
         cst("net/gs.machines", &Ly.gs_machines) && cst("net/gs.records", &Ly.gs_records) && cst("net/rec.stride", &Ly.rec_stride) &&
         cst("net/rec.state", &Ly.rec_state) && cst("net/rec.peer", &Ly.rec_peer) && cst("net/rec.entity", &Ly.rec_entity) &&
         cst("players/rec.permissions", &Ly.rec_perms) && cst("saves/inst.save2", &Ly.gs_save2) &&
         cst("labbot/save2.slots", &Ly.save2_slots) && cst("labbot/save.handle", &Ly.save_handle) &&
         cst("labbot/save.state", &Ly.save_state) && cst("labbot/save.status", &Ly.save_status) &&
         cst("labbot/save.has_entity", &Ly.save_has_entity) && cst("labbot/save.version", &Ly.save_version) &&
-        cst("labbot/gs.groups", &Ly.gs_groups) && cst("labbot/gs.groups_count", &Ly.gs_groups_count) &&
+        (cst("labbot/save.upload", &Ly.save_upload) || true) && cst("labbot/gs.groups", &Ly.gs_groups) && cst("labbot/gs.groups_count", &Ly.gs_groups_count) &&
         cst("labbot/group.stride", &Ly.group_stride) &&
         c32("labbot/session.stride", &g_snap.size) && c32("labbot/snap.players", &g_snap.players) &&
         c32("labbot/snap.player_stride", &g_snap.player_stride) && c32("labbot/snap.player_count", &g_snap.player_count) &&

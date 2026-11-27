@@ -125,6 +125,7 @@ struct SaveView {
     bool readable = false;
     uint32_t handle = 0, version = 0;
     uint8_t state = 0, status = 0, has_entity = 0;
+    uint64_t upload_capacity = 0;  // bytes Save2's upload buffer holds (0: not known); a bigger upload is refused
 };
 
 // What a bot needs of the game: labbot.cpp implements it on the GameServer (inside its receive step, server thread);

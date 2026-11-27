@@ -63,7 +63,8 @@
     "@labbot/Save2.fields": {
       "find": [
         { "pattern": "83 E2 3F 48 8B 84 D1 {labbot/save2.slots:d32} 80 B8 {labbot/save.status:d32} 00 74 03 32 C0 C3 80 B8 {labbot/save.has_entity:d32} 01 0F 94 C0 C3" },
-        { "pattern": "8B 45 77 39 87 {labbot/save.version:d32} 75 ?? 80 7F {labbot/save.state:d8} 04 75 ?? 44 38 AF {labbot/save.final:d32} 74" }
+        { "pattern": "8B 45 77 39 87 {labbot/save.version:d32} 75 ?? 80 7F {labbot/save.state:d8} 04 75 ?? 44 38 AF {labbot/save.final:d32} 74" },
+        { "pattern": "8B 55 77 48 8D 9F {labbot/save.upload:d32} 48 3B 53 10 76" }
       ]
     },
     "@labbot/UserGroups": {
@@ -112,6 +113,7 @@
     "labbot/save.has_entity": { "min_votes": 1 },
     "labbot/save.version": { "min_votes": 1 },
     "labbot/save.final": { "min_votes": 1 },
+    "labbot/save.upload": { "min_votes": 1 },
     "labbot/gs.groups": { "min_votes": 1 },
     "labbot/gs.groups_count": { "min_votes": 1 },
     "labbot/group.stride": { "min_votes": 1 }
@@ -123,7 +125,7 @@
     },
     "labbot.join": {
       "symbols": ["labbot/AddPlayer", "@labbot/AddPlayer.fields", "@labbot/ServerReceive.login", "labbot/Save2Receive", "@labbot/Save2.fields", "@labbot/UserGroups", "net/ServerReceive", "net/MachineLogin", "saves/RequestServerSave"],
-      "constants": ["labbot/login.size", "labbot/login.name_len", "labbot/login.name", "labbot/login.character", "labbot/login.version_present", "labbot/login.version", "labbot/login.new_present", "labbot/login.is_new", "labbot/login.toggle_present", "labbot/login.toggle", "labbot/recv.login", "labbot/recv.login_name_len", "labbot/recv.login_character_present", "labbot/recv.login_toggle_present", "labbot/save2.slots", "labbot/save.handle", "labbot/save.state", "labbot/save.status", "labbot/save.has_entity", "labbot/save.version", "labbot/save.final", "labbot/gs.groups", "labbot/gs.groups_count", "labbot/group.stride", "net/gs.session", "net/gs.machines", "net/gs.records", "net/rec.stride", "net/rec.state", "net/rec.peer", "net/rec.entity", "saves/inst.save2", "players/rec.permissions"]
+      "constants": ["labbot/login.size", "labbot/login.name_len", "labbot/login.name", "labbot/login.character", "labbot/login.version_present", "labbot/login.version", "labbot/login.new_present", "labbot/login.is_new", "labbot/login.toggle_present", "labbot/login.toggle", "labbot/recv.login", "labbot/recv.login_name_len", "labbot/recv.login_character_present", "labbot/recv.login_toggle_present", "labbot/save2.slots", "labbot/save.handle", "labbot/save.state", "labbot/save.status", "labbot/save.has_entity", "labbot/save.version", "labbot/save.final", "labbot/save.upload", "labbot/gs.groups", "labbot/gs.groups_count", "labbot/group.stride", "net/gs.session", "net/gs.sockets", "net/sockets.machines", "net/machine.stride", "net/gs.machines", "net/gs.records", "net/rec.stride", "net/rec.state", "net/rec.peer", "net/rec.entity", "saves/inst.save2", "players/rec.permissions"]
     }
   }
 }

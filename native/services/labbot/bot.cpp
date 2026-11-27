@@ -298,8 +298,13 @@ void Bot::step(Engine& g, uint64_t now, const LoginLayout& L, const Limits& lim)
         case Phase::LoggingIn: {
             if (r.state == kRecFailed) return fail(now, "the game refused the login (record state 6)");
             if (!upload_sent) {
+                const std::vector<uint8_t> body = new_character_upload();
+                const SaveView cap = g.save(entry.slot);
+                if (cap.readable && cap.upload_capacity && body.size() > cap.upload_capacity)
+                    return fail(now, "the character upload (" + std::to_string(body.size()) + " bytes) does not fit the server's upload buffer (" +
+                                         std::to_string(cap.upload_capacity) + " bytes)");
                 bool fin = false;
-                if (!g.save_receive(entry.player, save_chunk(new_character_upload()), &fin))
+                if (!g.save_receive(entry.player, save_chunk(body), &fin))
                     return fail(now, "the game's save receive faulted on the character upload");
                 upload_sent = true;
             }

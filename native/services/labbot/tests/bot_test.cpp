@@ -193,6 +193,7 @@ struct FakeGame : Engine {
     bool no_spawn = false;         // the spawn search fails: record state 6
     bool never_free = false;       // a leaving record never frees
     int load_frames = 3;           // spawn search
+    uint64_t upload_capacity = 0x40000;  // Save2's upload buffer (save +0x110 {data, size, capacity})
     struct Rec { uint32_t handle = 0, peer = 0, entity = 0; uint8_t state = 0, perms = 0x3f; int wait = 0; };
     struct Sav { uint32_t handle = 0, version = 0; uint8_t state = 0, status = 3, has_entity = 0; bool final = false; int since = 0; };
     Rec rec[16];
@@ -233,6 +234,7 @@ struct FakeGame : Engine {
         v.state = sav[s].state;
         v.status = sav[s].status;
         v.has_entity = sav[s].has_entity;
+        v.upload_capacity = upload_capacity;
         return v;
     }
     bool save_receive(uint32_t player, const std::vector<uint8_t>& m, bool* fin) override {
@@ -424,6 +426,26 @@ void t_failures() {
         }
         CHECK(b.phase == Phase::Failed && !b.injected(), "%s: %s", c.what, phase_name(b.phase));
         CHECK(b.reason.find(c.reason) != std::string::npos, "%s: reason '%s'", c.what, b.reason.c_str());
+    }
+    // the server's upload buffer is smaller than the character: refused before anything is sent, with both sizes
+    {
+        FakeGame g;
+        g.upload_capacity = 8;
+        Bot b = make_bot();
+        uint64_t step = 0;
+        for (int i = 0; i < 20 && !ended(b); ++i) {
+            g.frame();
+            b.step(g, ++step, g.L);
+        }
+        bool uploaded = false;
+        for (auto& c : g.calls) uploaded |= c == "upload";
+        CHECK(b.phase == Phase::Failed && !uploaded, "too big: %s, uploaded %d", phase_name(b.phase), uploaded);
+        CHECK(b.reason.find("14 bytes") != std::string::npos && b.reason.find("8") != std::string::npos, "reason '%s'", b.reason.c_str());
+        FakeGame h;
+        h.upload_capacity = 0;  // not known on this build: the bot sends it and the game decides
+        Bot c = make_bot();
+        step = 0;
+        CHECK(run(h, c, 200, in_game, &step) > 0, "unknown capacity: in game (%s)", c.reason.c_str());
     }
     // taken over: the record names another handle while the bot logs in
     {
