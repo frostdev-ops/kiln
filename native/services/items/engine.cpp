@@ -1104,11 +1104,15 @@ void run_move_impl(const Access& a, const MoveJob& job, uint8_t* tx, KilnItemsMo
     }
     if (checked && (res->status == KILN_ITEMS_DONE || res->status == KILN_ITEMS_PARTIAL)) {
         // An engine transfer returning a different landing or item is never safe to report as a checked move.
-        bool wrong = landed.empty() || (r.to_slot && res->done != res->requested);
+        bool wrong = landed.empty();
         for (const auto& c : landed)
             wrong |= c.from_slot != r.slot || c.item != job.source.item || c.pide != job.source.pide ||
                      (r.to_slot && c.to_slot != r.to_slot);
         if (wrong) move_fail(res, KILN_ITEMS_REFUSED, "the exact move would not land as requested");
+        // All of it went where it should, but the named slot had room for only part of the count: NoRoom, like a
+        // named slot that has none (the move is rolled back below, so nothing moves).
+        else if (r.to_slot && res->done != res->requested)
+            move_fail(res, KILN_ITEMS_NO_ROOM, "the named slot has room for %u of the %u", res->done, res->requested);
     }
     for (const Change& c : landed) {
         if (!storage_accepts(r.to, c.item, c.pide != 0, c.to_slot)) {

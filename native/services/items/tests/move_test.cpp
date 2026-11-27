@@ -2330,7 +2330,8 @@ void checked_move_test() {
     refused(KILN_ITEMS_NO_ROOM, "checked moves: occupied destination cannot fall back to another free slot");
     put(B, 5, WOOD, 249);
     job.destination = {WOOD, 249, 0, 0};
-    refused(KILN_ITEMS_REFUSED, "checked moves: partial destination cannot spill into another slot");
+    // review: a named slot with room for only part of the count is NoRoom, as an occupied or a full one, not Refused
+    refused(KILN_ITEMS_NO_ROOM, "checked moves: partial destination cannot spill into another slot (NoRoom, rolled back)");
     put(B, 5, WOOD, 248);
     job.destination = {WOOD, 248, 0, 0};
     auto result = run();
