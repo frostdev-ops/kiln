@@ -27,7 +27,8 @@ public sealed class AnyThreadAttribute : Attribute;
 public sealed class BootThreadOnlyAttribute : Attribute;
 
 /// <summary>Use only on the owning registry callback's thread. GameStart is the data-stage thread; later points use
-/// the active world's thread. Retained contexts fail with RegistryContextException after the callback or unload.</summary>
+/// the active world's thread, except a WorldLoad pass re-authored on request (Registry.Reauthor, 0.2.0-dev.32), which runs
+/// on a worker thread of Kiln's. Retained contexts fail with RegistryContextException after the callback or unload.</summary>
 [AttributeUsage(AttributeTargets.All)]
 public sealed class RegistryThreadOnlyAttribute : Attribute;
 

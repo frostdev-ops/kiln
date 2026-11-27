@@ -1480,6 +1480,7 @@ void staged_loot_flags_and_fixed_rarity_bind() {
     check(!reported("does not write"), "nothing is refused for its convention");
 }
 }
+#ifndef REGISTRY_LIVE_TRANSACTIONS_NO_MAIN  // registry_live_reauthor_test.cpp reuses this file's fixtures
 int main() {
     g_registry_stack_guard = &fake_guard;  // the host has no game code to patch: the guard as on a build that has it
     std::vector<std::string> errs; g_regmap = std::make_shared<registry::map::RegMap>();
@@ -1571,3 +1572,4 @@ int main() {
     std::printf("registry live transactions: %d checks, %d failed groups\n", checks, failed);
     return failed ? 1 : 0;
 }
+#endif

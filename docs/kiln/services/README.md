@@ -176,8 +176,11 @@ One table is a service's and has one consumer, the managed host: `kiln.internal.
 registry fingerprint leaves out; an older kiln-content.dll ignores both) before the
 boot phase, and `set_mode` when kiln.json says `"registry": {"stage": "onBoot"}` (`managed/Kiln.Host/RegistryHost.cs`). The
 registry stage runs every mod's registry edits in that order; without the table (an older kiln-content.dll) it runs in the mod
-folders' order and registry.json says `"orderSource": "folders"`. Kiln.Host checks `header.version == 1` and
-`header.size == 24` and logs a mismatch. Besides the core's own two, it is the one internal name the managed host's
+folders' order and registry.json says `"orderSource": "folders"`. v2 (32 bytes) adds `read_pass`, a runtime pass's read
+without the reading mod's own layers; v3 (80 bytes, 0.2.0-dev.32) adds what runs `Registry.Reauthor` off the world tick:
+`epoch`, `read_pass_in` (a pass's read on a worker thread, in one world), `prepare` (the pass's turn parsed, composed, bound
+and evaluated off the world thread), `install` (the world thread lands it in one turn), `discard` and `build_report`
+(registry.json off the tick). Kiln.Host checks the version (1 to 3) and the size it has (24, 32, 80) and logs a mismatch. Besides the core's own two, it is the one internal name the managed host's
 `KilnApi` resolves, and only the published table of a Kiln service owner.
 
 This is a reach rule, not a sandbox: it keeps tables that hand out game addresses or Kiln's own lock primitives away from

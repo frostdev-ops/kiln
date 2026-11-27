@@ -105,10 +105,17 @@ KILN_TEST_SIG(subscribe_ready, KilnResult(KILN_CALL*)(KilnOwner, KilnRegistryRea
 KILN_TEST_SIG(unsubscribe, KilnResult(KILN_CALL*)(KilnHandle));
 
 #ifdef KILN_TEST_REGISTRY_HOST
-KILN_TEST_ASSERT(KILN_REGISTRY_HOST_VERSION == 2u, "kiln.internal.registry v2");
-KILN_TEST_ASSERT(sizeof(KilnRegistryHostApi) == 32 && offsetof(KilnRegistryHostApi, set_order) == 8 &&
+KILN_TEST_ASSERT(KILN_REGISTRY_HOST_VERSION == 3u, "kiln.internal.registry v3");
+KILN_TEST_ASSERT(sizeof(KilnRegistryHostApi) == 80 && offsetof(KilnRegistryHostApi, set_order) == 8 &&
                      offsetof(KilnRegistryHostApi, set_mode) == 16 && offsetof(KilnRegistryHostApi, read_pass) == 24,
-                 "kiln.internal.registry v2 layout (read_pass, review4 NS5)");
+                 "kiln.internal.registry v2's members in their places (read_pass, review4 NS5)");
+KILN_TEST_ASSERT(offsetof(KilnRegistryHostApi, epoch) == 32 && offsetof(KilnRegistryHostApi, read_pass_in) == 40 &&
+                     offsetof(KilnRegistryHostApi, prepare) == 48 && offsetof(KilnRegistryHostApi, install) == 56 &&
+                     offsetof(KilnRegistryHostApi, discard) == 64 && offsetof(KilnRegistryHostApi, build_report) == 72,
+                 "kiln.internal.registry v3 layout (Registry.Reauthor off the world tick, dev.32)");
+KILN_TEST_ASSERT(sizeof(KilnRegistryPassCall) == 32 && offsetof(KilnRegistryPassCall, point) == 8 && offsetof(KilnRegistryPassCall, ir) == 16 &&
+                     sizeof(KilnRegistryTurnItem) == 16 && offsetof(KilnRegistryTurnItem, handle) == 8 && KILN_REGISTRY_INSTALL_ANYWAY == 1u,
+                 "kiln.internal.registry v3 records");
 KILN_TEST_ASSERT(KILN_REGISTRY_MODE_RESOURCES_READY == 0 && KILN_REGISTRY_MODE_ONBOOT == 1, "stage modes");
 #endif
 

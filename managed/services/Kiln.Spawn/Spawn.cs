@@ -858,7 +858,7 @@ public static unsafe partial class Spawn
 
     private static Task<EntityId> Run(Func<EntityId> f)
     {
-        if (!Game.IsTickThread) throw new InvalidOperationException("Spawn must be called on the tick thread (use Scheduler.Post)");
+        if (!Game.IsTickThread) throw Game.TickRefusal("Spawn", new InvalidOperationException("Spawn must be called on the tick thread (use Scheduler.Post)"));
         try
         {
             return Task.FromResult(f());

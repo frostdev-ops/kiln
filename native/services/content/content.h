@@ -288,6 +288,35 @@ bool store_put(KilnOwner owner, uint64_t seq, uint32_t kind, uint32_t id, int32_
 // The same with an evaluated layer: its value is eval(value below) at every flush of the slot.
 bool store_put_eval(KilnOwner owner, uint64_t seq, uint32_t kind, uint32_t id, int32_t field, int32_t sub, uintptr_t addr,
                     uint8_t n, LayerEval eval, const std::string& source);
+// A layer evaluated ahead (dev.32: a registry turn prepared off the world thread): as store_put_eval, with its evaluation shared
+// and its strings moved in, and `mod` as the layer's mod (no LayerModScope).
+bool store_put_prepared(KilnOwner owner, uint64_t seq, uint32_t kind, uint32_t id, int32_t field, int32_t sub, uintptr_t addr,
+                        uint8_t n, std::shared_ptr<const LayerEval> eval, std::string&& source, const std::string& mod);
+// Many of those at once, one owner's (dev.32: a registry turn's landing): each as store_put_prepared puts it, with its own seq,
+// the slots taken in address order under one hold of the lock; gate: store_set_gate once put. Returns how many went on.
+// released (optional): the evaluations of the layers they replace, and each layer's source string comes back in its place in
+// `layers`, for the caller to free off the world thread (an old binding's last holder can be its layer).
+struct PreparedLayer {
+    uintptr_t addr = 0;
+    uint32_t kind = 0, id = 0;
+    int32_t field = -1, sub = -1;
+    uint8_t n = 0;
+    uint64_t seq = 0;
+    std::shared_ptr<const LayerEval> eval;
+    std::string source, mod;
+    bool gate = false;
+};
+size_t store_put_prepared_many(KilnOwner owner, std::vector<PreparedLayer>& layers, std::vector<std::shared_ptr<const LayerEval>>* released = nullptr);
+// Moves with every change of what a registry layer's value is computed over: a layer of an older path (a pack's, code's) put on
+// or taken off a slot, a slot found written by another writer, a reset. A registry turn prepared off the world thread is written
+// only when it has not moved since the turn was evaluated (registry_live.cpp).
+uint64_t store_below_generation();
+uint8_t store_slot_size(uintptr_t addr);  // the slot's size; 0: no slot there
+// store_below_registry's value, and whether another writer owns the slot for this world (its registry layers are left out).
+bool store_registry_input(uintptr_t addr, uint8_t n, uint8_t* out, bool* foreign);
+std::vector<uintptr_t> store_owner_slots(KilnOwner owner);  // every slot holding a layer of owner, in address order
+size_t store_skipped_count();                         // compare-before-write skips so far in this world (store_skipped's rows)
+std::vector<uintptr_t> store_skipped_since(size_t from);  // the slots of those from the from-th on
 // The bytes the slot's layers give now (evaluated layers computed, registry layers of a foreign slot left out), before any
 // flush; memory when there is no slot. false: unreadable, or a slot of another size.
 bool store_effective(uintptr_t addr, uint8_t n, uint8_t* out);
@@ -323,6 +352,9 @@ struct StoreSkipped {
 std::vector<StoreSkipped> store_skipped();
 bool store_drop(KilnOwner owner, uintptr_t addr);  // removes one layer
 uint32_t store_drop_owner(KilnOwner owner);         // removes every layer of owner; returns slots affected
+// store_drop for each of addrs (dev.32: a registry turn's landing), each entry's evaluated slots flushed again once.
+// released (optional): the dropped layers' evaluations, for the caller to free elsewhere (a binding's last holder).
+uint32_t store_drop_many(KilnOwner owner, const std::vector<uintptr_t>& addrs, std::vector<std::shared_ptr<const LayerEval>>* released = nullptr);
 bool store_original(uintptr_t addr, uint8_t n, uint8_t* out);  // original bytes if the slot exists
 void store_originals(uintptr_t addr, size_t size, uint8_t* out);  // out holds a copy of this memory: what rules changed in it goes back to the original
 // The same without the store's lock (a leaf lock only, safe under another subsystem's lock): bytes holds a copy of

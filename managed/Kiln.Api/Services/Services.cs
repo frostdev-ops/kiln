@@ -96,6 +96,7 @@ internal static unsafe class Services
             throw new InvalidOperationException($"{api} cannot be called from a program wrap's handler (it runs inside the world's step, maybe on a worker); use slice.Post");
         if (TaskExecutionScope.InMenuHop) throw new InvalidOperationException(TaskExecutionScope.MenuHopRefusal(api));
         if (Backend.Current.IsTickThread) return;
+        if (Game.OffTickPass) throw Game.OffTick(api);  // a re-authored registry pass: noted, as Game.AssertTickThread notes it
         throw new InvalidOperationException(Game.InBoot ? Game.NotInBoot(api) : $"{api} must be called on the tick thread (use Scheduler.Post)");
     }
 

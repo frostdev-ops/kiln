@@ -34,7 +34,9 @@ loot table: `Level`, `LevelOffset`, `LevelOffsetRange`, `Rarity.<rarity>.Mode/We
 generic containers, `game:world_*` chests placed in the world). Edits read below the mod's own layers; for settings- or
 state-driven edits declare `[RegistryEntryPoints(RegistryEntryPoint.WorldLoad)]` and call
 `Registry.Reauthor(RegistryEntryPoint.WorldLoad)` when an input changes, never from inside `OnRegistry` (the pass runs
-again, replacing its layers, never stacking; its layers are then the newest, over other mods' WorldLoad edits). One call
+again, replacing its layers, never stacking; its layers are then the newest, over other mods' WorldLoad edits; the
+re-authored pass runs on a worker thread and lands in one turn, so read settings and game state before asking and never call
+tick-thread APIs in it; requests while one runs coalesce into one more pass). One call
 takes at most `RegistrySchema.EditsPerCall[registry]` edits of a registry (randomLoot 16,384, the others 4,096); a call over
 it is refused whole (kiln.log, registry.json), never thrown. World table ids name the table's first chest, not its index.
 Check `Capabilities.Is("registry.<registry>.<field>")` per field. Page `docs/kiln/modding/registries/README.md`;

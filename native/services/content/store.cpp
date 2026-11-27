@@ -22,6 +22,15 @@ StoreMutex g_mu;
 std::map<uintptr_t, Slot> g_slots;
 std::vector<uintptr_t> g_dirty;  // the slots a flush writes, so that it costs what changed and not what the store holds
 uint64_t g_gen = 0;              // +1 per change of any slot (store_generation)
+uint64_t g_below_gen = 0;        // +1 per change of what a registry layer is computed over (store_below_generation)
+
+// The slot at addr or the first after it, from `from` (a slot at or before addr): a few steps forward when addresses come in
+// order and close together (a turn's slots: a table's fields side by side), else the map's own search.
+std::map<uintptr_t, Slot>::iterator walk_to(std::map<uintptr_t, Slot>::iterator from, uintptr_t addr) {
+    for (int steps = 0; from != g_slots.end() && steps < 8; ++steps, ++from)
+        if (from->first >= addr) return from;
+    return g_slots.lower_bound(addr);
+}
 
 void mark(uintptr_t addr, Slot& s) {
     ++g_gen;
@@ -267,7 +276,7 @@ LayerModScope::~LayerModScope() { t_layer_mod = std::move(prev_); }
 
 namespace {
 bool put_layer(KilnOwner owner, uint64_t seq, uint32_t kind, uint32_t id, int32_t field, int32_t sub, uintptr_t addr, uint8_t n,
-               const uint8_t* bytes, std::shared_ptr<const LayerEval> eval, const std::string& source) {
+               const uint8_t* bytes, std::shared_ptr<const LayerEval> eval, std::string source, const std::string* mod = nullptr) {
     if (n == 0 || n > kSlotBytes) return false;
     std::lock_guard lock(g_mu);
     auto [it, fresh] = g_slots.try_emplace(addr);
@@ -296,13 +305,13 @@ bool put_layer(KilnOwner owner, uint64_t seq, uint32_t kind, uint32_t id, int32_
         l = s.layers.end() - 1;
     }
     l->seq = seq;
-    l->source = source;
-    l->mod = t_layer_mod;
+    l->source = std::move(source);
+    l->mod = mod ? *mod : t_layer_mod;
     l->eval = std::move(eval);
     if (bytes) std::memcpy(l->bytes, bytes, n);
     std::sort(s.layers.begin(), s.layers.end(), [](const Layer& a, const Layer& b) { return a.seq < b.seq; });
     if (is_registry_seq(seq)) s.registry = true;
-    else s.old_changed = true;
+    else s.old_changed = true, ++g_below_gen;
     mark(addr, s);
     if (l->eval) g_evals[{s.kind, s.id}].insert(addr);
     else mark_entry_evals(s.kind, s.id, addr);
@@ -329,6 +338,111 @@ bool store_put_eval(KilnOwner owner, uint64_t seq, uint32_t kind, uint32_t id, i
                     uint8_t n, LayerEval eval, const std::string& source) {
     if (!eval) return false;
     return put_layer(owner, seq, kind, id, field, sub, addr, n, nullptr, std::make_shared<const LayerEval>(std::move(eval)), source);
+}
+
+bool store_put_prepared(KilnOwner owner, uint64_t seq, uint32_t kind, uint32_t id, int32_t field, int32_t sub, uintptr_t addr,
+                        uint8_t n, std::shared_ptr<const LayerEval> eval, std::string&& source, const std::string& mod) {
+    if (!eval) return false;
+    return put_layer(owner, seq, kind, id, field, sub, addr, n, nullptr, std::move(eval), std::move(source), &mod);
+}
+
+std::vector<uintptr_t> store_owner_slots(KilnOwner owner) {
+    std::lock_guard lock(g_mu);
+    std::vector<uintptr_t> out;
+    for (const auto& [addr, s] : g_slots)
+        if (std::any_of(s.layers.begin(), s.layers.end(), [&](const Layer& l) { return l.owner == owner; })) out.push_back(addr);
+    return out;
+}
+
+size_t store_skipped_count() {
+    std::lock_guard lock(g_mu);
+    return g_skipped.size();
+}
+
+std::vector<uintptr_t> store_skipped_since(size_t from) {
+    std::lock_guard lock(g_mu);
+    std::vector<uintptr_t> out;
+    for (size_t i = from; i < g_skipped.size(); ++i) out.push_back(g_skipped[i].addr);
+    return out;
+}
+
+bool store_registry_input(uintptr_t addr, uint8_t n, uint8_t* out, bool* foreign) {
+    if (n == 0 || n > kSlotBytes) return false;
+    std::lock_guard lock(g_mu);
+    *foreign = false;
+    auto it = g_slots.find(addr);
+    if (it == g_slots.end()) return rd(addr, out, n);
+    if (it->second.n != n) return false;
+    *foreign = it->second.foreign;
+    fold(it->second, out, true);
+    return true;
+}
+
+uint8_t store_slot_size(uintptr_t addr) {
+    std::lock_guard lock(g_mu);
+    const auto it = g_slots.find(addr);
+    return it == g_slots.end() ? 0 : it->second.n;
+}
+
+size_t store_put_prepared_many(KilnOwner owner, std::vector<PreparedLayer>& layers, std::vector<std::shared_ptr<const LayerEval>>* released) {
+    std::lock_guard lock(g_mu);
+    std::vector<size_t> order(layers.size());
+    for (size_t i = 0; i < order.size(); ++i) order[i] = i;
+    // in address order (the slots' map is too, so the walk stays near the last slot found); one address twice: the later
+    // put replaces the earlier, as two store_put_prepared calls would
+    std::stable_sort(order.begin(), order.end(), [&](size_t a, size_t b) { return layers[a].addr < layers[b].addr; });
+    size_t done = 0;
+    auto at = g_slots.begin();
+    std::map<std::pair<uint32_t, uint32_t>, std::set<uintptr_t>>::iterator evals = g_evals.end();
+    for (size_t k : order) {
+        PreparedLayer& p = layers[k];
+        if (p.n == 0 || p.n > kSlotBytes || !p.eval) continue;
+        auto it = walk_to(at, p.addr);
+        if (it == g_slots.end() || it->first != p.addr) {
+            Slot fresh;
+            fresh.kind = p.kind, fresh.id = p.id, fresh.field = p.field, fresh.sub = p.sub, fresh.n = p.n;
+            if (!rd(p.addr, fresh.original, p.n)) continue;
+            std::memcpy(fresh.current, fresh.original, p.n);
+            it = g_slots.emplace_hint(it, p.addr, std::move(fresh));
+            pristine_put(p.addr, it->second);
+        } else if (it->second.n != p.n) {
+            at = it;
+            continue;
+        }
+        at = it;
+        Slot& s = it->second;
+        for (auto& [tid, txn] : g_txns) {
+            if (txn.owner != owner) continue;
+            TxnSlot ts;
+            ts.n = s.n;
+            std::memcpy(ts.original, s.original, s.n);
+            txn.touched.try_emplace(p.addr, std::move(ts));
+        }
+        auto l = std::find_if(s.layers.begin(), s.layers.end(), [&](const Layer& x) { return x.owner == owner; });
+        if (l == s.layers.end()) {
+            s.layers.push_back(Layer{owner, p.seq, {}, {}, {}, nullptr});
+            l = s.layers.end() - 1;
+        }
+        l->seq = p.seq;
+        std::swap(l->source, p.source);  // the layer's old source goes back with the caller's layers
+        l->mod = p.mod;
+        if (released && l->eval) released->push_back(std::move(l->eval));  // its last holder may be here: freed by the caller
+        l->eval = std::move(p.eval);
+        if (s.layers.size() > 1) std::sort(s.layers.begin(), s.layers.end(), [](const Layer& a, const Layer& b) { return a.seq < b.seq; });
+        if (is_registry_seq(p.seq)) s.registry = true;
+        else s.old_changed = true, ++g_below_gen;
+        if (p.gate) s.gate = true;
+        mark(p.addr, s);
+        if (evals == g_evals.end() || evals->first != std::make_pair(s.kind, s.id)) evals = g_evals.try_emplace({s.kind, s.id}).first;
+        evals->second.insert(evals->second.end(), p.addr);  // in address order: at the set's end
+        ++done;
+    }
+    return done;
+}
+
+uint64_t store_below_generation() {
+    std::lock_guard lock(g_mu);
+    return g_below_gen;
 }
 
 bool store_effective(uintptr_t addr, uint8_t n, uint8_t* out) {
@@ -443,12 +557,49 @@ bool store_drop(KilnOwner owner, uintptr_t addr) {
     auto& ls = it->second.layers;
     const size_t before = ls.size();
     for (const Layer& x : ls)
-        if (x.owner == owner && !is_registry_seq(x.seq)) it->second.old_changed = true;
+        if (x.owner == owner && !is_registry_seq(x.seq)) it->second.old_changed = true, ++g_below_gen;
     std::erase_if(ls, [&](const Layer& x) { return x.owner == owner; });
     if (ls.size() == before) return false;
     mark(addr, it->second);
     mark_entry_evals(it->second.kind, it->second.id, addr);
     return true;
+}
+
+uint32_t store_drop_many(KilnOwner owner, const std::vector<uintptr_t>& addrs, std::vector<std::shared_ptr<const LayerEval>>* released) {
+    std::lock_guard lock(g_mu);
+    uint32_t n = 0;
+    std::vector<uintptr_t> sorted = addrs;
+    std::sort(sorted.begin(), sorted.end());
+    std::set<std::pair<uint32_t, uint32_t>> entries;  // their evaluated slots flushed again once each, not once per dropped slot
+    auto at = g_slots.begin();
+    for (uintptr_t addr : sorted) {
+        auto it = walk_to(at, addr);
+        if (it == g_slots.end() || it->first != addr) { at = it == g_slots.end() ? g_slots.begin() : it; continue; }
+        at = it;
+        Slot& s = it->second;
+        const size_t before = s.layers.size();
+        for (Layer& x : s.layers) {
+            if (x.owner != owner) continue;
+            if (!is_registry_seq(x.seq)) s.old_changed = true, ++g_below_gen;
+            if (released && x.eval) released->push_back(std::move(x.eval));
+        }
+        std::erase_if(s.layers, [&](const Layer& x) { return x.owner == owner; });
+        if (s.layers.size() == before) continue;
+        mark(addr, s);
+        entries.insert({s.kind, s.id});
+        ++n;
+    }
+    // an entry's other evaluated slots (a formula reads its entry's fields): marked unless already (most were dropped here too)
+    for (const auto& key : entries) {
+        const auto ev = g_evals.find(key);
+        if (ev == g_evals.end()) continue;
+        for (uintptr_t a : ev->second) {
+            if (std::binary_search(sorted.begin(), sorted.end(), a)) continue;
+            const auto sl = g_slots.find(a);
+            if (sl != g_slots.end()) mark(a, sl->second);
+        }
+    }
+    return n;
 }
 
 uint32_t store_drop_owner(KilnOwner owner) {
@@ -458,7 +609,7 @@ uint32_t store_drop_owner(KilnOwner owner) {
     for (auto& [addr, s] : g_slots) {
         const size_t before = s.layers.size();
         for (const Layer& x : s.layers)
-            if (x.owner == owner && !is_registry_seq(x.seq)) s.old_changed = true;
+            if (x.owner == owner && !is_registry_seq(x.seq)) s.old_changed = true, ++g_below_gen;
         std::erase_if(s.layers, [&](const Layer& x) { return x.owner == owner; });
         if (s.layers.size() != before) {
             mark(addr, s);
@@ -487,6 +638,7 @@ std::vector<KilnOwner> store_owners() {
 
 uint32_t store_reset(bool revert, std::string* error) {
     std::lock_guard lock(g_mu);
+    ++g_below_gen;
     uint32_t n = 0;
     for (auto& [addr, s] : g_slots) {
         if (!s.layers.empty()) ++n;
@@ -540,6 +692,7 @@ size_t store_flush_checked(std::string* error, std::vector<uintptr_t>* unwritten
     std::vector<Write> writes, closing, opening;
     std::vector<std::map<uintptr_t, Slot>::iterator> dirty;
     dirty.reserve(g_dirty.size());
+    std::sort(g_dirty.begin(), g_dirty.end());  // found in the map's order: a walk near the last slot found, not across it
     for (uintptr_t a : g_dirty)
         if (auto it = g_slots.find(a); it != g_slots.end() && it->second.dirty) dirty.push_back(it);
     g_dirty.clear();
@@ -560,7 +713,7 @@ size_t store_flush_checked(std::string* error, std::vector<uintptr_t>* unwritten
                     mod.clear();
                 g_skipped.push_back(SkippedRaw{addr, s.kind, s.id, s.field, s.sub, mod, source, revert, s.n, {}});
                 std::memcpy(g_skipped.back().was, s.current, s.n);
-                s.foreign = true;
+                s.foreign = true, ++g_below_gen;
                 std::memcpy(s.foreign_was, s.current, s.n);  // sfi R3: a run-time writer is named over Kiln's last write
                 std::memcpy(s.current, now, s.n);
                 fold(s, want);  // the registry's layers left out: what an older path's own change in this flush writes (today's behaviour)
@@ -762,6 +915,7 @@ TxnOutcome store_txn_rollback(uint64_t id, const std::function<void()>& settle, 
         Slot& s = sl->second;
         std::erase_if(s.layers, [&](const Layer& l) { return l.owner == owner; });
         s.layers.push_back(ts.layer);
+        if (!is_registry_seq(ts.layer.seq)) ++g_below_gen;
         std::stable_sort(s.layers.begin(), s.layers.end(), [](const Layer& a, const Layer& b) { return a.seq < b.seq; });
         mark(addr, s);
     }
