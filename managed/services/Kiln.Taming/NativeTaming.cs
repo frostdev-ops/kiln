@@ -326,7 +326,7 @@ internal static class NativeTamingRuntime
     {
         if (creature.IsNone) return null;
         var d = World.ReadBytes(creature, "DynamicWildlife");
-        if (d is null || d.Length < DynamicSize) return null;
+        if (d is null || d.Length != DynamicSize) return null;   // another build's layout (shorter or longer): refused, never misread
         if (SetupOf(creature) is not { } setup) return null;
         var tame = World.Has(creature, "IsTame");
         var state = d[State];

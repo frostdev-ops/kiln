@@ -258,4 +258,16 @@ public sealed class NativeTamingTests : IDisposable
         Assert.Equal("taming.native_bait", e.Capability);
         Assert.Empty(_w.Spawned);
     }
+
+    // The comment and the docs say a DynamicWildlife of another build's size is refused, but only a shorter one was: a
+    // longer one (a game update that adds a field) was read at this build's offsets.
+    [Fact]
+    public void A_longer_DynamicWildlife_of_another_build_is_refused_too()
+    {
+        _w.Parts[(Dog, "DynamicWildlife")] = new byte[NativeTamingRuntime.DynamicSize + 16];
+        Assert.Null(NativeTaming.Read(Dog));
+        Assert.Equal("NotWild", Reason(NativeTaming.PetStep(Dog)));
+        Assert.Empty(_w.Played);
+    }
 }
+
