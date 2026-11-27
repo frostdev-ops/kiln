@@ -67,7 +67,8 @@ GameStart. The Host repeats this validation when loading a mod. Since API 0.2.17
 ## KILN124
 
 A path that names the game's own member, where a registry field covers that member. Reported on a data pack's key
-(`content/*.json`: `"items": {"Wood": {"maxStackSize": 500}}`), a resource patch's `set` key (`blocks/*.json`, or a constant
+(`content/*.json`: `"items": {"Wood": {"maxStackSize": 500}}`; a blocks file's `items` or `recipes` are typed blocks under
+Kiln's names, never reported), a resource patch's `set` key (`blocks/*.json`, or a constant
 key of `ResourcePatchBlock.Set` in `OnBoot` code, in the initializer or as `block.Set["path"] = v` on a local made with a
 constant `Type`), and a constant path given to `ContentEntry` / `GameDataEntry` (`Content.Items.Get(x)!.Set("maxStackSize", 500)`):
 

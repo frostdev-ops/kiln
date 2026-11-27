@@ -283,6 +283,9 @@ public sealed class RegistryHintAnalyzer : DiagnosticAnalyzer
         if (text is null) return;
         var doc = JsonSpans.Parse(text.ToString());
         if (doc is not { Type: JsonSpans.Kind.Object }) return;
+        // data pack sections only in a data pack (a mod's content/*.json): a blocks file's "items", "recipes" or "perks" are typed
+        // blocks under Kiln's own names (the Stable tier), never the game's paths
+        var pack = string.Equals(Path.GetFileName(Path.GetDirectoryName(path)), "content", StringComparison.OrdinalIgnoreCase);
         foreach (var top in doc.Members)
         {
             if (top.Key == "resourcePatches" && top.Value.Type == JsonSpans.Kind.Object)
@@ -294,7 +297,7 @@ public sealed class RegistryHintAnalyzer : DiagnosticAnalyzer
                 }
                 continue;
             }
-            if (top.Key == "registry" || !SectionRoots.TryGetValue(top.Key, out var root) || top.Value.Type != JsonSpans.Kind.Object) continue;
+            if (!pack || top.Key == "registry" || !SectionRoots.TryGetValue(top.Key, out var root) || top.Value.Type != JsonSpans.Kind.Object) continue;
             foreach (var entry in top.Value.Members)
             {
                 if (entry.Value.Type != JsonSpans.Kind.Object || entry.Key == "add") continue;

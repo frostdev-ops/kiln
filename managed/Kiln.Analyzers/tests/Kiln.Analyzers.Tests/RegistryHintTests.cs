@@ -244,6 +244,17 @@ public class RegistryHintTests
     }
 
     [Fact]
+    public async Task TypedBlocksAreNotOldPaths()
+    {
+        // a blocks file's "items" are typed blocks under Kiln's names (the Stable tier): no hint, whatever their keys
+        var blocks = """{ "format": 1, "items": { "my_gem": { "name": "Gem", "rarity": "rare", "stack": 20 } }, "recipes": { "my_gem": { "duration": 2 } } }""";
+        Assert.DoesNotContain(await Run(Empty, ("/mod/blocks/gems.json", blocks)), d => d.Id == "KILN124");
+        // the same keys in a data pack are the game's paths
+        var pack = """{ "items": { "Material_T1_Wood_Logs": { "rarity": "Rare" } } }""";
+        Assert.Contains(await Run(Empty, ("/mod/content/rarity.json", pack)), d => d.Id == "KILN124");
+    }
+
+    [Fact]
     public async Task TheFixIsOfferedOnTheDataPackInTheWorkspace()
     {
         var pack = """{ "format": 1, "items": { "Wood": { "maxStackSize": 500 } } }""";
