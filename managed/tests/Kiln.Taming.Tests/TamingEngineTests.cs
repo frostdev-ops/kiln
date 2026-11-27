@@ -516,7 +516,7 @@ public sealed class TamingEngineTests
         var c = f.Engine.Choices(f.A, p.Id);
         Assert.True(c.Ok);
         Assert.Equal(new[] { new SlotId(2), new SlotId(4) }, c.Choices.Select(x => x.Selection.Slot).ToArray());
-        Assert.Equal((p.Revision, p.StepChallenge), (c.Revision, c.StepChallenge));
+        Assert.Equal(p.Token, c.Token);
         Assert.False(f.Engine.Choices(f.B, p.Id).Ok);
     }
 }

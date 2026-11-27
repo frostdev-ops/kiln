@@ -51,7 +51,7 @@ public sealed class TamingFacadeTests : IDisposable
         Assert.Equal("kiln:pup", Assert.Single(json).Id);
         // the attempts need the world: Begin names taming.steps
         var e = Assert.Throws<KilnUnavailableException>(() => Taming.Begin(new PlayerRef(1, Guid.NewGuid(), new EntityRef(new EntityId(10), 1)),
-            new EntityRef(new EntityId(500), 7), "kiln:wolf", Guid.NewGuid()));
+            new EntityRef(new EntityId(500), 7), "kiln:wolf", TamingRequest.New()));
         Assert.Equal(Taming.Capability, e.Capability);
     }
 

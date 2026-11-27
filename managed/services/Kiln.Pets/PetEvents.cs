@@ -101,14 +101,14 @@ public sealed class PetControlChangedEvent : KilnEvent
 /// again; no handler runs between the debit and the activation. Server tick thread. Since 0.2.0-dev.32.</summary>
 public sealed class PetRevivingEvent : CancelableEvent
 {
-    internal PetRevivingEvent(CharacterKey owner, PetSnapshot pet, Guid operation, PetCostDefinition? cost) =>
-        (Owner, Pet, OperationId, Cost) = (owner, pet, operation, cost);
+    internal PetRevivingEvent(CharacterKey owner, PetSnapshot pet, Guid request, PetCostDefinition? cost) =>
+        (Owner, Pet, RequestId, Cost) = (owner, pet, request, cost);
     /// <summary>The owner.</summary>
     public CharacterKey Owner { get; }
     /// <summary>The downed pet before the channel.</summary>
     public PetSnapshot Pet { get; }
-    /// <summary>The revive's operation id (CancelRevive names it).</summary>
-    public Guid OperationId { get; }
+    /// <summary>The revive's request id (<see cref="Pets.CancelRevive"/> names it).</summary>
+    public Guid RequestId { get; }
     /// <summary>The quoted cost; null: free.</summary>
     public PetCostDefinition? Cost { get; }
 }

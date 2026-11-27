@@ -72,7 +72,7 @@ public sealed class TamingApiShapeTests
     [Fact]
     public void Every_reason_word_Kiln_Taming_writes_is_a_refusal_member()
     {
-        var notResults = new HashSet<string> { "ItemUnknown", "ChoiceLimit" };   // ItemUnknown: TamingJson's ArgumentException text; ChoiceLimit: until A7
+        var notResults = new HashSet<string> { "ItemUnknown", "ChoiceLimit" };   // ItemUnknown: TamingJson's ArgumentException text; ChoiceLimit: until A7   // TamingJson's: an ArgumentException's text, never a result
         var words = SourceWords("Kiln.Taming").Where(w => !notResults.Contains(w)).ToHashSet();
         Assert.Contains("AttemptClosed", words);
         Assert.Empty(words.Where(w => !Enum.TryParse<TamingRefusal>(w, out _)).Order());
@@ -84,5 +84,26 @@ public sealed class TamingApiShapeTests
         foreach (var file in Directory.EnumerateFiles(dir, "*.cs"))
             foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(File.ReadAllText(file), "\\$?\"([A-Z][a-z]+(?:[A-Z][A-Za-z]*)?):"))
                 yield return m.Groups[1].Value;
+    }
+
+    // ---- A5: one request shape: TamingRequest (its id, and the token of the view it was made on), as PetRequest ----
+
+    [Fact]
+    public void A_request_is_its_id_and_the_token_of_the_last_answer()
+    {
+        var f = new TamingFixture().With(FeedTwice());
+        var p = f.Begin().Progress!;
+        Assert.Equal(new TamingToken(p.StepChallenge, p.Revision, p.CompletedSteps), p.Token);
+        var request = TamingRequest.New(p.Token);
+        Assert.NotEqual(Guid.Empty, request.RequestId);
+        var r = Done(f.Engine.Advance(f.A, p.Id, request, f.Stack(Bait)));
+        Assert.True(r.Ok, r.Reason);
+        Assert.Equal(request.RequestId, r.RequestId);
+        Assert.Same(f.Engine.Advance(f.A, p.Id, request, f.Stack(Bait)), f.Engine.Advance(f.A, p.Id, request, f.Stack(Bait)));   // the replay
+        Assert.Single(f.Costs.Calls);
+        // an advance names the step it expects
+        Assert.Throws<ArgumentException>(() => { _ = f.Engine.Advance(f.A, p.Id, TamingRequest.New(), f.Stack(Bait)); });
+        Assert.Null(typeof(TamingToken).GetProperty("RequestId"));
+        Assert.Equal(typeof(TamingRequest), typeof(Taming).GetMethod(nameof(Taming.Advance))!.GetParameters()[2].ParameterType);
     }
 }

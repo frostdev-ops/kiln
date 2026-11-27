@@ -12,10 +12,11 @@ namespace Kiln;
 /// names a pet makes a Kiln.Pets record. Since 0.2.0-dev.32.
 /// </summary>
 /// <remarks>
-/// <para>Requests: every action carries the caller's request id (new for each intended action, the same for a network
-/// retry) and the token the last answer gave (<see cref="TamingToken"/>: the server's challenge, the revision, the step).
-/// The same request again is the same answer and never a second cost; another action under a used id is
-/// <c>RequestConflict</c>; an old token under a new id is <c>StaleStep</c>.</para>
+/// <para>Requests: every action carries a <see cref="TamingRequest"/>, the one request shape of Kiln.Pets and Kiln.Taming:
+/// the caller's request id (new for each intended action, the same for a network retry) and the token the last answer
+/// gave (<see cref="TamingProgress.Token"/>: the server's challenge, the revision, the step). The same request again is
+/// the same answer and never a second cost; another action under a used id is <c>RequestConflict</c>; an old token under
+/// a new id is <c>StaleStep</c>.</para>
 /// <para>Error rule: a bad argument throws <see cref="ArgumentException"/>; an off capability throws
 /// <see cref="KilnUnavailableException"/> naming it; a refusal is <c>Ok = false</c> with its reason and receipts, and the
 /// reason's first word as a value, <see cref="TamingResult.Refusal"/> (<see cref="TamingRefusal"/>: the same words as
@@ -78,44 +79,48 @@ public static class Taming
     /// <returns>Ok with the attempt; else (<see cref="TamingResult.Refusal"/>) <c>DefinitionUnknown</c>,
     /// <c>OwnerOffline</c>, <c>BodyGone</c>, <c>TemplateMismatch</c>, <c>OutOfRange</c>, <c>Busy</c>, <c>Capacity</c>,
     /// <c>RefusedByMod</c> (a mod's <see cref="TamingBeginningEvent"/>), <c>TooManyRequests</c>.</returns>
-    /// <exception cref="ArgumentException">No player, no target, an empty definition id or an empty request id.</exception>
+    /// <exception cref="ArgumentException">No player, no target, an empty definition id, an empty request id, or a request
+    /// with a token (a begin expects no step: <c>TamingRequest.New()</c>).</exception>
     /// <exception cref="KilnUnavailableException">A capability the definition's steps need is off (taming.steps,
     /// items.costs.exact for feed steps, items.costs.wear for tool steps with wear, taming.native for native steps,
     /// pets.records for a definition that names a pet).</exception>
     [TickThreadOnly]
     [RequiresCapability("taming.steps")]
-    public static TamingResult Begin(PlayerRef player, EntityRef target, string definition, Guid requestId)
+    public static TamingResult Begin(PlayerRef player, EntityRef target, string definition, TamingRequest request)
     {
+        ArgumentNullException.ThrowIfNull(request);
+        if (request.Token is not null) throw new ArgumentException("a begin expects no step: TamingRequest.New()", nameof(request));
         var e = Engine("Taming.Begin");
         if (e.Definition(definition) is { } d) TamingCaps.RequireFor(d);
-        return e.Begin(player, target, definition, requestId);
+        return e.Begin(player, target, definition, request.RequestId);
     }
 
-    /// <summary>Takes the attempt's next step: checks the token, the range, the target and the weaken threshold, asks the
+    /// <summary>Takes the attempt's next step: checks the request's token, the range, the target and the weaken threshold, asks the
     /// mods (<see cref="TamingAdvancingEvent"/>, and <see cref="TamingCommittingEvent"/> before the last step's cost), takes
     /// the step's exact cost from <paramref name="selection"/> (a feed step: a plain stack of its item; a tool step: the
     /// gear item; weaken and native steps: null), and applies it. The last step tames: the answer is Committed, or
     /// <c>CommitDeferred</c> (every step paid, the tame waits for <see cref="Retry"/>).</summary>
     /// <returns>The answer when the cost settled (the step after it ran); its receipts say what was taken.</returns>
-    /// <exception cref="ArgumentException">An empty request id, or a selection of the wrong shape for the step.</exception>
+    /// <exception cref="ArgumentException">An empty request id, a request without the token of the last answer, or a selection
+    /// of the wrong shape for the step.</exception>
     [TickThreadOnly]
     [RequiresCapability("taming.steps")]
-    public static Task<TamingResult> Advance(PlayerRef player, TameAttemptId attempt, TamingToken token, ItemSelection? selection = null) =>
-        Engine("Taming.Advance").Advance(player, attempt, token, selection);
+    public static Task<TamingResult> Advance(PlayerRef player, TameAttemptId attempt, TamingRequest request, ItemSelection? selection = null) =>
+        Engine("Taming.Advance").Advance(player, attempt, request, selection);
 
     /// <summary>The cost-free retry of a deferred tame (<see cref="TamingState.AwaitingCommit"/>): checks again and binds,
     /// taking nothing.</summary>
     [TickThreadOnly]
     [RequiresCapability("taming.steps")]
-    public static Task<TamingResult> Retry(PlayerRef player, TameAttemptId attempt, TamingToken token) =>
-        Engine("Taming.Retry").Retry(player, attempt, token);
+    public static Task<TamingResult> Retry(PlayerRef player, TameAttemptId attempt, TamingRequest request) =>
+        Engine("Taming.Retry").Retry(player, attempt, request);
 
     /// <summary>Ends the attempt. A cost in flight settles first (its receipt says whether the cancel spent it). Paid steps
     /// are given back only as the definition's refund policy says (<see cref="TamingRefundPolicy"/>).</summary>
     [TickThreadOnly]
     [RequiresCapability("taming.steps")]
-    public static Task<TamingResult> Cancel(PlayerRef player, TameAttemptId attempt, TamingToken token) =>
-        Engine("Taming.Cancel").Cancel(player, attempt, token);
+    public static Task<TamingResult> Cancel(PlayerRef player, TameAttemptId attempt, TamingRequest request) =>
+        Engine("Taming.Cancel").Cancel(player, attempt, request);
 
     /// <summary>The attempt as it is now; null once it is gone (10 minutes of simulation after it closed).</summary>
     [TickThreadOnly]
@@ -123,7 +128,8 @@ public static class Taming
     public static TamingProgress? Inspect(TameAttemptId attempt) => Engine("Taming.Inspect").Inspect(attempt);
 
     /// <summary>The slots of the owner's inventories that can pay the next step (at most 256), as selections the server
-    /// read, with the current revision and challenge. A read only: it refreshes no timeout.</summary>
+    /// read, with the token of the view they were read on (<see cref="TamingChoicesResult.Token"/>). A read only: it
+    /// refreshes no timeout.</summary>
     [TickThreadOnly]
     [RequiresCapability("taming.steps")]
     public static TamingChoicesResult Choices(PlayerRef player, TameAttemptId attempt) => Engine("Taming.Choices").Choices(player, attempt);

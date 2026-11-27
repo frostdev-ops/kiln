@@ -119,7 +119,7 @@ public sealed class TamingReviewTestMod : Mod
             Check(give.Status == ItemsStatus.Done && Meat() >= 6, $"the bot holds raw lean meat: {Meat()} ({give.Status})");
             var wolf = await Make(Wolf, bot.Position!.Value with { X = bot.Position.Value.X + 2.5f });
             var before = Meat();
-            var begin = Taming.Begin(who, EntityRef.Of(wolf), "taming-review-test:block-wolf", Guid.NewGuid());
+            var begin = Taming.Begin(who, EntityRef.Of(wolf), "taming-review-test:block-wolf", TamingRequest.New());
             Check(begin.Ok, $"Begin on a wolf with the bot as the tamer: {begin.Reason} {begin.Progress?.State}");
             if (!begin.Ok) return;
             var p = begin.Progress!;
@@ -132,7 +132,7 @@ public sealed class TamingReviewTestMod : Mod
                 Check(false, $"Choices lists the bot's meat: {choices.Reason}");
                 return;
             }
-            var feed = await Taming.Advance(who, p.Id, new TamingToken(Guid.NewGuid(), choices.StepChallenge, choices.Revision, p.CompletedSteps), choices.Choices[0].Selection);
+            var feed = await Taming.Advance(who, p.Id, TamingRequest.New(choices.Token), choices.Choices[0].Selection);
             Check(feed is { Ok: true, Pet: not null } && feed.Progress!.State == TamingState.Committed && Meat() == before - 2,
                 $"the last step tamed it, took exactly 2 meat ({before} -> {Meat()}) and bound pet {feed.Pet?.Id}: {feed.Reason}");
             PetSnapshot? live = null;
@@ -149,12 +149,12 @@ public sealed class TamingReviewTestMod : Mod
             // 5: escrow given back once
             var wolf2 = await Make(Wolf, bot.Position!.Value with { Z = bot.Position.Value.Z + 2.5f });
             var held = Meat();
-            var b2 = Taming.Begin(who, EntityRef.Of(wolf2), "taming-review-test:block-escrow", Guid.NewGuid());
+            var b2 = Taming.Begin(who, EntityRef.Of(wolf2), "taming-review-test:block-escrow", TamingRequest.New());
             Check(b2.Ok, $"an escrow attempt begins: {b2.Reason}");
             if (!b2.Ok) return;
             var q = b2.Progress!;
             var c2 = Taming.Choices(who, q.Id);
-            var fed = c2.Choices.Count > 0 ? await Taming.Advance(who, q.Id, new TamingToken(Guid.NewGuid(), c2.StepChallenge, c2.Revision, 0), c2.Choices[0].Selection) : null;
+            var fed = c2.Choices.Count > 0 ? await Taming.Advance(who, q.Id, TamingRequest.New(c2.Token), c2.Choices[0].Selection) : null;
             var spent = Meat();
             q = fed?.Progress ?? q;
             var cancel = await Taming.Cancel(who, q.Id, Token(q));
@@ -178,17 +178,17 @@ public sealed class TamingReviewTestMod : Mod
                 Pet = "taming-review-test:cap-pet", RangeMeters = 8,
             });
             var wolf3 = await Make(Wolf, bot.Position!.Value with { X = bot.Position.Value.X - 2.5f });
-            var b3 = Taming.Begin(who, EntityRef.Of(wolf3), "taming-review-test:cap", Guid.NewGuid());
+            var b3 = Taming.Begin(who, EntityRef.Of(wolf3), "taming-review-test:cap", TamingRequest.New());
             Check(b3.Ok, $"a capped attempt begins (its roster slot held): {b3.Reason}; pet definition {cap.Ok}");
             if (!b3.Ok) return;
             var r = b3.Progress!;
             var c3 = Taming.Choices(who, r.Id);
-            var first = c3.Choices.Count > 0 ? await Taming.Advance(who, r.Id, new TamingToken(Guid.NewGuid(), c3.StepChallenge, c3.Revision, 0), c3.Choices[0].Selection) : null;
+            var first = c3.Choices.Count > 0 ? await Taming.Advance(who, r.Id, TamingRequest.New(c3.Token), c3.Choices[0].Selection) : null;
             var grant = await Pets.Grant(character, "taming-review-test:cap-pet", PetRequest.New());   // the roster fills meanwhile
             r = first?.Progress ?? r;
             var c4 = Taming.Choices(who, r.Id);
             var beforeLast = Meat();
-            var last = c4.Choices.Count > 0 ? await Taming.Advance(who, r.Id, new TamingToken(Guid.NewGuid(), c4.StepChallenge, c4.Revision, r.CompletedSteps), c4.Choices[0].Selection) : null;
+            var last = c4.Choices.Count > 0 ? await Taming.Advance(who, r.Id, TamingRequest.New(c4.Token), c4.Choices[0].Selection) : null;
             await Steps(3);
             Check(first is { StepApplied: true } && grant.Ok && last is { Ok: false, StepApplied: false } && last.Refusal == TamingRefusal.Capacity && last.Receipts.Count == 0 && Meat() == beforeLast,
                 $"a roster filled during the attempt refuses the last step before its cost: {last?.Reason}; meat {beforeLast} -> {Meat()}; grant {grant.Ok} {grant.Reason}");

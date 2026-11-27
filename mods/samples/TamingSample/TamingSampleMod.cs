@@ -68,7 +68,7 @@ public sealed class TamingSampleMod : Mod
         foreach (var e in Creatures.Near(at, 3))
             foreach (var def in new[] { "taming-sample:wolf", "taming-sample:dog" })
             {
-                var r = Taming.Begin(who, EntityRef.Of(e), def, Guid.NewGuid());
+                var r = Taming.Begin(who, EntityRef.Of(e), def, TamingRequest.New());
                 if (r.Refusal == TamingRefusal.TemplateMismatch) continue;
                 c.Reply($"{def}: {Answer(who, r)}");
                 return;
@@ -81,7 +81,7 @@ public sealed class TamingSampleMod : Mod
     {
         var who = Player(c);
         var p = Attempt(who);
-        c.Reply(Answer(who, await Taming.Advance(who, p.Id, new TamingToken(Guid.NewGuid(), p.StepChallenge, p.Revision, p.CompletedSteps))));
+        c.Reply(Answer(who, await Taming.Advance(who, p.Id, TamingRequest.New(p.Token))));
     }
 
     [Command("tame feed", Description = "feed from the first slot that can pay the step")]
@@ -92,7 +92,7 @@ public sealed class TamingSampleMod : Mod
         var choices = Taming.Choices(who, p.Id);
         if (!choices.Ok || choices.Choices.Count == 0) throw new CommandException(choices.Reason ?? "nothing in your inventories can pay this step");
         // a real UI shows the choices and sends back which one; the server revalidates it when the cost runs
-        var token = new TamingToken(Guid.NewGuid(), choices.StepChallenge, choices.Revision, p.CompletedSteps);
+        var token = TamingRequest.New(choices.Token);
         c.Reply(Answer(who, await Taming.Advance(who, p.Id, token, choices.Choices[0].Selection)));
     }
 
@@ -101,7 +101,7 @@ public sealed class TamingSampleMod : Mod
     {
         var who = Player(c);
         var p = Attempt(who);
-        c.Reply(Answer(who, await Taming.Retry(who, p.Id, new TamingToken(Guid.NewGuid(), p.StepChallenge, p.Revision, p.CompletedSteps))));
+        c.Reply(Answer(who, await Taming.Retry(who, p.Id, TamingRequest.New(p.Token))));
     }
 
     [Command("tame cancel", Description = "stop taming (paid steps stay paid: the wolf's refund is for failures only)")]
@@ -109,7 +109,7 @@ public sealed class TamingSampleMod : Mod
     {
         var who = Player(c);
         var p = Attempt(who);
-        c.Reply(Answer(who, await Taming.Cancel(who, p.Id, new TamingToken(Guid.NewGuid(), p.StepChallenge, p.Revision, p.CompletedSteps))));
+        c.Reply(Answer(who, await Taming.Cancel(who, p.Id, TamingRequest.New(p.Token))));
     }
 
     [Command("tame status", Description = "the taming now")]

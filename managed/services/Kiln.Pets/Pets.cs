@@ -72,7 +72,7 @@ public static partial class Pets
     /// out). The mod's way to hand out pets (a reward, a quest, an admin command); taming (19e) makes records too.</summary>
     /// <returns>Ok with the new pet; or Ok false: <c>DefinitionUnknown</c>, <c>Capacity</c> (the definition's
     /// RetainedPerCharacter, or 128 records), <c>LevelUnavailable</c>, <c>RecordsUnreadable</c>.</returns>
-    /// <exception cref="ArgumentException">No character, an empty definition id, or an empty operation id.</exception>
+    /// <exception cref="ArgumentException">No character, an empty definition id, or an empty request id.</exception>
     [ServerOnly, TickThreadOnly, RequiresCapability(Caps.Records)]
     public static Task<PetResult> Grant(CharacterKey owner, string definition, PetRequest request)
     {
@@ -82,7 +82,7 @@ public static partial class Pets
         var r = Roster("Pets.Grant");
         return r.Submit(new PetRoster.Op
         {
-            Kind = PetRoster.Kind.Grant, OperationId = request.OperationId, OwnerKey = owner, Definition = definition, Expected = 0,
+            Kind = PetRoster.Kind.Grant, OperationId = request.RequestId, OwnerKey = owner, Definition = definition, Expected = 0,
             Payload = $"grant|{definition}",
         });
     }
@@ -128,7 +128,7 @@ public static partial class Pets
     /// hurt when the definition says so. A cancel or refusal before the debit takes nothing.</summary>
     /// <param name="owner">The owner, in game.</param>
     /// <param name="pet">The downed pet.</param>
-    /// <param name="request">The request (its operation id names the channel for <see cref="CancelRevive"/>).</param>
+    /// <param name="request">The request (its request id names the channel for <see cref="CancelRevive"/>).</param>
     /// <param name="cost">The owner's slot the cost is taken from, as read (<see cref="ItemSelection.Of"/> of a slot of
     /// <c>Items.Read</c>): a plain stack of the cost's item holding at least the cost; only that slot pays, and it must
     /// still hold what was read when the cost runs. Null: the first slot of the owner's inventories holding a plain stack of
@@ -145,17 +145,18 @@ public static partial class Pets
             o.Payload += cost is null ? "|-" : $"|{cost.InventoryOwner.Id.Value}:{cost.InventoryOwner.Serial}|{cost.Slot}|{cost.ExpectedItem}|{cost.ExpectedCount}|{cost.Instance.Entity.Id.Value}:{cost.Instance.Entity.Serial}";
         });
 
-    /// <summary>Cancels the revive <paramref name="reviveOperation"/> names (never a later one). Before its cost is taken it
+    /// <summary>Cancels the revive <paramref name="reviveRequest"/> names (its request's id, <see cref="PetSnapshot.ReviveRequest"/>;
+    /// never a later one). Before its cost is taken it
     /// spends nothing; a revive that already completed is not undone (<c>AlreadyCompleted</c>). Repeating the same cancel
     /// request gives its first answer.</summary>
     [ServerOnly, TickThreadOnly, RequiresCapability(Caps.Downed)]
-    public static Task<PetResult> CancelRevive(PlayerRef owner, PetId pet, Guid reviveOperation, PetRequest request)
+    public static Task<PetResult> CancelRevive(PlayerRef owner, PetId pet, Guid reviveRequest, PetRequest request)
     {
-        if (reviveOperation == Guid.Empty) throw new ArgumentException("no revive operation", nameof(reviveOperation));
+        if (reviveRequest == Guid.Empty) throw new ArgumentException("no revive request", nameof(reviveRequest));
         return Request(PetRoster.Kind.CancelRevive, "Pets.CancelRevive", Caps.Downed, owner, pet, request, o =>
         {
-            o.CancelTarget = reviveOperation;
-            o.Payload += $"|{reviveOperation}";
+            o.CancelTarget = reviveRequest;
+            o.Payload += $"|{reviveRequest}";
         });
     }
 
@@ -190,7 +191,7 @@ public static partial class Pets
     private static void Check(PetRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
-        if (request.OperationId == Guid.Empty) throw new ArgumentException("an operation id is a new Guid per request", nameof(request));
+        if (request.RequestId == Guid.Empty) throw new ArgumentException("a request id is a new Guid per request", nameof(request));
     }
 
     private static void Require(string row)
@@ -213,10 +214,10 @@ public static partial class Pets
         var r = Roster(api);
         Require(row);
         var who = r.World.Owner(owner, out var why);
-        if (who is null) return Task.FromResult(new PetResult(false, why ?? "OwnerOffline", r.Get(pet), request.OperationId, []));
+        if (who is null) return Task.FromResult(new PetResult(false, why ?? "OwnerOffline", r.Get(pet), request.RequestId, []));
         var op = new PetRoster.Op
         {
-            Kind = kind, OperationId = request.OperationId, OwnerKey = who.Value.Key, Who = owner, Pet = pet, Expected = request.ExpectedStateRevision,
+            Kind = kind, OperationId = request.RequestId, OwnerKey = who.Value.Key, Who = owner, Pet = pet, Expected = request.ExpectedStateRevision,
             Payload = $"{kind}|{pet}|{request.ExpectedStateRevision}",
         };
         fill?.Invoke(op);

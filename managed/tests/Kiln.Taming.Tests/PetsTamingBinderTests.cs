@@ -29,14 +29,14 @@ public sealed class PetsTamingBinderTests
         PetsOf = _ => _pets,
         Grant = (owner, pet, req) =>
         {
-            _grants.Add((pet, req.OperationId));
+            _grants.Add((pet, req.RequestId));
             if (_grantHold is { } h) return h.Task;
-            return Task.FromResult(_grantAnswer ?? new PetResult(true, null, new PetSnapshot { Id = new PetId(Guid.NewGuid()), Definition = pet }, req.OperationId, []));
+            return Task.FromResult(_grantAnswer ?? new PetResult(true, null, new PetSnapshot { Id = new PetId(Guid.NewGuid()), Definition = pet }, req.RequestId, []));
         },
         Summon = (who, pet, req) =>
         {
             _summons.Add(pet);
-            return Task.FromResult(new PetResult(true, null, null, req.OperationId, []));
+            return Task.FromResult(new PetResult(true, null, null, req.RequestId, []));
         },
         RemoveTarget = t =>
         {

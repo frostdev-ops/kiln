@@ -27,7 +27,7 @@ public sealed class ViewTests : IDisposable
     [Fact]
     public void The_codec_round_trips_every_field()
     {
-        var e = Entry(1) with { Transition = PetTransition.Reviving, ReviveOperation = Guid.NewGuid(), ReviveElapsedMs = 1500, ReviveDurationMs = 3000, ShowMarker = false };
+        var e = Entry(1) with { Transition = PetTransition.Reviving, ReviveRequest = Guid.NewGuid(), ReviveElapsedMs = 1500, ReviveDurationMs = 3000, ShowMarker = false };
         var a = Entry(2, PetPresence.RecoveryAnchor, PetLife.Downed, 0, 100);
         var v = View(5, 77, e, a);
         var back = PetViewCodec.Read(PetViewCodec.Write(v), out var error);

@@ -99,16 +99,18 @@ Blocks.Define("wolf", new TamingBlock
 
 ## Drive an attempt
 
-Every action sends your request id and the token of the last answer. Use a new id for each intended action, and the same
-id when you resend the same action after a network hiccup.
+Every action sends a `TamingRequest`: your request id and the token of the last answer (`progress.Token`,
+`choices.Token`). `TamingRequest.New(token)` makes a new id for each intended action; send the same request again when you
+resend the same action after a network hiccup. It is the same shape as Kiln.Pets' `PetRequest`.
 
 ```csharp
-var r = Taming.Begin(player, EntityRef.Of(wolf), "my-mod:wolf", Guid.NewGuid());
-var p = r.Progress!;                                        // the token: p.StepChallenge, p.Revision, p.CompletedSteps
-r = await Taming.Advance(player, p.Id, new TamingToken(Guid.NewGuid(), p.StepChallenge, p.Revision, p.CompletedSteps));   // weaken: no selection
+var r = Taming.Begin(player, EntityRef.Of(wolf), "my-mod:wolf", TamingRequest.New());
+var p = r.Progress!;                                        // p.Token: the challenge, the revision and the step
+r = await Taming.Advance(player, p.Id, TamingRequest.New(p.Token));   // weaken: no selection
 p = r.Progress!;
-var pick = Taming.Choices(player, p.Id).Choices[0].Selection;   // the server's read of the slot the player chose
-r = await Taming.Advance(player, p.Id, new TamingToken(Guid.NewGuid(), p.StepChallenge, p.Revision, p.CompletedSteps), pick);
+var choices = Taming.Choices(player, p.Id);
+var pick = choices.Choices[0].Selection;                    // the server's read of the slot the player chose
+r = await Taming.Advance(player, p.Id, TamingRequest.New(choices.Token), pick);
 if (r.Ok && r.Pet is { } pet) { /* tamed: pet is the new Kiln.Pets record */ }
 else if (r.Refusal == TamingRefusal.CommitDeferred) { /* every step paid: Taming.Retry later, nothing more is taken */ }
 ```

@@ -303,17 +303,17 @@ public sealed class NativeTamingTestMod : Mod
         await Steps(10);
         TryGet(() => { Creatures.Of(wolf).Faction = Faction.Wildlife; return null; });   // a lab wolf that does not attack the bot
         var before = Meat();
-        var begin = Taming.Begin(who, EntityRef.Of(wolf), "native-taming-test:wolf", Guid.NewGuid());
+        var begin = Taming.Begin(who, EntityRef.Of(wolf), "native-taming-test:wolf", TamingRequest.New());
         Check(begin.Ok, $"Begin with the bot as the tamer: {begin.Reason} {begin.Progress?.State}");
         if (!begin.Ok) return;
         var p = begin.Progress!;
-        var weaken = await Taming.Advance(who, p.Id, new TamingToken(Guid.NewGuid(), p.StepChallenge, p.Revision, p.CompletedSteps));
+        var weaken = await Taming.Advance(who, p.Id, TamingRequest.New(p.Token));
         Check(weaken is { Ok: true, StepApplied: true }, $"the weaken step (health at most 100 %) applies with no cost: {weaken.Reason} {weaken.Progress?.CompletedSteps}");
         p = weaken.Progress!;
         var choices = Taming.Choices(who, p.Id);
         Check(choices.Ok && choices.Choices.Count > 0, $"Choices lists the bot's meat: {string.Join(", ", choices.Choices.Select(c => c.Label))}");
         if (choices.Choices.Count == 0) return;
-        var feed = await Taming.Advance(who, p.Id, new TamingToken(Guid.NewGuid(), choices.StepChallenge, choices.Revision, p.CompletedSteps), choices.Choices[0].Selection);
+        var feed = await Taming.Advance(who, p.Id, TamingRequest.New(choices.Token), choices.Choices[0].Selection);
         await Steps(3);
         var pets = TryGet(() => string.Join(", ", Pets.Of(CharacterData.KeyOf(bot.Entity)).Select(x => $"{x.Id} {x.Definition} {x.Life}")));
         Check(feed is { Ok: true, Pet: { } pet } && feed.Progress!.State == TamingState.Committed,
@@ -326,15 +326,15 @@ public sealed class NativeTamingTestMod : Mod
         await Steps(10);
         TryGet(() => { Creatures.Of(wolf2).Faction = Faction.Wildlife; return null; });
         var held = Meat();
-        var b2 = Taming.Begin(who, EntityRef.Of(wolf2), "native-taming-test:escrow", Guid.NewGuid());
+        var b2 = Taming.Begin(who, EntityRef.Of(wolf2), "native-taming-test:escrow", TamingRequest.New());
         Check(b2.Ok, $"an escrow attempt begins: {b2.Reason}");
         if (!b2.Ok) return;
         var q = b2.Progress!;
         var c2 = Taming.Choices(who, q.Id);
-        var fed = c2.Choices.Count > 0 ? await Taming.Advance(who, q.Id, new TamingToken(Guid.NewGuid(), c2.StepChallenge, c2.Revision, 0), c2.Choices[0].Selection) : null;
+        var fed = c2.Choices.Count > 0 ? await Taming.Advance(who, q.Id, TamingRequest.New(c2.Token), c2.Choices[0].Selection) : null;
         var spent = Meat();
         q = fed?.Progress ?? q;
-        var cancel = await Taming.Cancel(who, q.Id, new TamingToken(Guid.NewGuid(), q.StepChallenge, q.Revision, q.CompletedSteps));
+        var cancel = await Taming.Cancel(who, q.Id, TamingRequest.New(q.Token));
         for (var i = 0; i < 10 && Meat() != held; i++) await Steps(1);
         var refund = cancel.Progress?.Refunds.SingleOrDefault();
         Check(fed is { StepApplied: true } && spent == held - 1 && cancel.Ok && refund?.Refund is { Committed: true, Taken: 1 } && Meat() == held,

@@ -107,9 +107,28 @@ public readonly record struct TameAttemptId(Guid Value)
     public override string ToString() => Value.ToString("N")[..12];
 }
 
-/// <summary>What a client echoes to advance, retry or cancel (19e 4.2): its own request id (new for every intended action,
-/// the same for a network retry), the server's challenge, the revision and the step it expects. Since 0.2.0-dev.32.</summary>
-public sealed record TamingToken(Guid RequestId, Guid StepChallenge, ulong ExpectedRevision, int StepIndex);
+/// <summary>The view of an attempt a request was made on (19e 4.2): the server's challenge (random, rotated by every applied
+/// step), the revision and the step. The last answer gives it (<see cref="TamingProgress.Token"/>,
+/// <see cref="TamingChoicesResult.Token"/>); a request echoes it (<see cref="TamingRequest.Token"/>). Since
+/// 0.2.0-dev.32.</summary>
+/// <param name="StepChallenge">The attempt's challenge.</param>
+/// <param name="ExpectedRevision">The attempt's revision.</param>
+/// <param name="StepIndex">The step it expects next (the steps completed).</param>
+public sealed record TamingToken(Guid StepChallenge, ulong ExpectedRevision, int StepIndex);
+
+/// <summary>A taming request, in the one request shape of Kiln.Pets and Kiln.Taming (as <see cref="PetRequest"/>): its id
+/// and what it expects of the view it was made on. The same request again is the same answer and never a second cost;
+/// another action under a used id is <c>RequestConflict</c>; a token the attempt moved on from is <c>StaleStep</c>. Since
+/// 0.2.0-dev.32.</summary>
+/// <param name="RequestId">New for every intended action, the same for a network retry of it. The answer
+/// (<see cref="TamingResult.RequestId"/>), the events and the cost receipts carry it.</param>
+/// <param name="Token">The attempt's token from the last answer: <see cref="Taming.Advance"/> and <see cref="Taming.Retry"/>
+/// need it; <see cref="Taming.Begin"/> takes none.</param>
+public sealed record TamingRequest(Guid RequestId, TamingToken? Token = null)
+{
+    /// <summary>A new request with a fresh request id, made on <paramref name="token"/>'s view.</summary>
+    public static TamingRequest New(TamingToken? token = null) => new(Guid.NewGuid(), token);
+}
 
 /// <summary>Where an attempt is (19e 4.3). Since 0.2.0-dev.32.</summary>
 public enum TamingState
@@ -144,13 +163,21 @@ public sealed record TamingProgress(TameAttemptId Id, PlayerRef Owner, ulong Wor
     public IReadOnlyList<TamingRefund> Refunds { get; init; } = [];
     /// <summary>A cancel was asked while a cost was being paid: it ends when the cost settled.</summary>
     public bool CancelRequested { get; init; }
+    /// <summary>The token the next request echoes (<see cref="TamingRequest.New"/>): the challenge, the revision and the
+    /// steps completed.</summary>
+    public TamingToken Token => new(StepChallenge, Revision, CompletedSteps);
 }
 
 /// <summary>A choice the server offers for a step (19e 5.1): a slot it read, as a selection, with a label.</summary>
 public sealed record TamingItemChoice(ItemSelection Selection, string Label);
 
 /// <summary>The choices for the attempt's next step. Since 0.2.0-dev.32.</summary>
-public sealed record TamingChoicesResult(bool Ok, string? Reason, ulong Revision, Guid StepChallenge, IReadOnlyList<TamingItemChoice> Choices) : IKilnResult
+/// <param name="Ok">True when the attempt waits for a step (its choices may be none: a weaken or native step).</param>
+/// <param name="Reason">Why not, in words for a log.</param>
+/// <param name="Token">The view the choices were read on: a request for one of them echoes it
+/// (<c>TamingRequest.New(choices.Token)</c>); null when there is no such attempt of the player's.</param>
+/// <param name="Choices">The slots that can pay the step.</param>
+public sealed record TamingChoicesResult(bool Ok, string? Reason, TamingToken? Token, IReadOnlyList<TamingItemChoice> Choices) : IKilnResult
 {
     /// <summary>Why not, as a value: <see cref="TamingRefusal.None"/> when <see cref="Ok"/>, else the first word of
     /// <see cref="Reason"/>.</summary>
@@ -186,7 +213,7 @@ public sealed record TamingResult(bool Ok, string? Reason, TamingProgress? Progr
 public sealed record TamingBeginContext(Guid RequestId, PlayerRef Player, EntityRef Target, string Definition, int TotalSteps);
 
 /// <summary>The context of an Advance (19e 5.3).</summary>
-public sealed record TamingAdvanceContext(TamingProgress Before, TamingToken Token, int StepIndex, string StepKind, ItemSelection? Selection,
+public sealed record TamingAdvanceContext(TamingProgress Before, Guid RequestId, TamingToken Token, int StepIndex, string StepKind, ItemSelection? Selection,
     int QuotedQuantity, int QuotedWear, bool WillTryFinalCommit);
 
 /// <summary>The context of the final tame (19e 5.3): before the last step's cost, or a cost-free retry.</summary>

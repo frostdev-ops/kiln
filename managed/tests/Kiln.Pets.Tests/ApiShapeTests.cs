@@ -92,5 +92,23 @@ public sealed class ApiShapeTests
             foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(File.ReadAllText(file), "\\$?\"([A-Z][a-z]+(?:[A-Z][A-Za-z]*)?):"))
                 yield return m.Groups[1].Value;
     }
+
+    // ---- A5: one request shape: a request id (RequestId everywhere) and the view it expects ----
+
+    [Fact]
+    public void Pets_requests_name_their_id_RequestId_as_Taming_and_ItemCosts_do()
+    {
+        var r = PetRequest.New(7);
+        Assert.NotEqual(Guid.Empty, r.RequestId);
+        Assert.Equal(7ul, r.ExpectedStateRevision);
+        var publicMembers = typeof(Pets).Assembly.GetExportedTypes().SelectMany(t => t.GetMembers(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly))
+            .Select(m => $"{m.DeclaringType!.Name}.{m.Name}").Where(n => n.Contains("Operation", StringComparison.Ordinal)).ToList();
+        Assert.Empty(publicMembers);
+        var cancel = typeof(Pets).GetMethod(nameof(Pets.CancelRevive))!.GetParameters();
+        Assert.Equal("reviveRequest", cancel[2].Name);
+        Assert.Equal(nameof(PetResult.RequestId), typeof(PetResult).GetProperty("RequestId")!.Name);
+        Assert.NotNull(typeof(PetChange).GetProperty("RequestId"));
+        Assert.NotNull(typeof(PetSnapshot).GetProperty("ReviveRequest"));
+    }
 }
 

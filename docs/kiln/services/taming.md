@@ -65,14 +65,16 @@ The same in JSON: `Taming.DefineJson(json)`, one object or an array ([modding/ta
 
 | Call | What it does |
 |---|---|
-| `Taming.Begin(player, target, definition, requestId)` | Checks the definition, the owner, the target (its creature, alive, in range) and the claim. It posts `TamingBeginningEvent` (cancelable), claims the target (another attempt on it is `Busy`) and holds the pet's roster slot. It then posts `TamingStartedEvent` and answers with the first token. |
-| `Taming.Advance(player, attempt, token, selection)` | Checks the token, range, target and threshold, and posts `TamingAdvancingEvent`. For the last step it also preflights the pet's slot and posts `TamingCommittingEvent`. It takes the exact cost and applies the step (`TamingStepChangedEvent`). After the last step it tames. |
-| `Taming.Retry(player, attempt, token)` | The cost-free retry of a deferred tame (`AwaitingCommit`): it checks again and binds, taking nothing. |
-| `Taming.Cancel(player, attempt, token)` | Ends the attempt; a cost in flight settles first. |
+| `Taming.Begin(player, target, definition, request)` | Checks the definition, the owner, the target (its creature, alive, in range) and the claim. It posts `TamingBeginningEvent` (cancelable), claims the target (another attempt on it is `Busy`) and holds the pet's roster slot. It then posts `TamingStartedEvent` and answers with the first token. |
+| `Taming.Advance(player, attempt, request, selection)` | Checks the token, range, target and threshold, and posts `TamingAdvancingEvent`. For the last step it also preflights the pet's slot and posts `TamingCommittingEvent`. It takes the exact cost and applies the step (`TamingStepChangedEvent`). After the last step it tames. |
+| `Taming.Retry(player, attempt, request)` | The cost-free retry of a deferred tame (`AwaitingCommit`): it checks again and binds, taking nothing. |
+| `Taming.Cancel(player, attempt, request)` | Ends the attempt; a cost in flight settles first. |
 | `Taming.Inspect(attempt)` / `Taming.Choices(player, attempt)` | Reads only: the attempt now, and the owner's slots that can pay the next step (at most 256, as server selections). |
 
-**Requests and tokens.** Each answer's `Progress` carries the token for the next action: `StepChallenge` (random, rotated
-by every applied step), `Revision` and `CompletedSteps`. A client echoes it with its own request id:
+**Requests and tokens.** Every action takes a `TamingRequest(RequestId, Token)`, the one request shape of Kiln.Pets
+(`PetRequest(RequestId, ExpectedStateRevision)`) and Kiln.Taming: `TamingRequest.New(progress.Token)`. Each answer's
+`Progress.Token` (and `Choices(...).Token`) is the token for the next action: `StepChallenge` (random, rotated by every
+applied step), `ExpectedRevision` and `StepIndex`. A client echoes it with its own request id (`Begin` takes none):
 - **A new id for each intended action**, and **the same id for a network retry**: the same request again returns the
   same task or result and never a second cost.
 - **The same id with another action** is `RequestConflict`.

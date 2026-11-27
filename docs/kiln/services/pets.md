@@ -98,14 +98,16 @@ for this pet; the down itself cannot be refused. `PetDownedEvent` comes only aft
     Task<PetResult> Dismiss(PlayerRef owner, PetId pet, PetRequest request);
     Task<PetResult> Command(PlayerRef owner, PetId pet, PetOrder order, EntityRef target, PetRequest request); // pets.follow (+ pets.fight for Attack)
     Task<PetResult> Revive(PlayerRef owner, PetId pet, PetRequest request, ItemSelection? cost = null);       // pets.downed
-    Task<PetResult> CancelRevive(PlayerRef owner, PetId pet, Guid reviveOperation, PetRequest request);
+    Task<PetResult> CancelRevive(PlayerRef owner, PetId pet, Guid reviveRequest, PetRequest request);
     Task<PetResult> Release(PlayerRef owner, PetId pet, PetRequest request);   // pets.records
     void SetHostile(CharacterKey a, CharacterKey b, bool hostile); bool IsHostile(CharacterKey a, CharacterKey b); // pets.fight
 }
 ```
 
-- **Requests** carry an operation id (`PetRequest.New()`): a retry with the same id gives the first answer for 10
-  minutes; the same id for another request is `RequestConflict`; a nonzero `ExpectedStateRevision` that moved on is
+- **Requests** carry a request id (`PetRequest.New()`, `PetRequest(RequestId, ExpectedStateRevision)`: the one request
+  shape of Kiln.Pets and Kiln.Taming, whose `TamingRequest(RequestId, Token)` is the same idea; Kiln.Items' `ItemCosts`
+  takes the request id beside the `ItemSelection` it expects); `PetResult.RequestId`, `PetChange.RequestId` and
+  `PetSnapshot.ReviveRequest` carry it. A retry with the same id gives the first answer for 10 minutes; the same id for another request is `RequestConflict`; a nonzero `ExpectedStateRevision` that moved on is
   `StaleRevision` (nothing changes). Requests start at the next step and complete when they settled.
 - **The error rule:** a bad argument throws `ArgumentException`; an off row throws `KilnUnavailableException` naming it;
   a refusal is `Ok = false` with a reason, and the reason's first word as a value, `PetResult.Refusal` (`PetRefusal`:

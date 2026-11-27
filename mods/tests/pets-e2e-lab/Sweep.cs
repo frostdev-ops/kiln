@@ -98,7 +98,7 @@ public sealed partial class PetsE2eLabMod
                 if (!revive.IsCompleted)
                 {
                     cancelStep = _step;
-                    cancel = Pets.CancelRevive(owner, id, req.OperationId, PetRequest.New());
+                    cancel = Pets.CancelRevive(owner, id, req.RequestId, PetRequest.New());
                 }
             }
             var rr = await revive;

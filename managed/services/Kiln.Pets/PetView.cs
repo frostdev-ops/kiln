@@ -40,8 +40,8 @@ public sealed record PetViewEntry
     public int Current { get; init; }
     /// <summary>Its maximum health.</summary>
     public int Maximum { get; init; }
-    /// <summary>The revive channel running (its operation id, for a cancel); null when none.</summary>
-    public Guid? ReviveOperation { get; init; }
+    /// <summary>The revive channel running (its request id, for a cancel); null when none.</summary>
+    public Guid? ReviveRequest { get; init; }
     /// <summary>Milliseconds of the channel done.</summary>
     public uint ReviveElapsedMs { get; init; }
     /// <summary>Milliseconds the channel takes.</summary>
@@ -106,13 +106,13 @@ internal static class PetViewCodec
             Str(e, x.Definition, MaxDefinitionBytes);
             Str(e, x.Label, MaxLabelBytes);
             e.Byte((byte)x.Life).Byte((byte)x.Presence).Byte((byte)x.Transition).Byte((byte)x.RequestedOrder);
-            var flags = (byte)((x.Body is not null ? HasBody : 0) | (x.RecoveryAnchor is not null ? HasAnchor : 0) | (x.ReviveOperation is not null ? HasRevive : 0) |
+            var flags = (byte)((x.Body is not null ? HasBody : 0) | (x.RecoveryAnchor is not null ? HasAnchor : 0) | (x.ReviveRequest is not null ? HasRevive : 0) |
                                (x.ShowBar ? Bar : 0) | (x.ShowMarker ? Marker : 0));
             e.Byte(flags);
             if (x.Body is { } b) e.UInt32(b.NetworkEntityId).UInt64(b.BodyGeneration);
             if (x.RecoveryAnchor is { } a) e.Double(a.X).Double(a.Y).Double(a.Z);
             e.UInt16((ushort)Math.Clamp(x.Level, 0, ushort.MaxValue)).Int32(x.Current).Int32(x.Maximum);
-            if (x.ReviveOperation is { } op)
+            if (x.ReviveRequest is { } op)
             {
                 op.TryWriteBytes(id);
                 e.Raw(id).UInt32(x.ReviveElapsedMs).UInt32(x.ReviveDurationMs);
@@ -195,7 +195,7 @@ internal static class PetViewCodec
                 {
                     Id = new PetId(id), Definition = def, Label = label, Life = (PetLife)life, Presence = (PetPresence)presence,
                     Transition = (PetTransition)transition, RequestedOrder = (PetOrder)order, Body = body, RecoveryAnchor = anchor, Level = level,
-                    Current = cur, Maximum = max, ReviveOperation = revive, ReviveElapsedMs = elapsed, ReviveDurationMs = duration,
+                    Current = cur, Maximum = max, ReviveRequest = revive, ReviveElapsedMs = elapsed, ReviveDurationMs = duration,
                     StateRevision = state, DurableRevision = durable, ShowBar = (flags & Bar) != 0, ShowMarker = (flags & Marker) != 0,
                 });
             }
