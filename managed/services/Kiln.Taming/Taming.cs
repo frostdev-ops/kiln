@@ -35,9 +35,7 @@ public static class Taming
     /// <exception cref="ArgumentException">A value is out of its range, or the id is not the calling mod's
     /// (<c>&lt;mod id&gt;:&lt;name&gt;</c>).</exception>
     /// <exception cref="InvalidOperationException">Not on the tick thread, the id is another mod's, or attempts of it run.</exception>
-    /// <exception cref="KilnUnavailableException">Kiln.Taming is not loaded (<c>kiln.taming</c>).</exception>
     [TickThreadOnly]
-    [RequiresCapability("kiln.taming")]
     public static void Define(TamingDefinition definition)
     {
         ArgumentNullException.ThrowIfNull(definition);
@@ -57,7 +55,6 @@ public static class Taming
     /// id the game's items, not readable yet or not on this build, do not have: <c>ItemUnknown</c>; a mod's own items are
     /// named by a <c>TamingBlock</c> of Kiln.Blocks).</exception>
     [TickThreadOnly]
-    [RequiresCapability("kiln.taming")]
     public static IReadOnlyList<TamingDefinition> DefineJson(string json)
     {
         var defs = TamingJson.Read(json, TamingJson.GameItems);
@@ -67,12 +64,10 @@ public static class Taming
 
     /// <summary>The definition registered under <paramref name="id"/>, or null.</summary>
     [TickThreadOnly]
-    [RequiresCapability("kiln.taming")]
     public static TamingDefinition? Definition(string id) => DefinitionEngine("Taming.Definition").Definition(id);
 
     /// <summary>Every registered definition.</summary>
     [TickThreadOnly]
-    [RequiresCapability("kiln.taming")]
     public static IReadOnlyList<TamingDefinition> Definitions => DefinitionEngine("Taming.Definitions").Definitions;
 
     /// <summary>Starts an attempt of <paramref name="definition"/> by <paramref name="player"/> on

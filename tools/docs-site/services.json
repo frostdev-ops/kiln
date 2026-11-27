@@ -1444,10 +1444,6 @@
       ],
       "capabilities": [
         {
-          "name": "kiln.taming",
-          "members": 4
-        },
-        {
           "name": "taming.native",
           "members": 3
         },
