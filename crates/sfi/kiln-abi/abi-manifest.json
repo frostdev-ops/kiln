@@ -4422,6 +4422,73 @@
       },
       "sha256": "35c5ad11a21a3f990b706089900762d8897c876910051c38667cb85352c8a920"
     },
+    "native/core/abi/services/kiln_labbot.h": {
+      "function_macros": [],
+      "inline_helpers": [],
+      "layouts": {
+        "KilnLabBotApi": {
+          "align": 8,
+          "fields": {
+            "header": 0,
+            "info": 32,
+            "join": 16,
+            "leave": 24,
+            "list": 40,
+            "status": 8
+          },
+          "size": 48
+        },
+        "KilnLabBotInfo": {
+          "align": 8,
+          "fields": {
+            "account": 48,
+            "character_id": 56,
+            "entity": 24,
+            "group": 36,
+            "id": 4,
+            "in_game_step": 80,
+            "joined_step": 72,
+            "machine": 16,
+            "name": 88,
+            "permissions": 32,
+            "phase": 8,
+            "player": 20,
+            "reason": 128,
+            "record_state": 28,
+            "saves_acked": 40,
+            "size": 0,
+            "slot": 12
+          },
+          "size": 328
+        },
+        "KilnLabBotJoin": {
+          "align": 8,
+          "fields": {
+            "account": 40,
+            "character_id": 24,
+            "flags": 4,
+            "group": 48,
+            "group_index": 52,
+            "name": 8,
+            "size": 0
+          },
+          "size": 56
+        },
+        "KilnLabBotStatus": {
+          "align": 8,
+          "fields": {
+            "available": 4,
+            "bots": 8,
+            "groups": 12,
+            "publishes": 16,
+            "size": 0,
+            "why": 24
+          },
+          "size": 224
+        }
+      },
+      "sha256": "dbf43ff1772829904fdca119a08ea6b0bdbf2fcb6f169e4818b1df7090d0db4b"
+    },
     "native/core/abi/services/kiln_launch.h": {
       "function_macros": [
         "KILN_LAUNCH_REASON_IDLE",
@@ -10365,7 +10432,7 @@
   },
   "outputs": {
     "src/bindings.rs": "134028a6a9914076cab3f71f98d356141d4fe36c4d7f51bac6a11819501ed935",
-    "src/layout.rs": "b9cdfdfde6bd2d9b90ef8dac6b8cc69870531db9269979aef17e029ad270a995",
+    "src/layout.rs": "24dd4be07dc114644e2df901cbf12be054f4dd0ab5512abe971ec20fce5802b7",
     "src/services/kiln_abilities.rs": "a24dff6123db80e30ed1b2e33f87c772a40982ec3ce379347ca96bb81579f6cb",
     "src/services/kiln_assets.rs": "e7fe4eb1c4d53ad31eeaf05be06f41c551a49362ad5bd4174465ec18a03effe0",
     "src/services/kiln_assets_vfx.rs": "90ed8ce5ad512bbf4f002db3277bc3b439d648ca437a58d4477eac4ce46c3b81",
@@ -10398,6 +10465,7 @@
     "src/services/kiln_items.rs": "997cdc279dc7704128c8d47efff8cd395652e0b93679a9c34848d6c54b6d5519",
     "src/services/kiln_items_inventory_kinds.rs": "8527dd431495bac7067076e59756f8ca82c3113c07e79603247356dee89c3fe2",
     "src/services/kiln_items_storage.rs": "391c254d91450e0f3c935d59c3d4917ce6aafe49fd7b645d1de00ee38f6d1c07",
+    "src/services/kiln_labbot.rs": "6c51ccb0c5653bea45972ff7b62bab431f1b206800cd053655165dbb5738529d",
     "src/services/kiln_launch.rs": "6ffbec313079a115faf49075248fc663d858f91a38d4a804f09c1deeae4dc61b",
     "src/services/kiln_log.rs": "86b18decab13965acd7a5e9d0c3166a80ac5441359f928717b8f4a02cd395df1",
     "src/services/kiln_markers.rs": "396fba83b17be93970b564b4f5bcd5052795c038d78b54ea80fb6c3e3514c9b9",
@@ -10451,7 +10519,7 @@
     "src/services/kiln_world.rs": "3cb0272179db9c198f154ce6c008837e4bb95245a2ec62993be78879c4b330b8",
     "src/services/kiln_world_budget.rs": "b196426492d0525df1317c08e4927f3f3ff35817990bed8f2b58c02d174bab98",
     "src/services/kiln_worldtables.rs": "3d423bb8cfd5235f82230a1942bbc334d86b55d343e5e5880c671a57d1469fce",
-    "src/services/mod.rs": "ff80f65ba3f1bbe1a2c97ad75826ecabb47456dfc87cdeda348ddfafa42bc7ec"
+    "src/services/mod.rs": "7a8588d4031de8ba7f8bf77dfd33423ff75175ff5620a97cbabe1532188a699a"
   },
   "schema": 1,
   "target": "x86_64-pc-windows-msvc"
