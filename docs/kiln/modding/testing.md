@@ -268,3 +268,26 @@ have no `NetPeer`; to give a fake one, bind a kiln.net lab peer to its machine w
 it.
 
 `mods/tests/repl-test` is the harness's own lab test (`repl-test: loopback decode PASS`, `repl-test: release PASS`).
+
+## Bot players for lab tests
+A test that needs a real player in the world (a pet's owner, a tamer, a rider) can have one on a lab server with no
+game client: a **bot player** (`Kiln.Players`' `LabBots`, lab only, `[Experimental("KILNX001")]`; native service
+`kiln.labbot`). The dedicated server hosts the bot itself: the game's own login, a new character from its player
+template, the spawn, the user group's rights, character saves and the logout run for it, so `Players.All`,
+`CharacterData.KeyOf`, chat commands and kiln.net see a player like any other. No Steam account, ticket or password is
+used. How it works: `docs/re/labbot.md`.
+
+1. Make the lab and deploy it with policy `any` and a `labPort` (as for the fake players above).
+2. From a mod (reference `Kiln.Players`, opt in to KILNX001), on the tick thread: `var id = LabBots.Join("Bot Alder");`
+   (group `LabBotGroup.Admin` by default), then wait until `LabBots.Info(id)!.InGame` (about a second on a loaded world);
+   `Info(id).Entity` is its player entity. `LabBots.Leave(id)` logs it out (final save; `drop: true` = a lost
+   connection). A mod's bots drop when it unloads; every bot leaves when the world stops.
+3. From a lab script (Python), with `mods/tests/labbot-test` in the lab: `tools/labbot/labbot.py` (`Lab(port).spawn(name)`,
+   `bot.say("/pet give hound")`, `bot.command("pet list")`, `bot.move_to(x, y, z)`, `bot.leave()`); see
+   `tools/lab/README.md`, "Bot players".
+
+The bot's name picks its character and account, so the same name is the same character on a world: its per-character
+data (pets, quests) is there when it joins again. What a bot does not give: a client (what the server sends it goes
+nowhere; it never acknowledges replication), and movement of its own (it stays where it is until something teleports
+it). Without policy `any` and a lab port every `LabBots` member that changes something throws
+`KilnUnavailableException("labbot.join")` (reason `policy`).

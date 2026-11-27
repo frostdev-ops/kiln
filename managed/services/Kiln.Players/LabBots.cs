@@ -131,7 +131,7 @@ public static unsafe class LabBots
     /// <exception cref="KilnUnavailableException"><c>labbot.join</c> is off (not a lab server) or no server world runs.</exception>
     [ServerOnly]
     [TickThreadOnly]
-    [RequiresCapability(Capability)]
+    [RequiresCapability("labbot.join")]
     public static int Join(string name, LabBotGroup group = LabBotGroup.Admin, int groupIndex = 0)
     {
         ArgumentNullException.ThrowIfNull(name);
@@ -170,7 +170,7 @@ public static unsafe class LabBots
     /// <exception cref="KilnUnavailableException"><c>labbot.join</c> is off.</exception>
     [ServerOnly]
     [TickThreadOnly]
-    [RequiresCapability(Capability)]
+    [RequiresCapability("labbot.join")]
     public static void Leave(int id, bool drop = false)
     {
         Services.RequireTickThread("LabBots.Leave");
