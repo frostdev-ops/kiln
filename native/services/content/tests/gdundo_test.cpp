@@ -155,6 +155,7 @@ namespace gd {
 GRegistry g_none;
 GRegistry& greg(uint32_t) { return g_none; }
 const GEntry* GRegistry::get(uint32_t) const { return nullptr; }
+const GEntry* GRegistry::lookup(const std::string&) const { return nullptr; }  // no world here: no entry by name or GUID
 std::vector<const GEntry*> GRegistry::select(const std::string&) const { return {}; }
 const char* section_name(uint32_t) { return "templates"; }
 uint32_t section_of(const std::string&) { return 0; }
