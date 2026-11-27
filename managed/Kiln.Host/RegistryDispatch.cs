@@ -345,6 +345,7 @@ internal sealed class RegistryDispatch(ModManager mods) : IDisposable
                 r.World == world.Token && r.RetryAt <= now).ToArray();
             if (again.Length > 0)
             {
+                var clock = System.Diagnostics.Stopwatch.StartNew(); // the pass runs on the tick (the world thread): its time is the hitch
                 var earlier = again.ToDictionary(r => r, r => r.WorldChanges.ToArray());
                 foreach (var record in again) record.ReauthorWorld = false;
                 var retry = Apply(again, RegistryEntryPoint.WorldLoad, static _ => true);
@@ -361,6 +362,8 @@ internal sealed class RegistryDispatch(ModManager mods) : IDisposable
                         }
                         catch (Exception e) { Log(record.Context.Info.Id + " re-authored point cleanup", e); }
                 }
+                mods.Host.Log(LogLevel.Info, $"registry: WorldLoad authored again on request (Registry.Reauthor) for " +
+                    $"{string.Join(", ", again.Select(r => r.Context.Info.Id))}: {clock.Elapsed.TotalMilliseconds:F1} ms on the tick");
             }
         }
         finally { _dispatchingWorld = false; }

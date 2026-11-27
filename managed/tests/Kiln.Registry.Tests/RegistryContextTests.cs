@@ -121,6 +121,29 @@ public sealed class RegistryContextTests
         finally { Backend.Current = backend; }
     }
 
+    // Registry.Reauthor inside a pass would queue that pass again from the pass itself: on every tick for ever when a mod
+    // asks in each OnRegistry. It is asked for when settings or game state change, outside the callbacks: refused inside.
+    [Fact]
+    public void ReauthorInsideARegistryCallbackIsRefusedAndNeverQueued()
+    {
+        var backend = Backend.Current; var log = new LogBackend(); Backend.Current = log;
+        var previous = RegistryRuntime.Reauthor; var queued = 0;
+        RegistryRuntime.Reauthor = (_, _) => { ++queued; return null; };
+        var mod = Mod();
+        try
+        {
+            var context = new RegistryContext(mod, RegistryEntryPoint.WorldLoad, RegistryPhase.Alter, null, "test-code", (_, _, _) => "1", (_, _) => []);
+            using (context.Enter()) Assert.False(DataRegistry.Reauthor(RegistryEntryPoint.WorldLoad));
+            context.Close();
+            Assert.Equal(0, queued);
+            lock (log.Lines) Assert.Contains(log.Lines, l => l.Contains("Reauthor(WorldLoad) was not queued: it is asked for outside OnRegistry", StringComparison.Ordinal));
+            HostAccess.Current = mod;
+            try { Assert.True(DataRegistry.Reauthor(RegistryEntryPoint.WorldLoad)); } finally { HostAccess.Current = null; }
+            Assert.Equal(1, queued);
+        }
+        finally { RegistryRuntime.Reauthor = previous; Backend.Current = backend; mod.Retire(); }
+    }
+
     [Fact]
     public void UnloadedOwnerFailsBeforeAnyBackendAccess()
     {

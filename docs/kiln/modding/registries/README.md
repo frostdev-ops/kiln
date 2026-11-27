@@ -240,7 +240,17 @@ edits again, never from the mod's own last result), entries refuse one by one, a
 made in this world once they are in, so the game never sees a moment without the mod's values; a pass that throws keeps the
 earlier layers (logged as a fault), a transient refusal asks again on a later tick. Requests before the tick are one pass.
 It returns false, with the reason in kiln.log, for another point (only WorldLoad is authored again on request), a mod that
-declares no WorldLoad point, or no live back-end; with no world loaded the next world's load authors the point anyway.
+declares no WorldLoad point, a call from inside an `OnRegistry` callback (ask when settings or game state change; from the
+pass itself it would run the pass again on every tick), or no live back-end; with no world loaded the next world's load
+authors the point anyway. A split pass (Alter, then Final for what one call's cap does not take) is re-authored whole: both
+calls commit, then both earlier layers are taken back.
+
+The re-authored layers are the newest: live layers compose in commit order, so they win over other mods' WorldLoad edits of
+the same fields (Final ones too) until those mods' points are authored again, and the pass reads those mods' layers as the
+values below it. At a world load every mod's callbacks read before any of them commits (Alters before Finals, in load order);
+a re-authored pass sees what the others committed. Two mods that both set the same field from what they read give a
+different result after one of them re-authors: keep re-authored edits to fields other mods leave alone, or derive them from
+the game's values (`Registry.Read` the base).
 Loot Rarity Leveler (Kiln) uses it for its live settings and the character level:
 
 ```csharp
