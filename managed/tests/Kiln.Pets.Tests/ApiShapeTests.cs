@@ -290,4 +290,24 @@ public sealed class PetsFacadeShapeTests : IDisposable
         var offline = new PlayerRef(_b.Account, _b.Id, new EntityRef(new EntityId(99), 1));
         Assert.Contains("OwnerOffline", Assert.Throws<ArgumentException>(() => Pets.Of(offline)).Message);
     }
+
+    // ---- C10: Pets.Define is not any-thread while a server world runs (the roster's state is the tick thread's) ----
+
+    [Fact]
+    public void Define_off_the_tick_thread_while_a_server_world_runs_throws_and_changes_nothing()
+    {
+        _backend.Tick = false;
+        var d = new PetDefinition { Id = "mod-a:fox", Creature = "game:enemy_wildbeast_wolf" };
+        Assert.Throws<InvalidOperationException>(() => Pets.Define(d));
+        Assert.Null(Pets.Definition("mod-a:fox"));
+        Assert.Null(typeof(Pets).GetMethod(nameof(Pets.Define))!.GetCustomAttributes(false).FirstOrDefault(a => a.GetType().Name == "AnyThreadAttribute"));
+    }
+
+    [Fact]
+    public void Define_off_the_tick_thread_before_a_server_world_runs_is_fine()
+    {
+        PetsRuntime.StopForTests();
+        _backend.Tick = false;
+        Assert.True(Pets.Define(new PetDefinition { Id = "mod-a:fox", Creature = "game:enemy_wildbeast_wolf" }).Ok);
+    }
 }

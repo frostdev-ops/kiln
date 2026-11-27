@@ -91,7 +91,7 @@ for this pet; the down itself cannot be refused. `PetDownedEvent` comes only aft
 
 ```csharp
 [ServerOnly, TickThreadOnly] public static class Pets {
-    PetDefinitionResult Define(PetDefinition definition);                     // pets.definitions (any thread)
+    PetDefinitionResult Define(PetDefinition definition);                     // pets.definitions (tick thread; any thread before a server world runs)
     PetDefinition? Definition(string id); IReadOnlyList<PetDefinition> Definitions;
     IReadOnlyList<PetSnapshot> Of(CharacterKey owner); IReadOnlyList<PetSnapshot> Of(PlayerRef player);   // pets.records (a player: in game)
     PetSnapshot? Get(PetId pet);

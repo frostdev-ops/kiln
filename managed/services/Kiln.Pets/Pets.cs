@@ -25,12 +25,18 @@ public static partial class Pets
     /// under the same id replaces it, except while one of its pets has a live body or a revive running
     /// (<c>DefinitionInUse</c>). A creature Kiln cannot find yet (a game client before content is ready) is checked
     /// again when a body is first made.</summary>
+    /// <remarks>Threads: the tick thread, or any thread before a server world runs (a mod's <c>OnLoad</c>, a game client's
+    /// too). It is not any-thread while a server world runs: whether the id's pets have live bodies is the roster's state,
+    /// which only the tick thread reads (<c>Scheduler.Post</c> brings a definition there).</remarks>
     /// <exception cref="ArgumentException">A value is out of its range, or the id is not the calling mod's
     /// (<c>&lt;mod id&gt;:&lt;name&gt;</c>).</exception>
+    /// <exception cref="InvalidOperationException">Off the tick thread while a server world runs here.</exception>
     [RequiresCapability("pets.definitions")]
     public static PetDefinitionResult Define(PetDefinition definition)
     {
         ArgumentNullException.ThrowIfNull(definition);
+        if (PetsRuntime.Roster is not null && !Backend.Current.IsTickThread)
+            throw new InvalidOperationException("Pets.Define: a server world runs here, so define pets on the tick thread (Scheduler.Post), or in OnLoad before the world runs");
         if (ModContext.CurrentMod is { } mod && !definition.Id.StartsWith(mod.Info.Id.ToLowerInvariant() + ":", StringComparison.Ordinal))
             throw new ArgumentException($"pet definition ids of mod {mod.Info.Id} start with \"{mod.Info.Id.ToLowerInvariant()}:\", not \"{definition.Id}\"", nameof(definition));
         return PetsRuntime.Define(definition, ModContext.CurrentMod?.Info.Id);
