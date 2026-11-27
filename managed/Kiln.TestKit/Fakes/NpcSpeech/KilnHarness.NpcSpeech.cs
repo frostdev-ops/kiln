@@ -19,7 +19,19 @@ public sealed partial class KilnHarness
 /// its end), and the texts as kiln.content's loca hooks would get them, per language.</para>
 /// <para><b>Not modelled.</b> The game's bubble: which NPC is the player's target, its 5 m range and its random pick, the
 /// voice-overs; the network (the kit is the host and sends nothing).</para>
+/// <para>Since 0.2.0-dev.32 it also shows the menu's lines: farewells, the NPC's own menu line, the replies a topic or
+/// <c>Npcs.MenuSay</c> sent a player, the talk-page topics, and a way to pick a topic as a player would. Texts are per game
+/// language key (<c>"en-us"</c>, <c>"de-de"</c>).</para>
 /// </remarks>
+/// <example><code>
+/// // a test of a mod that puts a topic on an NPC's talk page
+/// using var kit = new KilnHarness();
+/// // ... load the mod, then:
+/// Assert.Contains("Heard any rumors?", kit.NpcSpeech.TopicsOf(npc));
+/// kit.NpcSpeech.PickTopic(npc, "rumor", player);                       // runs the topic's OnPick on this thread
+/// Assert.Equal("They say the Vukah are restless.", kit.NpcSpeech.RepliesTo(player).Last().Text);
+/// </code></example>
+/// <seealso cref="KilnHarness.NpcSpeech"/>
 public sealed class HarnessNpcSpeech
 {
     private readonly KilnHarness _harness;
@@ -52,6 +64,12 @@ public sealed class HarnessNpcSpeech
     /// <summary>How the NPC's line of <paramref name="kind"/> picks among its lines: "Random", "InOrder",
     /// "Seeded(seed)" or "By" (the host's callback), as a Kiln client would be told; null when Kiln leaves that line to
     /// the game. Since 0.2.0-dev.32.</summary>
+    /// <param name="npc">The NPC.</param>
+    /// <param name="kind">Which line: the greeting (default), the farewell or the menu's line.</param>
+    /// <returns>The pick as text, or null.</returns>
+    /// <example><code>
+    /// Assert.Equal("InOrder", kit.NpcSpeech.PickOf(npc, NpcLineKind.Farewell));
+    /// </code></example>
     public string? PickOf(EntityId npc, NpcLineKind kind = NpcLineKind.Greeting)
     {
         lock (S.Lock)
@@ -62,6 +80,9 @@ public sealed class HarnessNpcSpeech
 
     /// <summary>The farewells (<c>Npcs.Farewells</c>) a Kiln client's dialogue menu shows for the NPC, in
     /// <paramref name="language"/>; empty when it keeps the game's. Since 0.2.0-dev.32.</summary>
+    /// <param name="npc">The NPC.</param>
+    /// <param name="language">A game language key (<c>"en-us"</c>, <c>"de-de"</c>).</param>
+    /// <returns>The farewell lines, in the mod's order, in that language.</returns>
     public IReadOnlyList<string> FarewellsOf(EntityId npc, string language = "en-us")
     {
         lock (S.Lock)
@@ -70,6 +91,9 @@ public sealed class HarnessNpcSpeech
 
     /// <summary>The menu's own lines (<c>Npcs.MenuLine</c>) a Kiln client's dialogue menu shows for the NPC when it
     /// opens, in <paramref name="language"/>; empty when it keeps the game's. Since 0.2.0-dev.32.</summary>
+    /// <param name="npc">The NPC.</param>
+    /// <param name="language">A game language key (<c>"en-us"</c>, <c>"de-de"</c>).</param>
+    /// <returns>The menu lines, in the mod's order, in that language.</returns>
     public IReadOnlyList<string> MenuLinesOf(EntityId npc, string language = "en-us")
     {
         lock (S.Lock)
@@ -78,6 +102,9 @@ public sealed class HarnessNpcSpeech
 
     /// <summary>What <c>Npcs.MenuSay</c> (and a topic's reply) told <paramref name="player"/>'s menu, oldest first: the
     /// NPC and the text in <paramref name="language"/>. Since 0.2.0-dev.32.</summary>
+    /// <param name="player">The player whose menu was told.</param>
+    /// <param name="language">A game language key (<c>"en-us"</c>, <c>"de-de"</c>).</param>
+    /// <returns>Each reply as the NPC that said it and its text.</returns>
     public IReadOnlyList<(EntityId Npc, string Text)> RepliesTo(EntityId player, string language = "en-us")
     {
         lock (S.Lock)
@@ -90,6 +117,9 @@ public sealed class HarnessNpcSpeech
 
     /// <summary>The labels of the Kiln topics a Kiln client's talk page of the NPC shows after the NPC's own
     /// (<c>Npcs.Topics</c>, every mod's), in <paramref name="language"/>. Since 0.2.0-dev.32.</summary>
+    /// <param name="npc">The NPC.</param>
+    /// <param name="language">A game language key (<c>"en-us"</c>, <c>"de-de"</c>).</param>
+    /// <returns>The topic labels, in page order.</returns>
     public IReadOnlyList<string> TopicsOf(EntityId npc, string language = "en-us")
     {
         lock (S.Lock)
@@ -99,6 +129,10 @@ public sealed class HarnessNpcSpeech
     /// <summary>A pick of the topic <paramref name="topicId"/> (the id a mod gave it) by <paramref name="player"/>, as
     /// the host runs it: the topic's OnPick, now, on this thread. False when no mod's topic of the NPC has that id. Since
     /// 0.2.0-dev.32.</summary>
+    /// <param name="npc">The NPC whose page has the topic.</param>
+    /// <param name="topicId">The id the mod gave the topic (<see cref="NpcTopic.Id"/>).</param>
+    /// <param name="player">The player who picks it.</param>
+    /// <returns>True when a topic with that id was picked.</returns>
     public bool PickTopic(EntityId npc, string topicId, EntityId player) => _harness.Run(() => NpcSpeechEngine.PickLocal(npc, topicId, player));
 
     /// <summary>How many set and say calls reached the fake (a test that expects nothing new compares it).</summary>

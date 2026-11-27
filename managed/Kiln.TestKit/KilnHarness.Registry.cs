@@ -26,6 +26,11 @@ public sealed class HarnessRegistry
     /// <summary>The mod ids of every <c>Kiln.Registry.Registry.Reauthor(RegistryEntryPoint.WorldLoad)</c> request the loaded
     /// mods made, in order (recorded: offline no pass runs by itself; run the next pass with <see cref="Author"/>). A request
     /// for another point is refused (false) as in a game and not listed.</summary>
+    /// <example><code>
+    /// // the mod asks for a new pass when its settings change; the test sees the request and runs the pass itself
+    /// settings.WoodStack = 800;
+    /// Assert.Contains("my-mod", kit.Registry.Reauthors);
+    /// </code></example>
     public IReadOnlyList<string> Reauthors { get { lock (_reauthors) return _reauthors.ToArray(); } }
     internal string? RecordReauthor(ModContext mod, RegistryEntryPoint point)
     {
