@@ -6,6 +6,7 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Kiln;
+using Kiln.TestKit;
 using Xunit;
 
 namespace Kiln.ItemsTests;
@@ -87,7 +88,7 @@ public sealed unsafe class CheckedMoveTests : IDisposable
     [Fact]
     public void A_null_expected_slot_throws_ArgumentNullException()
     {
-        var e = Assert.Throws<ArgumentNullException>(() => Items.MoveChecked(Chest, null!, Player, 1));
+        var e = Assert.Throws<ArgumentNullException>(() => { _ = Items.MoveChecked(Chest, null!, Player, 1); });  // at the call
         Assert.Equal("expected", e.ParamName);
         Assert.Equal(0, _calls);
     }
@@ -181,5 +182,23 @@ public sealed unsafe class CheckedMoveTests : IDisposable
         Assert.Equal(ItemsStatus.Invalid, r.Status);
         Assert.Empty(r.Changes);
         Assert.Equal(0, _calls);
+    }
+}
+
+/// <summary>The test kit does not model moves (items.move is offline there): a mod's test sees checked moves as
+/// unavailable, as an answer, not an exception (docs/kiln/modding/inventory.md, "Checked moves").</summary>
+public sealed class CheckedMoveKitTests
+{
+    [Fact]
+    public void In_the_test_kit_checked_moves_are_unavailable()
+    {
+        using var kiln = new KilnHarness();
+        kiln.Step();
+        var (available, result) = kiln.Run(() => (Items.CheckedMovesAvailable, Items.MoveChecked(new EntityId(5000),
+            new InventorySlot(SlotId.Of(new EntityId(5001), 0), new ItemId(0x1111), 5, EntityId.None, 0, null,
+                InventoryCategory.Generic, 0, false, false, false, 0), new EntityId(3), 1).Result));
+        Assert.False(available);
+        Assert.Equal(ItemsStatus.Unavailable, result.Status);
+        Assert.StartsWith("Items.MoveChecked: ", result.Message);
     }
 }
