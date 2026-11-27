@@ -140,4 +140,22 @@ public sealed class PetsFakeTests
         kiln.StepUntil(() => kiln.Pets.Of(b).Single().Presence == PetPresence.Live, maxSteps: 100);
         Assert.Empty(kiln.Pets.Of(a));
     }
+
+    [Fact]
+    public void A_tamed_wild_body_is_removed_on_the_kits_world_as_the_definition_says()
+    {
+        using var kiln = new KilnHarness();
+        kiln.Step();
+        var who = kiln.Taming.Join(HarnessPets.Character(12));
+        kiln.Pets.Join(HarnessPets.Character(12));
+        Assert.True(kiln.Run(() => Kiln.Pets.Define(new PetDefinition { Id = "kit-test:kept-pet", Creature = "game:enemy_wildbeast_wolf" })).Ok);
+        var def = new TamingDefinition { Id = "kit-test:removed-wolf", Creatures = ["game:enemy_wildbeast_wolf"], Steps = [new WeakenStep(1)], Pet = "kit-test:kept-pet", SummonPet = false };
+        Assert.True(kiln.Run(() => Kiln.Taming.Define(def)).Ok);
+        var wolf = kiln.Taming.Place("game:enemy_wildbeast_wolf", new WorldPosition(1, 0, 0));
+        var p = Settle(kiln, () => Kiln.Taming.Begin(who, wolf, def.Id, TamingRequest.New())).Progress!;
+        Assert.True(Settle(kiln, () => Kiln.Taming.Advance(who, p.Id, TamingRequest.New(p.Token))).Ok);
+        // RemoveTarget (default true): the tamed wild body is gone, so nothing can begin on it again
+        var again = Settle(kiln, () => Kiln.Taming.Begin(who, wolf, def.Id, TamingRequest.New()));
+        Assert.Equal(TamingRefusal.BodyGone, again.Refusal);
+    }
 }

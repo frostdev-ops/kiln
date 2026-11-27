@@ -3,7 +3,8 @@
 // receipts, the refund policies, timeouts, events) on a world and item costs of the kit's: owners the test joins,
 // creatures it places, and inventories it fills. A mod's Taming.Define, Begin, Advance, Retry, Cancel, Choices and Inspect
 // run in kiln.Run (or its handlers) as on a server; each step runs the engine's own tick. A tame of a definition that names
-// a pet makes a Kiln.Pets record when kiln.Pets is in use too (the same character, joined to both).
+// a pet makes a Kiln.Pets record when kiln.Pets is in use too (the same character, joined to both), takes the tamed
+// creature off the kit's world (RemoveTarget) and summons the pet (SummonPet).
 namespace Kiln.TestKit;
 
 public sealed partial class KilnHarness
@@ -31,8 +32,13 @@ public sealed class HarnessTaming
         TamingCaps.Is = _ => true;   // taming.steps, taming.native and the exact costs: the kit plays them
         var engine = new TamingEngine(_world, _costs)
         {
-            // the binder makes the pet record through Kiln.Pets as a server does; the kit's players are its characters
-            Binder = new PetsTamingBinder { CharacterOf = p => p.CharacterId == Guid.Empty ? null : new CharacterKey(p.SteamId, p.CharacterId) },
+            // the binder makes the pet record through Kiln.Pets as a server does; the kit's players are its characters, and a
+            // tame of a definition with RemoveTarget takes the tamed creature off the kit's world (as kiln.spawn does in a game)
+            Binder = new PetsTamingBinder
+            {
+                CharacterOf = p => p.CharacterId == Guid.Empty ? null : new CharacterKey(p.SteamId, p.CharacterId),
+                RemoveTarget = e => _world.Targets.Remove(e.Id),
+            },
             ResolveCreature = id => PetCreatures.Resolve(id, out _)?.Template,
         };
         kiln.Run(() =>
