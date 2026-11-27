@@ -137,11 +137,11 @@ In Wine, SF's own tests pass: `bundled_lua` 3/3 and `survival` 1/1. Kiln's `tool
 `shroudforge` component (default on, both sides). `tools/deploy-server.sh` deploys an existing build.
 `tools/release/release.sh` exports and ships its source (`tools/release/lib/sf-source.sh`) and appends its notice.
 
-**The pass's change journal** (next release; fork branch `dev32/review-j3` at `9c2d330e`: `24496270` of
-`dev32/j3-shroudforge-registries`, on top of `6cf01443`, and the review's digest commit; `kiln/README.md` "The pass's
+**The pass's change journal** (next release; fork branch `dev32/review-j3` at `6e01cd74`: `24496270` of
+`dev32/j3-shroudforge-registries`, on top of `6cf01443`, and the review's two commits, the digest and the budget; `kiln/README.md` "The pass's
 change journal"): after each package's entrypoint the pass compares the resources
-it edited with what they held before (as the commit encodes them; at most 3 s of comparing per pass, then the rest is
-recorded as no package's) and writes
+it edited with what they held before (as the commit encodes them; at most 3 s of encoding and comparing per pass, then
+the rest is neither encoded nor compared for it and is recorded as no package's) and writes
 `<stem>.kfc.change-journal.json` beside its record of the pass: per package, the members it changed at their published
 places, its creations and contents, and the packages the retry ran without, as Kiln's change journal format 2 bound to
 the published `<stem>.kfc`'s SHA-256, each package with the digest of its files (`contentSha256`: the files the pass
