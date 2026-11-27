@@ -12,10 +12,12 @@ using System.Diagnostics.CodeAnalysis;
 namespace Kiln.Registry;
 
 /// <summary>The name of <see cref="Registries"/> before 0.2.0-dev.32 (it is also its namespace's name): the same members,
-/// kept for mods built against it. Use <see cref="Registries"/>.</summary>
-[Experimental("KILNX031"), EditorBrowsable(EditorBrowsableState.Never)]
+/// kept for mods built against it, [Obsolete] (a warning) and removed no earlier than 1.0. Use <see cref="Registries"/>.</summary>
+[Experimental("KILNX031"), EditorBrowsable(EditorBrowsableState.Never), Obsolete(Message)]
 public static class Registry
 {
+    internal const string Message = "Kiln.Registry.Registry is the 0.2.0-dev.31 name of Kiln.Registry.Registries (it is also its " +
+        "namespace's name): use Registries, which has the same members. The old name keeps working and goes no earlier than 1.0.";
     /// <summary><see cref="Registries.Available"/>.</summary>
     [AnyThread]
     public static bool Available => Registries.Available;

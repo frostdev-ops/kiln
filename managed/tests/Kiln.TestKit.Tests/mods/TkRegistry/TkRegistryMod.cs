@@ -2,7 +2,7 @@
 #pragma warning disable KILNX031
 using Kiln;
 using Kiln.Registry;
-using DataRegistry = Kiln.Registry.Registry;
+using DataRegistry = Kiln.Registry.Registries;
 
 namespace TestMods;
 

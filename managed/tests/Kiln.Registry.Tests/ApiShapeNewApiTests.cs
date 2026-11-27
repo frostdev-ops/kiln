@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text.Json.Nodes;
 using Kiln;
 using Kiln.Registry;
-using DataRegistry = Kiln.Registry.Registry;
+using DataRegistry = Kiln.Registry.Registries;
 using Xunit;
 
 namespace Kiln.RegistryTests;
@@ -117,21 +117,42 @@ public sealed class ApiShapeEntryTests
         new(Mod(), RegistryEntryPoint.GameStart, RegistryPhase.Alter, null, "test-code",
             (_, _, field) => field == "level" ? "7" : "null", (_, _) => new[] { "game:wolf" });
 
-    // docs lane A's A1: the entry class is Registries (Registry is also its namespace's name); Registry keeps dev.31's members
+    // docs lane A's A1: the entry class is Registries (Registry is also its namespace's name); Registry keeps dev.31's members.
+    // These tests name the old class on purpose: Kiln's other code, samples and tests use Registries (no obsolete warning).
+#pragma warning disable CS0618 // Kiln.Registry.Registry, the 0.2.0-dev.31 name
     [Fact]
     public void RegistriesIsTheEntryAndRegistryForwardsToIt()
     {
         var context = Frame();
         using var scope = context.Enter();
-        Assert.Same(Registries.For(context), DataRegistry.For(context));
+        Assert.Same(Registries.For(context), Kiln.Registry.Registry.For(context));
         Assert.Equal(new[] { "Available", "Change", "For", "Read", "Ready" },
-            typeof(DataRegistry).GetMembers(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.DeclaredOnly)
+            typeof(Kiln.Registry.Registry).GetMembers(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.DeclaredOnly)
                 .Where(m => m is not System.Reflection.MethodInfo { IsSpecialName: true }).Select(m => m.Name).Distinct().Order().ToArray());
-        Assert.Null(typeof(DataRegistry).GetMethod("Reauthor"));                              // only WorldLoad: Registries.Reauthor()
+        Assert.Null(typeof(Kiln.Registry.Registry).GetMethod("Reauthor"));                              // only WorldLoad: Registries.Reauthor()
         Assert.Empty(typeof(Registries).GetMethod("Reauthor")!.GetParameters());
         Assert.True(typeof(IKilnResult).IsAssignableFrom(typeof(Registries).GetMethod("Reauthor")!.ReturnType));
         context.Close();
     }
+
+    // review of api-shape, the owner's call (11-27): the old name is [Obsolete] with a hint to Registries (a warning, so a
+    // dev.31 mod still builds and runs), and stays until 1.0 at the earliest; its members forward, Ready and Available too.
+    [Fact]
+    public void TheOldNameIsObsoleteAndPointsToRegistries()
+    {
+        var obsolete = typeof(Kiln.Registry.Registry).GetCustomAttributes(typeof(ObsoleteAttribute), false).Cast<ObsoleteAttribute>().SingleOrDefault();
+        Assert.NotNull(obsolete);
+        Assert.False(obsolete!.IsError);
+        Assert.Contains("Kiln.Registry.Registries", obsolete.Message);
+        Assert.Contains("1.0", obsolete.Message);
+        Assert.Equal(Registries.Available, (bool)typeof(Kiln.Registry.Registry).GetProperty("Available")!.GetValue(null)!);
+        var ready = typeof(Kiln.Registry.Registry).GetEvent("Ready")!;
+        Assert.Equal(typeof(Action<RegistryReady>), ready.EventHandlerType);
+        Assert.Equal(typeof(RegistryChange), typeof(Kiln.Registry.Registry).GetMethod("Change")!.ReturnType);
+        Assert.Equal(typeof(RegistryStage), typeof(Kiln.Registry.Registry).GetMethod("For")!.ReturnType);
+    }
+
+#pragma warning restore CS0618
 
     // docs lane A's A14: a value the entry does not have is never a silent 0: Get<int> throws, a nullable reads null, TryGet asks
     [Fact]

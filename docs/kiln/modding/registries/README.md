@@ -13,7 +13,9 @@ registry replaces raw data paths, not services.
 catalog (`Kiln.Registry.RegistrySchema`) and these pages ship, and the registry stage reads a data pack's `registry` section at
 start (fields that apply now or at world load also follow a pack's hot reload). Since mod API **0.2.17**, C# mods can author
 through `Mod.OnRegistry(RegistryContext)` and use explicit owner-scoped live changes through `Kiln.Registry.Registries.Change` (the entry class is `Registries` since
-0.2.0-dev.32; `Registry`, also its namespace's name, keeps the 0.2.0-dev.31 members for mods built against them). The context
+0.2.0-dev.32; `Registry`, also its namespace's name, keeps the 0.2.0-dev.31 members for mods built against them: it is
+`[Obsolete]`, so such a mod builds with a warning that names `Registries` and runs as before, and it is removed no earlier
+than 1.0). The context
 types (`RegistryContext`, `RegistryEntryPoint`, `RegistryPhase`) are in namespace `Kiln` with `Mod.OnRegistry`, so every mod
 names them without the registry service; the typed data (`RegistryId`, the entries, the stage) is `Kiln.Registry`'s.
 GameStart entry operations add items/recipes through Kiln's content definitions and hide items/recipes/loot without deleting game records.

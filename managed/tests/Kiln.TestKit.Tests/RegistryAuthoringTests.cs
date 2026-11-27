@@ -3,7 +3,7 @@
 using System.Text.Json.Nodes;
 using TestMods;
 using Xunit;
-using DataRegistry = Kiln.Registry.Registry;
+using DataRegistry = Kiln.Registry.Registries;
 
 namespace Kiln.TestKit.Tests;
 
