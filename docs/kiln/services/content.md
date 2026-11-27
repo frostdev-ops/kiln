@@ -229,8 +229,9 @@ because one registry edit per key does not always mean the same as the rule. A r
 game's own number at the item's own level (`"power": {"mul": 1.2}` with `"levels"` in the same rule: a fifth more than the
 game's power at the old level, solved at the new one), a registry edit's on the value below it at the item's level then; a
 power with a `speed` the game cannot hold exactly (1.1; the game keeps a float) is solved at the rule's number, the registry
-solves it at the speed the game holds; the registry refuses a narrower level range or a lower max stack where the gear
-section writes it (registry.json "saves"); and a gear rule sits among the other data packs (a later pack on the same field
+solves it at the speed the game holds; the registry refuses a narrower level range, and applies a lower max stack only
+through Kiln's stack guard (refused where the guard is not available), where the gear section writes both (registry.json
+"saves"); and a gear rule sits among the other data packs (a later pack on the same field
 wins), a registry edit above them all. `perks` need the references opt-in and can point at another item's list; `recipe`
 selects recipes by what they make and scales their inputs (`{"mul": x}`), which no registry list operation does. The
 numbers in the table are pinned by `native/services/content/tests/gear_frontend_test.sh`.
