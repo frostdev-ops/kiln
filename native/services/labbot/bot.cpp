@@ -2,6 +2,7 @@
 // kiln.labbot's portable part: bot.h. Engine facts: docs/re/labbot.md.
 #include "bot.h"
 
+#include <cstdio>
 #include <cstring>
 
 namespace labbot {
@@ -26,6 +27,11 @@ uint64_t get64(const uint8_t* p) {
     return x;
 }
 void set64(uint8_t* p, uint64_t x) { std::memcpy(p, &x, 8); }
+std::string hex(uint32_t x) {
+    char b[12];
+    std::snprintf(b, sizeof b, "%x", x);
+    return b;
+}
 
 uint64_t fnv1a64(std::string_view s, uint64_t h = 0xcbf29ce484222325ull) {
     for (unsigned char c : s) {
@@ -297,10 +303,13 @@ void Bot::step(Engine& g, uint64_t now, const LoginLayout& L, const Limits& lim)
         }
         case Phase::LoggingIn: {
             if (r.state == kRecFailed) return fail(now, "the game refused the login (record state 6)");
-            if (!upload_sent) {
+            // Save2 drops an upload for a player it has not taken yet (its slot has no handle): wait until it waits for ours
+            const SaveView ready = g.save(entry.slot);
+            const bool waits = ready.readable && ready.handle == entry.player && ready.state == kSaveWaitUpload;
+            if (!upload_sent && waits) {
                 const std::vector<uint8_t> body = new_character_upload();
-                const SaveView cap = g.save(entry.slot);
-                if (cap.readable && cap.upload_capacity && body.size() > cap.upload_capacity)
+                const SaveView& cap = ready;
+                if (cap.upload_capacity && body.size() > cap.upload_capacity)
                     return fail(now, "the character upload (" + std::to_string(body.size()) + " bytes) does not fit the server's upload buffer (" +
                                          std::to_string(cap.upload_capacity) + " bytes)");
                 bool fin = false;
@@ -314,7 +323,9 @@ void Bot::step(Engine& g, uint64_t now, const LoginLayout& L, const Limits& lim)
                     return fail(now, "the game refused the character upload (save status " + std::to_string(s.status) + ")");
                 return go(Phase::Loading, now);
             }
-            if (in_phase > lim.login) fail(now, "the character upload was never taken (save state " + std::to_string(s.state) + ")");
+            if (in_phase > lim.login)
+                fail(now, !upload_sent ? "Save2 never took the bot's player (save slot handle 0x" + hex(s.handle) + ", state " + std::to_string(s.state) + ")"
+                                       : "the character upload was never taken (save state " + std::to_string(s.state) + ")");
             return;
         }
         case Phase::Loading: {

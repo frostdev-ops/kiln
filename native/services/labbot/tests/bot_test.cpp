@@ -194,10 +194,12 @@ struct FakeGame : Engine {
     bool never_free = false;       // a leaving record never frees
     int load_frames = 3;           // spawn search
     uint64_t upload_capacity = 0x40000;  // Save2's upload buffer (save +0x110 {data, size, capacity})
+    int save_after = 0;            // frames after the login until Save2 takes the player (waits for its upload)
     struct Rec { uint32_t handle = 0, peer = 0, entity = 0; uint8_t state = 0, perms = 0x3f; int wait = 0; };
     struct Sav { uint32_t handle = 0, version = 0; uint8_t state = 0, status = 3, has_entity = 0; bool final = false; int since = 0; };
     Rec rec[16];
     Sav sav[16];
+    int pending_save[16] = {};
     std::vector<std::string> calls;
     std::string login_name;
     uint8_t login_char[16] = {};
@@ -213,7 +215,8 @@ struct FakeGame : Engine {
         std::memcpy(login_char, m + L.character, 16);
         if (m[L.type] != 0 || !m[L.character_present] || !m[L.toggle_present]) return true;  // the game ignores it
         rec[slot] = Rec{player_handle(slot), machine, 0, uint8_t(refuse_login ? 6 : 1), 0x3f, load_frames};
-        sav[slot] = Sav{player_handle(slot), 0, 1, 3, 0};
+        if (save_after) pending_save[slot] = save_after;
+        else sav[slot] = Sav{player_handle(slot), 0, 1, 3, 0};
         return true;
     }
     RecordView record(uint32_t s) override {
@@ -281,8 +284,9 @@ struct FakeGame : Engine {
         for (uint32_t s = 0; s < 16; ++s) {
             Rec& x = rec[s];
             Sav& r = sav[s];
+            if (pending_save[s] && --pending_save[s] == 0) r = Sav{player_handle(s), 0, 1, 3, 0};
             if (!x.handle) continue;
-            if (x.state == 1 && --x.wait <= 0) x.state = no_spawn ? 6 : 2;
+            if (x.state == 1 && r.state != 1 && r.handle && --x.wait <= 0) x.state = no_spawn ? 6 : 2;
             if (x.state == 3 && !x.entity && r.status == 0) x.entity = s + 1;
             if (x.state == 3 && frame_no % 50 == 0 && r.state == 2) {  // a world save goes out
                 ++r.version;
@@ -446,6 +450,17 @@ void t_failures() {
         Bot c = make_bot();
         step = 0;
         CHECK(run(h, c, 200, in_game, &step) > 0, "unknown capacity: in game (%s)", c.reason.c_str());
+    }
+    // Save2 takes the player some frames after the login: the upload waits for it and goes once (an early one is dropped)
+    {
+        FakeGame g;
+        g.save_after = 6;
+        Bot b = make_bot();
+        uint64_t step = 0;
+        const int n = run(g, b, 200, in_game, &step);
+        int uploads = 0;
+        for (auto& c : g.calls) uploads += c == "upload";
+        CHECK(n > 0 && uploads == 1, "late save slot: %s, %d upload(s), reason '%s'", phase_name(b.phase), uploads, b.reason.c_str());
     }
     // taken over: the record names another handle while the bot logs in
     {
