@@ -270,7 +270,7 @@ int main() {
     meta.order = {{"newstuff", "1.0.0", ""}, {"tuner", "1.0.0", ""}, {"remover", "1.0.0", ""}};
     const json doc = report_json(s, r, meta);
     CHECK(doc["schema"]["registrySchema"] == 1 && doc["schema"]["registries"]["items"] == "0.1.1" && doc["schema"]["registries"].size() == s.registries.size() &&
-          doc["schema"]["registries"]["creatures"] == "0.1.0");
+          doc["schema"]["registries"]["creatures"] == "0.1.1");  // the taming fields (dev.32 TAME review)
     bool saw_ms = false, saw_xp = false;
     for (const json& f : doc["fields"]) {
         saw_ms = saw_ms || (f["registry"] == "items" && f["id"] == "game:wood" && f["field"] == "maxStack" && f["applies"] == "worldLoad");
