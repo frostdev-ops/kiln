@@ -36,7 +36,7 @@ public sealed class RegistryContextTests
         Assert.Equal(RegistryContextError.Closed, Assert.Throws<RegistryContextException>(() => item.MaxStack = 20).Code);
     }
 
-    // 0.2.0-dev.31.19: the singleton loot rules and the keyed random loot tables record edits in Kiln names and shapes
+    // 0.2.0-dev.32: the singleton loot rules and the keyed random loot tables record edits in Kiln names and shapes
     [Fact]
     public void LootRulesAndRandomLootRecordKilnShapedEdits()
     {

@@ -669,7 +669,7 @@ and LootItems (`0x93d3b0` / `0xe96190`). Listings and the scan's JSON: `dev31/ou
   before dev.32, so every recipe's station decodes as none: the row stays unproven with that reason.
 
 ## 12. Random loot tables and the world-wide rarity weights (server 26430253 `f0d824be…`, client 26430625 `5d9ef2f1…`) **[dis] [data] [refl]**
-What the `lootRules` and `randomLoot` registries (0.2.0-dev.31.19) rest on. Source: the Loot Rarity Leveler lane's
+What the `lootRules` and `randomLoot` registries (0.2.0-dev.32) rest on. Source: the Loot Rarity Leveler lane's
 SPEC-core (`dev31/out/lrl/SPEC-core.md` section 2, static analysis of the server exe with client addresses by byte match,
 data decoded with `tools/kfc/kfc.py` from the client's untouched `.kfc.bak` pair), checked against Kiln's reflection on both
 exes (`regmap_check.py --exe`: every row resolves).

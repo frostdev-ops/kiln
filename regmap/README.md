@@ -34,7 +34,7 @@ Adding a registry (schema, mapping, back-ends, proof, tests, and the pitfalls th
                   "state": "unproven", "reason": "no game code reads an item's burn time on this build, ..." } } }
 ```
 
-**Kind arrays (0.2.0-dev.31.19, randomLoot).** The entries of one registry from several game sources:
+**Kind arrays (0.2.0-dev.32, randomLoot).** The entries of one registry from several game sources:
 
 ```jsonc
 "entries": { "kind": "arrays", "sources": [

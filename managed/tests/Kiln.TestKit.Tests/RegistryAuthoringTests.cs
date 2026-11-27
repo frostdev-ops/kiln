@@ -30,7 +30,7 @@ public sealed class RegistryAuthoringTests
         Assert.Contains(Coverage.All, row => row.Area == "Registry authoring" && row.Kind == CoverageKind.RecordingFake && row.Capabilities.Count == 0);
         kiln.Unload(mod); // the mod verifies that a retained cell failed closed and releases it
     }
-    // 0.2.0-dev.31.19: Registry.Reauthor offline is recorded (the test runs the pass itself with Author); another point is
+    // 0.2.0-dev.32: Registry.Reauthor offline is recorded (the test runs the pass itself with Author); another point is
     // refused as in a game
     [Fact]
     public void ReauthorRequestsAreRecordedNotRun()

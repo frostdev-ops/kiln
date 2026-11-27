@@ -990,7 +990,7 @@ void loot_flags_foreign_revert_is_skipped() {
     registry_live_revert(71, h, &reply);
     check(reply.outcome == RegistryLiveOutcome::Skipped && at<uint8_t>(MASK_AT) == 0x10, "a flags revert keeps another writer's byte (compare before write)");
 }
-// 0.2.0-dev.31.19, Loot Rarity Leveler: lootRules (the world-wide rarity weights) and randomLoot (each random loot table's
+// 0.2.0-dev.32, Loot Rarity Leveler: lootRules (the world-wide rarity weights) and randomLoot (each random loot table's
 // level rules and rarity weights) are plain floats and enums of resident tables, written by the generic scalar binder
 constexpr size_t RULES_AT = 0x44000, TABLE_AT = 0x44100, WORLD_AT = 0x44200;
 constexpr uint32_t RULES = 0x51, TABLE = 0x80943338u, WORLD_TABLE = 0x61;
