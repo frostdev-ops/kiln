@@ -40,6 +40,7 @@ function RegistryFor({ gameId }: { gameId: string }) {
         <Card title={t("registry.snapshot")} sub={t("registry.snapshotSub", { time: new Date(r.written).toLocaleString(language), generation: r.generation, phase: r.phase })}>
           <p>{t("registry.baseOrigin", { origin: r.baseOrigin })}</p><p>{t("registry.archiveWriter", { writer: r.baseWriter })}</p>
           {r.journal && <p className="registry-journal">{r.journal}</p>}
+          {r.replay.map((line, i) => <p key={i} className="registry-journal" data-testid="registry-replay">{line}</p>)}
           {!r.verified && <Banner tone="warn" title={t("registry.unverified")}>{t("registry.unverifiedBody")}</Banner>}
           <p className="registry-hint">{t("registry.certaintyHint")}</p>
         </Card>

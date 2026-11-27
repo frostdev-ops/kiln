@@ -6836,11 +6836,26 @@
       "notNamed": "Archive-writer packages are not named in this start: {reason}",
       "none": "this start's archive writer keeps no change journal.",
       "stale": "the change journal belongs to an earlier start.",
-      "unreadable": "the change journal could not be read."
+      "unreadable": "the change journal could not be read.",
+      "readHosted": "Archive-writer packages named from hosted ShroudForge's change journal: {packages} packages, {entries} entries (named on the fields they changed, on recipes and loot by their element).",
+      "truncatedHosted": "Archive-writer packages named from hosted ShroudForge's change journal: {packages} packages, {entries} entries (named on the fields they changed, on recipes and loot by their element). The journal is truncated, so a package may have changed entries it does not name."
     },
     "sfPackage": "{id} (ShroudForge package)",
     "emlPackage": "{id} (EML package)",
     "archiveUnattributed": "A startup write of no package Kiln can name (kiln-eml)",
+    "archiveUnattributedHosted": "A startup write of no package Kiln can name (hosted ShroudForge)",
+    "replayedSf": "{id} (ShroudForge package, replayed from its recorded effect)",
+    "replayedEml": "{id} (EML package, replayed from its recorded effect)",
+    "replay": {
+      "row": "Effect replay, {who}: {state}. {text}",
+      "optIn": "the opt-in file",
+      "state": {
+        "recorded": "recorded",
+        "replayed": "replayed",
+        "refused": "not replayed",
+        "none": "nothing to do"
+      }
+    },
     "archiveOp": "Not known (kiln-eml's journal names the entry this package wrote, not this field)",
     "archiveOpField": "Not known (kiln-eml's journal names this field as written by this package, not the value)",
     "kind": {

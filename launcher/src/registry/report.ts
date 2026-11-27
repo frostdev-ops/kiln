@@ -28,6 +28,8 @@ export interface RegistryReport {
   written: string; generation: number; phase: string; baseOrigin: string; baseWriter: string; verified: boolean;
   /** Whether the archive writer's packages are named (base.journal, since 0.2.0-dev.31.17); empty: nothing to say. */
   journal: string;
+  /** Effect replay (registry.json "replay", next release): one line per opted-in package; empty: none is opted in. */
+  replay: string[];
   fields: RegistryField[]; conflicts: RegistryConflict[]; refused: RegistryRefusal[]; restart: RegistryRestart;
   entries: { kind: string; registry: string; id: string; state: string; owner: string; source: string; reason: string }[]; omitted: number; empty: boolean;
   /** Earlier writers left out of field chains: native's truncated.writers plus this view's own 64-writer cut. */
@@ -67,10 +69,17 @@ export function redactRaw(s: string): string {
 }
 const omitted = (x: unknown): number => x === undefined ? 0 : count(x);
 const optional = (x: unknown): string => x === undefined ? "" : text(x);
-const owner = (x: unknown): string => x === null ? t("registry.baseOwner") : text(x);
-// An archive-writer package (report.cpp: "shroudforge:<id>", "eml:<id>", "kiln-eml:unattributed") as players read it.
+// A replayed package's stand-in writer (stage.cpp effect replay: mod "replay.sf.<id>" / "replay.eml.<id>", its writer rows
+// marked "standIn"); null: not that form. Only ids a standIn row carries are read so: a Kiln mod may have such an id too.
+function replayOwner(mod: string): string | null {
+  const m = /^replay\.(sf|eml)\.(.+)$/.exec(mod);
+  return m ? t(m[1] === "eml" ? "registry.replayedEml" : "registry.replayedSf", { id: m[2] }) : null;
+}
+// An archive-writer package (report.cpp: "shroudforge:<id>", "eml:<id>", "kiln-eml:unattributed",
+// "shroudforge-hosted:unattributed") as players read it.
 function archiveOwner(who: string): string {
   if (who === "kiln-eml:unattributed") return t("registry.archiveUnattributed");
+  if (who === "shroudforge-hosted:unattributed") return t("registry.archiveUnattributedHosted");
   const m = /^(shroudforge|eml):(.+)$/.exec(who);
   return m ? t(m[1] === "eml" ? "registry.emlPackage" : "registry.sfPackage", { id: m[2] }) : who;
 }
@@ -84,9 +93,23 @@ function writerKind(kind: string, named?: unknown): string {
 function journalLine(base: ObjectRow): string {
   if (base.journal === undefined) return "";
   const j = object(base.journal), state = text(j.state);
+  if (state === "read" && j.writer === "shroudforge")
+    return t(j.truncated === true ? "registry.journal.truncatedHosted" : "registry.journal.readHosted", { packages: count(j.packages), entries: count(j.entries) });
   if (state === "read") return t(j.truncated === true ? "registry.journal.truncated" : "registry.journal.read", { packages: count(j.packages), entries: count(j.entries) });
   if (state === "none" && text(base.writer) === "none") return "";
   return t("registry.journal.notNamed", { reason: j.text === undefined ? t(`registry.journal.${state === "stale" || state === "unreadable" ? state : "none"}`) : redactRaw(text(j.text)) });
+}
+// registry.json "replay": absent before the next release and when no package is opted in.
+function replayLines(x: unknown): string[] {
+  if (x === undefined) return [];
+  return array(x).slice(0, REPORT_LIMITS.rows).map(y => {
+    const r = object(y), who = text(r.who), state = text(r.state);
+    return t("registry.replay.row", {
+      who: who ? archiveOwner(who) : t("registry.replay.optIn"),
+      state: t(`registry.replay.state.${["recorded", "replayed", "refused", "none"].includes(state) ? state : "none"}`),
+      text: redactRaw(text(r.text)),
+    });
+  });
 }
 function certainty(x: unknown): string {
   return t(`registry.certainty.${x === "certain" || x === "named" || x === "bestEffort" ? x : "unknown"}`);
@@ -158,6 +181,14 @@ export function parseRegistryReport(input: string): RegistryReport {
     total += Math.max(count(totals[key]), rows.length);
     left += count(truncated[key]) + Math.max(0, rows.length - REPORT_LIMITS.rows);
   }
+  // the stand-in writers' mod ids (writer rows with "standIn", effect replay): a winner or a writer of one names the package
+  const standIns = new Set<string>();
+  for (const x of fields.slice(0, REPORT_LIMITS.rows))
+    for (const y of array(object(x).writers)) {
+      const w = object(y);
+      if (w.standIn === true && typeof w.mod === "string") standIns.add(w.mod);
+    }
+  const owner = (x: unknown): string => x === null ? t("registry.baseOwner") : (standIns.has(text(x)) && replayOwner(text(x))) || text(x);
   let launcherWriterCut = 0;
   const seen = new Map<string, number>();
   const fieldRows = fields.slice(0, REPORT_LIMITS.rows).map(x => {
@@ -180,7 +211,7 @@ export function parseRegistryReport(input: string): RegistryReport {
         // list and leaf, so a chain says which element an operation changed
         const element = w.element === undefined || raw ? "" : isKilnField(text(f.registry), text(w.element)) ? text(w.element) : t("registry.elementHidden");
         const kind = text(w.kind), who = optional(w.who);
-        return { element, owner: kind === "archiveWriter" && who ? archiveOwner(who) : who || optional(w.mod) || t("registry.referenceCheck"), kind: writerKind(kind, w.named), stage: optional(w.stage),
+        return { element, owner: kind === "archiveWriter" && who ? archiveOwner(who) : (w.standIn === true && replayOwner(text(w.mod))) || who || optional(w.mod) || t("registry.referenceCheck"), kind: writerKind(kind, w.named), stage: optional(w.stage),
           // an archive-writer package: kiln-eml's journal names the entry (or the field) it wrote, not what it did there
           operation: kind === "archiveWriter" ? t(w.named === "field" ? "registry.archiveOpField" : "registry.archiveOp")
             : w.list !== undefined ? value(w.list, w.listEntriesLeftOut) : w.op !== undefined ? value(w.op, w.opEntriesLeftOut) : t("registry.referenceOp"),
@@ -203,6 +234,7 @@ export function parseRegistryReport(input: string): RegistryReport {
     written, generation: count(r.generation), phase: text(r.phase), baseOrigin: text(base.origin), baseWriter: text(base.writer), verified: regmap.verified,
     restart: { total: Math.max(totals.restartRequired === undefined ? 0 : count(totals.restartRequired), restartRows.length), rows: restartRows },
     journal: journalLine(base),
+    replay: replayLines(r.replay),
     fields: fieldRows, writersOmitted: omitted(truncated.writers) + launcherWriterCut,
     conflicts: conflicts.slice(0, REPORT_LIMITS.rows).map(x => {
       const c = object(x), field = text(c.field);

@@ -118,6 +118,37 @@ describe("untrusted registry report", () => {
     const stale = parse({ ...registryFixture(), base: { origin: "live", writer: "kiln-eml", journal: { state: "stale", packages: 0, entries: 0, truncated: false, text: "left by an earlier start" } } });
     expect(stale.journal).toBe("Archive-writer packages are not named in this start: left by an earlier start");
   });
+  test("hosted ShroudForge's journal, a replayed package's writer and the replay lines (0.2.0-dev.32)", () => {
+    const hosted = parse({ ...registryFixture(), base: { origin: "live", writer: "shroudforge-hosted", journal: { state: "read", packages: 2, entries: 3, truncated: false, text: "x", writer: "shroudforge" } } });
+    expect(hosted.journal).toBe("Archive-writer packages named from hosted ShroudForge's change journal: 2 packages, 3 entries (named on the fields they changed, on recipes and loot by their element).");
+    const r = registryFixture();
+    r.fields[0].writers = [
+      { kind: "archiveWriter", who: "shroudforge-hosted:unattributed", value: 10, certainty: "named" },
+      { kind: "registry", mod: "replay.sf.betterstacks", standIn: true, op: 33, value: 33, certainty: "certain" },
+      { kind: "registry", mod: "replay.eml.morestacks", standIn: true, op: 34, value: 34, certainty: "certain" },
+      { kind: "registry", mod: "replay.sf.realmod", op: 35, value: 35, certainty: "certain" },
+      ...r.fields[0].writers,
+    ] as typeof r.fields[0].writers;
+    const out = parse({ ...r, replay: [
+      { who: "shroudforge:betterstacks", state: "replayed", text: "its Lua was not applied on this game build (boom); its effect recorded on build 0123abcd is replayed through the registry: 1 field(s)", fields: 1, recordedOn: "0123abcd" },
+      { who: "", state: "refused", text: "replay/opt-in.json is not {...}: no package is opted in to effect replay", fields: 0 },
+    ] });
+    expect(out.fields[0].writers.map(w => w.owner).slice(0, 4)).toEqual([
+      "A startup write of no package Kiln can name (hosted ShroudForge)",
+      "betterstacks (ShroudForge package, replayed from its recorded effect)",
+      "morestacks (EML package, replayed from its recorded effect)",
+      "replay.sf.realmod",  // a Kiln mod with such an id, no standIn row: named as itself
+    ]);
+    // a winner that is a stand-in names the package; a Kiln mod of such an id stays itself
+    const won = parse({ ...r, fields: [{ ...r.fields[0], winner: "replay.sf.betterstacks" }, { ...r.fields[0], winner: "replay.sf.realmod" }] });
+    expect(won.fields.map(f => f.winner)).toEqual(["betterstacks (ShroudForge package, replayed from its recorded effect)", "replay.sf.realmod"]);
+    expect(out.replay).toEqual([
+      "Effect replay, betterstacks (ShroudForge package): replayed. its Lua was not applied on this game build (boom); its effect recorded on build 0123abcd is replayed through the registry: 1 field(s)",
+      "Effect replay, the opt-in file: not replayed. replay/opt-in.json is not {...}: no package is opted in to effect replay",
+    ]);
+    expect(parse(registryFixture()).replay).toEqual([]);  // a report without replay rows
+    expect(() => parse({ ...registryFixture(), replay: [{ who: 7, state: "replayed", text: "x", fields: 0 }] })).toThrow();
+  });
   test.each(["null", "[]", "{}", "{", '{"format":2}'])("rejects invalid or unsupported document %s", text => {
     expect(() => parseRegistryReport(text)).toThrow();
   });
