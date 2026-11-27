@@ -1191,7 +1191,9 @@ bool value_slot(uint32_t section, uint32_t id, const std::string& name, Root roo
     std::string err;
     bool first_missing = false;
     if (!resolve(root, at, path, &rs, &err, &first_missing) || rs.empty()) {
-        out->absent = first_missing;  // the entry lacks the component (or member) the path starts at: this entry has none
+        // a template lacking the component the path starts at: this entry has none (only some templates have it). A plain
+        // root's entries share one type, so a first member it lacks is a mapping this build broke, not an absent value.
+        out->absent = first_missing && root == Root::Template;
         return *why = err.empty() ? std::string(what) + " has no " + path : err, false;
     }
     Resolved r = rs[0];
