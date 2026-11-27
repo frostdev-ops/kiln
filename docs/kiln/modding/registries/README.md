@@ -9,14 +9,13 @@ your mod.
 Registries hold **data only**. Services and events (Kiln.Content, Kiln.Items, Kiln.World, ...) stay as they are: a
 registry replaces raw data paths, not services.
 
-**Status in this release: experimental (`KILNX031`), schema version 0.1.0.** The schemas, the generated C# types (`Kiln.Registry`), the field
-catalog (`Kiln.Registry.RegistrySchema`) and these pages ship, and the registry stage reads a data pack's `registry` section at
-start (fields that apply now or at world load also follow a pack's hot reload). Since mod API **0.2.17**, C# mods can author
-through `Mod.OnRegistry(RegistryContext)` and use explicit owner-scoped live changes through `Kiln.Registry.Registry.Change`.
-GameStart entry operations add items/recipes through Kiln's content definitions and hide items/recipes/loot without deleting game records.
-Unsupported or unproven operations are refused with their reason in kiln.log and registry.json.
-Until a registry is marked stable its shape may change in any
-release; from API 1.0.0 the stable registries' contract is frozen (additive only).
+**Status: experimental (`KILNX031`), schema version 0.1.x.** The schemas, the generated C# types (`Kiln.Registry`), the field
+catalog (`Kiln.Registry.RegistrySchema`) and these pages ship. The registry stage reads a data pack's `registry` section at start
+(fields that apply now or at world load also follow a pack's hot reload). Since mod API **0.2.17**, C# mods author through
+`Mod.OnRegistry(RegistryContext)` and make explicit owner-scoped live changes through `Kiln.Registry.Registry.Change`. GameStart
+entry operations add items and recipes through Kiln's content definitions and hide items, recipes and loot without deleting the
+game's records. Unsupported or unproven operations are refused with their reason in kiln.log and registry.json. Until a registry is
+marked stable its shape may change in any release; from API 1.0.0 the stable registries' contract is frozen (additive only).
 
 **Versions.** Experimental schemas are 0.x; a schema reaches 1.0.0 when it is frozen with API 1.0.0. Within one breaking
 line (0.<minor> while experimental, <major> from 1.0.0) a field may only be added, widen its range, get new enum values
@@ -37,62 +36,42 @@ its new one, is refused (which value it meant is unknown). kiln.log (`registry: 
 through the generated properties of the Kiln.Registry they run with, so their edits always carry the running names. No
 registry has a breaking step yet: every schema is 0.1.x (balance 0.1.1 widened a range), and Kiln ships no migration rows.
 
-| Registry | Entries | Page |
-|---|---|---|
-| `items` | every item: stacks, rarity, levels, power, speed, damage, armour, costs, perks, socket | [items.md](items.md) |
-| `recipes` | every crafting recipe: inputs, outputs, duration | [recipes.md](recipes.md) |
-| `loot` | random loot per item: stack sizes, rarities | [loot.md](loot.md) |
-| `drops` | the game's drop tables (default inventories) | [drops.md](drops.md) |
-| `balance` | the balance table: experience, levels, flame, durability, sockets, perk costs | [balance.md](balance.md) |
-| `creatures` | every creature (enemies, wildlife, farm animals, villagers): level, faction, size, health and damage scaling, resistances, speeds, random loot, sight, a wild animal's taming steps; its kind, arsenal, tameable and favourite bait read-only (since 0.2.0-dev.32) | [creatures.md](creatures.md) |
-| `arsenals` | the enemies' arsenals: each attack's chance, threat and ranges (since 0.2.0-dev.32) | [arsenals.md](arsenals.md) |
-| `perks` | every perk: the value it grants, the armour and damage bonus of the simple perks (since 0.2.0-dev.32) | [perks.md](perks.md) |
-| `skills` | the skill tree's nodes: their cost in skill points; levels, kind, class and unlocked ability read-only (since 0.2.0-dev.32) | [skills.md](skills.md) |
-| `stations` | the crafting stations (workbench, production stations, villagers' stations), read-only; a recipe names its station (since 0.2.0-dev.32) | [stations.md](stations.md) |
-| `buffs` | every buff and debuff: duration, what applying it again does (since 0.2.0-dev.32) | [buffs.md](buffs.md) |
-| `abilities` | every timed action (spell casts, attacks, abilities, item uses): when it releases, hits, pays and applies a buff (since 0.2.0-dev.32) | [abilities.md](abilities.md) |
-| `world` | the world's build rules from its scene: no-build zones, the big dungeons' playable areas (since 0.2.0-dev.32) | [world.md](world.md) |
-| `difficulty` | the bounds of the world's difficulty settings: each setting's lowest and highest value (since 0.2.0-dev.32) | [difficulty.md](difficulty.md) |
-| `limits` | limits the game's code holds as fixed numbers: the most Flame Altars, the gifting distance; Kiln's own hooks answer the game's checks (since 0.2.0-dev.32) | [limits.md](limits.md) |
-| `lootRules` | the world-wide random-loot rules: the rarity weights of rolls whose table sets none (one entry, `game:loot`; 0.2.0-dev.32) | [lootRules.md](lootRules.md) |
-| `randomLoot` | every random loot table: its level rules (level, offset, random range) and its own rarity weights; `game:labels_*` serve enemies and generic containers, `game:world_*` the chests placed in the world (0.2.0-dev.32) | [randomLoot.md](randomLoot.md) |
+## Every registry
 
-`buffs` and `abilities` (dev.32) are kiln.gamedata's data under Kiln names: the same buffs and sequences a data pack's
-`buffs` / `sequences` sections change by the game's paths ([gamedata.md](../../services/gamedata.md)), which keep working as
-they are; a registry edit is the later layer and wins (reported). They take no raw paths and no entry add or remove (a mod's
-own buffs and abilities are kiln.gamedata clones or blocks). A spell's costs are its item's (`items.manaCost`,
-`items.staminaCost`); `abilities.timing.*` moves the moment of the first event of a kind together with every event of that kind
-at the same moment. Example: [SpellRegistry sample](../../../../mods/samples/SpellRegistry/SpellRegistryMod.cs) (a data pack for
-Fireball I's timing, C# for a buff's duration).
+Each registry has one page, **the same on all of them**: what it holds, its ids and fields (made from the schema), then how a data
+pack edits it, how C# edits it, its views, a worked example, what multiplayer does and its known limits.
 
-In multiplayer, `buffs` fields are the server's alone (`serverOnly`: a client shows the time the server gave the buff). An
-`abilities.timing.*` edit makes the server spawn, hit, pay and apply buffs at the new time; a vanilla client keeps playing the
-ability's animation and effects at the old times, and a Kiln client gets the new time through the content sync. One exception:
-a time moved past a later event of the same kind in that ability is not sent, so Kiln clients keep the old time there too (the
-server still acts at the new one); a move that keeps the order (earlier, or later but not past such an event) is sent.
+| Registry | What it holds | Edit | Page |
+|---|---|---|---|
+| `items` | every item: stacks, rarity, levels, power, speed, damage, armour, costs, perks, sockets | fields; add, hide | [items.md](items.md) |
+| `recipes` | every crafting recipe: inputs, outputs, duration, unlock; its station read-only | fields; add, hide | [recipes.md](recipes.md) |
+| `loot` | random loot per item: stack sizes, rarities | fields; hide | [loot.md](loot.md) |
+| `drops` | the game's drop tables (default inventories): counts, chances, weights | fields, stacks | [drops.md](drops.md) |
+| `balance` | the balance table: experience, levels, flame, durability, sockets, perk costs (one entry, restart) | fields | [balance.md](balance.md) |
+| `creatures` | every creature (enemies, wildlife, farm animals, villagers): level, faction, size, health and damage scaling, resistances, speeds, loot, sight, taming steps | fields | [creatures.md](creatures.md) |
+| `arsenals` | the enemies' arsenals: each attack's chance, threat and ranges | fields | [arsenals.md](arsenals.md) |
+| `perks` | every perk: its value, the armour bonus of the simple perks | fields | [perks.md](perks.md) |
+| `skills` | the skill tree's nodes: cost in skill points (levels, kind, class, unlocked ability read-only) | `cost` | [skills.md](skills.md) |
+| `stations` | the crafting stations (workbench, production stations, villagers' stations) | read-only | [stations.md](stations.md) |
+| `buffs` | every buff and debuff: duration and what applying it again does | fields | [buffs.md](buffs.md) |
+| `abilities` | every timed action (spell casts, attacks, abilities, item uses): when it releases, hits, pays and applies a buff | fields | [abilities.md](abilities.md) |
+| `world` | the world's build rules from its scene: no-build zones, the big dungeons' playable areas (restart) | fields, boxes | [world.md](world.md) |
+| `difficulty` | the bounds of the world's difficulty settings: each setting's lowest and highest value (restart) | fields | [difficulty.md](difficulty.md) |
+| `limits` | numbers the game's code holds: the most Flame Altars, the gifting distance (restart) | fields | [limits.md](limits.md) |
+| `lootRules` | the world-wide rarity weights of random loot (one entry, `game:loot`) | fields | [lootRules.md](lootRules.md) |
+| `randomLoot` | every random loot table: its level rules and its own rarity weights | fields | [randomLoot.md](randomLoot.md) |
 
-**Loot odds and loot levels (`lootRules`, `randomLoot`, 0.2.0-dev.32).** A data pack doubles the world-wide legendary
-weight and gives every enemy and generic-container table two levels more; the tables of the chests placed in the world
-are `game:world_*`:
+`items`, `recipes`, `loot`, `drops` and `balance` ship since 0.2.0-dev.31; the other twelve since 0.2.0-dev.32. `buffs` and `abilities` are kiln.gamedata's data under Kiln names: the data packs'
+older `buffs` and `sequences` sections (the game's paths) keep working, and a registry edit is the later layer and wins (reported).
 
-```json
-{ "registry": { "alter": [
-  { "registry": "lootRules", "select": { "id": "game:loot" }, "field": "rarityWeights.legendary", "op": { "mul": 2 } },
-  { "registry": "randomLoot", "select": { "id": "game:labels_*" }, "field": "levelOffset.mode", "op": "add" },
-  { "registry": "randomLoot", "select": { "id": "game:labels_*" }, "field": "levelOffset.value", "op": 2 } ] } }
-```
+The per-registry pages are generated: the reference from `schema/registry/<registry>.json` and the sections after "Entries" from
+`schema/registry/<registry>.guide.md`, by `tools/registrygen/registrygen.py`. Edit those two, never the page. Kiln maintainers
+adding a registry: [adding-a-registry.md](../../adding-a-registry.md).
 
-In C# the same from settings ([RegistryEdits sample](../../../../mods/samples/RegistryEdits/RegistryEditsMod.cs); to follow
-a settings change while a world runs, `Registry.Reauthor(RegistryEntryPoint.WorldLoad)` below): select tables by the id
-prefixes and their values (`table.Rarity.Legendary.Mode == RandomLootMode.Set`: the elite, boss and
-chest tables with their own odds), not by a table's full id from another build. Both registries are read by the server
-world at each roll, so an edit reaches the next roll; loot already rolled keeps what it got.
+### World rules and limits (since 0.2.0-dev.32)
 
-The per-registry pages are generated from `schema/registry/<registry>.json` by `tools/registrygen/registrygen.py`; edit
-the schema, never the page. Kiln maintainers adding a registry: [adding-a-registry.md](../../adding-a-registry.md).
-
-**World rules and limits (dev.32).** `world` and `difficulty` are data the game reads at start (the world scene's boxes, the
-settings' bounds); `limits` are numbers the game keeps in its code, which Kiln answers through hooks of its own, installed only
+[`world`](world.md) and [`difficulty`](difficulty.md) are data the game reads at start (the world scene's boxes, the settings'
+bounds); [`limits`](limits.md) are numbers the game keeps in its code, which Kiln answers through hooks of its own, installed only
 for a value that is not the game's. What existing mods do that these cover: EMBER's build anywhere and no boundary
 (`world.noBuildZones`, `world.playableAreas` cleared), XHL Enemy Difficulty Limits' raised bounds (`difficulty.<setting>.max`),
 XHL Unlimited Gifting Range (`limits.giftingRange`), More Flame Altars' altars above 16 (`limits.maxAltars` with
@@ -108,6 +87,17 @@ A mod's own hook of the same game check as a `limits` value (More Flame Altars' 
 `limits.maxAltars`) is never refused: both hooks stay in one chain and the first one answers. Kiln warns in kiln.log and reports
 it in registry.json `conflicts` and the launcher's Conflicts view as a conflict with an older path (certain for a hook made
 through Kiln's hooks, best effort for another module's jump), naming which one answers. Use one of the two.
+
+### Loot odds and loot levels (since 0.2.0-dev.32)
+
+[`lootRules`](lootRules.md) (the world-wide rarity weights) and [`randomLoot`](randomLoot.md) (each table's level rules and own
+weights) are read by the server world at each roll, so an edit reaches the next roll; loot already rolled keeps what it got. The
+tables of the chests placed in the world are `game:world_*`, those of enemies and generic containers `game:labels_*`. Select
+tables by these prefixes and their values (`table.Rarity.Legendary.Mode == RandomLootMode.Set`: the elite, boss and chest
+tables with their own odds), not by a table's full id from another build. A data pack that doubles the world-wide legendary weight
+and gives every enemy and generic-container table two levels more is the [randomLoot](randomLoot.md#worked-example) page's example.
+To follow a settings change while a world runs: `Registry.Reauthor(RegistryEntryPoint.WorldLoad)`
+([below](#explicit-changes-and-ready); [RegistryEdits sample](../../../../mods/samples/RegistryEdits/RegistryEditsMod.cs)).
 
 **One view over every registry and resource type** (since 0.2.0-dev.32): [views.md](views.md). `RegistryViews` reads any
 registry by name (stable) and any other resource type of the running build under Kiln names derived from the game's
@@ -415,44 +405,28 @@ the capability name when querying `Capabilities`.
 | `registry.world.playableAreas.min.x` (`.y`, `.z`) | `world.playableAreas[].min.x` (`.y`, `.z`) |
 | `registry.world.playableAreas.max.x` (`.y`, `.z`) | `world.playableAreas[].max.x` (`.y`, `.z`) |
 
-## Creatures, arsenals and perks (dev.32, experimental)
+## Creatures, arsenals and perks (since 0.2.0-dev.32, experimental)
 
-Three registries over the game's creature and perk data, experimental (`KILNX031`, schema 0.1.0) for this release:
+Three registries over the game's creature and perk data ([creatures](creatures.md), [arsenals](arsenals.md), [perks](perks.md);
+`KILNX031`, schema 0.1.x). What they share:
 
-- **`creatures`**: one entry per creature template: enemies, wild animals, farm animals and villagers (689 on the current
-  build). A creature's id is its template's id (`game:enemy_vukah_melee`), the same id pets, taming and spawning name it by.
-  Its `kind` (enemy, wildlife, animal, villager) and `arsenal` are read-only; the kind is also its trait (`"has":
-  ["enemy"]` in a selector). An edit is global to the creature kind, never one creature (kiln.creatures' per-creature setters stay for
-  that). Fields a creature copies as it spawns (level, faction, size, resistances, speeds, loot, the damage multiplier) reach
-  creatures that **spawn after** the edit; the health and damage scaling and an enemy's sight are read at once by every
-  creature of the entry, also those already in the world. Not every creature has every field (most have no size of their
-  own, only enemies have sight and an arsenal): such an entry reads `null` (a typed C# property reads 0, or false, there:
-  tell such creatures by their `Kind` or id, never by a 0, which for `resist.*` would mean immune), an absolute value is refused for it alone
-  ("this creature has no value of this field"), and a relative op over it refuses that edit, so select the creatures that
-  have one (`"select": {"id": "game:*", "has": ["enemy"]}`, or by id).
-- **`arsenals`**: the attacks an enemy chooses from. Enemies of one kind share an arsenal, named after the first creature
-  that uses it (`game:enemy_vukah_melee`); an edit reaches every enemy that uses it, at its next decision. `attacks[i]` is the
-  game's order; an arsenal keeps its attacks (only their values change: an append or removal is refused).
-- **`perks`**: the ids `items.perks` already holds. `value` is the amount the perk grants, the number its tooltip shows (a
-  share as a fraction where the tooltip shows a percentage; below 0 for a perk that lowers a cost), read when the perk's
-  effect starts (the item equipped, the perk unlocked): an effect already running keeps its value until it starts again. A
-  perk whose game value is a whole number takes whole numbers only (`not_exact: ...`, never rounded), and the tooltip row
-  follows. The simple armour perks' `armor.*` is read whenever armour is computed; the simple damage perks' `damage.*` is
-  refused until a Kiln update traces when the game reads it.
+- A **creature** is one entry per template: enemies, wild animals, farm animals and villagers (689 on the current build), with the
+  template's id (`game:enemy_vukah_melee`), the id pets, taming and spawning name it by. An edit is global to the creature's
+  kind, never one creature. Fields a creature copies as it spawns reach creatures that **spawn after** the edit; health and damage
+  scaling, sight and taming steps are read at once by every creature of the entry.
+- Not every creature has every field (most have no size of their own; only enemies have sight and an arsenal): such an entry
+  reads `null`, a typed C# property reads 0 or false there (tell such creatures by `Kind` or id, never by a 0, which for
+  `resist.*` would mean immune), an absolute value is refused for it alone, and a relative operation over it refuses that edit.
+  Select the creatures that have the field (`"has": ["enemy"]`) or name them.
+- An **arsenal** is what an enemy chooses its attacks from. Enemies of one kind share one, named after the first creature that uses
+  it; an edit reaches every enemy that uses it, at its next decision. It keeps its attacks (only their values change).
+- A **perk**'s `value` is read when its effect starts (the item equipped, the perk unlocked): an effect already running keeps its
+  value. A perk whose game value is a whole number takes whole numbers only (`not_exact: ...`, never rounded). The simple armour perks'
+  `armor.*` is read whenever armour is computed; `damage.*` is refused until a Kiln update traces when the game reads it.
 
-```json
-{ "format": 1,
-  "registry": { "alter": [
-    { "registry": "creatures", "select": { "id": "game:enemy_vukah_*", "has": ["enemy"] }, "field": "sight.range", "op": { "mul": 1.5 } },
-    { "registry": "creatures", "select": "game:enemy_wildbeast_wolf_earlygame", "field": "level", "op": 12 },
-    { "registry": "arsenals", "select": "game:enemy_vukah_melee", "field": "attacks[*].chance", "op": { "mul": 0.5 } },
-    { "registry": "perks", "select": "game:perk_damage_ice", "field": "value", "op": { "mul": 2 } } ] } }
-```
-
-Data packs with only creatures, arsenals or perks edits: `creatures` and `arsenals` are `serverOnly` (`clients: "none"`);
-`perks.value` and `perks.armor.*` follow the content sync to Kiln clients (`clients: "kiln"` for matching tooltips and
-armour; a vanilla client keeps its own numbers). C# names them `view.Creatures[...]`, `view.Arsenals[...]` and
-`view.Perks[...]` ([RegistryEdits sample](../../../../mods/samples/RegistryEdits/RegistryEditsMod.cs)).
+`creatures` and `arsenals` are `serverOnly` (`clients: "none"`); `perks.value` and `perks.armor.*` follow the content sync to Kiln
+clients (`clients: "kiln"` for matching tooltips and armour; a vanilla client keeps its own numbers). The
+[RegistryEdits sample](../../../../mods/samples/RegistryEdits/RegistryEditsMod.cs) edits all three from C# and from a data pack.
 
 ## When an edit takes effect: applies
 
@@ -466,9 +440,9 @@ Every field of every registry says when an edit of it takes effect, in the schem
 | `restart` | after a game restart: the game reads it once at start | the balance table |
 
 A field whose read time Kiln has not traced yet ships with the more cautious value (worldLoad or restart, never now) and an
-unproven mapping (refused per entry, with a reason, until a Kiln update proves it); no field is in that state in this release.
-One field stays off on the current build, for a proven reason, and every edit of it is refused with it:
-`items.fuel.burnTime` (no game code reads an item's burn time on this build, so an edit would change nothing).
+unproven mapping (refused per entry, with a reason, until a Kiln update proves it). Fifteen fields are in that state on the
+current build: `items.fuel.burnTime` (no game code reads an item's burn time on this build, so an edit would change nothing) and
+the `perks.damage.*` bonus fields (when the game reads a perk's damage bonus is not traced yet).
 `recipes.station` is mapped since 0.2.0-dev.32 (read-only: it names a `stations` id, `null` for a recipe of the player's
 own crafting), so data packs and C# can select recipes by station (`"where": {"station": "game:prop_production_t1_forge"}`).
 Each page's Mapping column says which fields this Kiln maps, which are unproven and why.
@@ -518,8 +492,8 @@ matching files ([data-pack caveat](../../services/content.md#multiplayer-registr
 
 | Fields / operation | `clients` | Why |
 |---|---|---|
-| `loot`, `drops`; any `serverOnly` field (including the read-only balance gear constants, which cannot be edited) | `none` | Only the server needs the values. |
-| Synced `items` / `recipes` / `abilities` fields (`now` or `worldLoad`), `skills.cost` | `kiln` for matching UI/prediction; `none` deliberately permits vanilla UI/prediction | Kiln clients get server layers; vanilla clients do not. |
+| `loot`, `drops`, `creatures`, `arsenals`, `buffs`, `lootRules`, `randomLoot`; any `serverOnly` field (including the read-only balance gear constants, which cannot be edited) | `none` | Only the server needs the values. |
+| Synced `items` / `recipes` / `abilities` fields (`now` or `worldLoad`), `perks.value` and `perks.armor.*`, `skills.cost` | `kiln` for matching UI/prediction; `none` deliberately permits vanilla UI/prediction | Kiln clients get server layers; vanilla clients do not. |
 | Client-needed `balance`, `world`, `difficulty` and `limits` fields (`restart`) | `mod`, with `side: "both"` | Each process must bake its own matching value/settings and load order; `kiln` alone cannot transfer it. |
 | Client-only fields (`localOnly`, currently `recipes.unlock`) | `mod`, with `side: "both"` | The client's own mod supplies them; a dedicated server refuses client-only edits. |
 | Item/recipe entry add/remove | At least `kiln`; `mod` for custom assets or other client-local content | Definitions and visibility are not just scalar server rules. Existing content/look-alike rules still apply. Loot removal alone remains server-only (`none`). |
@@ -613,7 +587,7 @@ with a certainty:
 | Kiln's older paths (boot resource patches, data packs, `Content.*` code) and registry edits | `certain` | Kiln applies them itself |
 | A change made through Kiln's content service by code, also another loader's (an EMF DLL mod's `set_item_max_stack`) | `certain` | named `<who>: <Kiln place>`, `<who>` being the mod, else the loader's own name for its mod (`emf:big_stacks`); a label the mod gave its change (`Content.Apply(json, "bigstacks x4")`) stays as it wrote it (0.2.0-dev.31.18; before, such a row named the game's item and member, `owner 67: items Material_T1_Wood_Logs.maxStackSize`) |
 | A ShroudForge or EML package that wrote the entry or the field before Kiln (`archiveWriter`, who `shroudforge:<package>` or `eml:<package>`) | `named` | the change journal of the start's archive writer: kiln-eml's, or Kiln's hosted ShroudForge's (below) |
-| A ShroudForge package of kiln mode (Kiln's interpreter) changed the game's value at run time (`runtimeWriter`, who `shroudforge:<package>`; next release) | `named` | kiln.assets' records of the run-time writes the package made through it (below) |
+| A ShroudForge package of kiln mode (Kiln's interpreter) changed the game's value at run time (`runtimeWriter`, who `shroudforge:<package>`; since 0.2.0-dev.32) | `named` | kiln.assets' records of the run-time writes the package made through it (below) |
 | Something outside Kiln changed the game's value (`drift`, who `outside Kiln (best effort; suspects: ...)`) | `bestEffort` | the drift probe at each world load and pack reload (below) |
 
 **Archive-writer packages.** The start's archive writer keeps a change journal of its startup pass: which package wrote
@@ -626,9 +600,9 @@ one:
   A start that changed nothing keeps the journal of the start that published.
 - **Kiln's interpreter for ShroudForge mods** (kiln mode), in the same place: per ShroudForge package (and the EML packages
   its pass ran) the resources it **changed**, each with the member paths it changed (format 2 of dialect `shroudforge`,
-  next release; before, format 1: the resources it wrote, per resource). A kiln-mode start of EML mods only (EML's pass
-  in kiln mode) journals its pass too (format 2 of dialect `eml`, next release; before, it kept none).
-- **Hosted ShroudForge** (the default for ShroudForge mods: Kiln's bundled ShroudForge, next release): ShroudForge's own
+  since 0.2.0-dev.32; before, format 1: the resources it wrote, per resource). A kiln-mode start of EML mods only (EML's pass
+  in kiln mode) journals its pass too (format 2 of dialect `eml`, since 0.2.0-dev.32; before, it kept none).
+- **Hosted ShroudForge** (the default for ShroudForge mods: Kiln's bundled ShroudForge, since 0.2.0-dev.32): ShroudForge's own
   pass writes the same record beside its record of the pass, `<exe name>.kfc.change-journal.json` in the game folder
   (format 2 of dialect `shroudforge`, `writer` `shroudforge`), bound to the SHA-256 of the `<exe name>.kfc` it published.
   A start that skips the unchanged pass keeps it; a pass that changes the game files again replaces it.
@@ -660,7 +634,7 @@ apply (`notApplied`: the one that failed and those that need it), which effect r
   write moves with the member of the copy (a recipe inserted in front of it afterwards moves it too). A
   mod's own entry module (`src/mod.lua`) writes as that mod, even when another mod requires it first. The field row's
   writer has `"named": "field"`.
-- **Per entry (format-1 journals, created entries).** A format-1 journal (kiln mode before the next release) names a
+- **Per entry (format-1 journals, created entries).** A format-1 journal (kiln mode before 0.2.0-dev.32) names a
   package per **entry**: a package that wrote one member of an item is listed on every field of that item a mod edits
   (`"named": "entry"`). Only **items, drops and balance** are named from it: their entries are each one whole resource,
   which is what that journal lists; a recipe or a loot entry is an element of a resource its whole registry shares and
@@ -701,7 +675,7 @@ rebuilds `registry.json`'s live rows (at each world load and pack reload, and wh
 loads later changes them; never per tick) and costs one more read of each field it writes live, about a tenth of what
 rebuilding the rows costs anyway.
 
-**Run-time writers of kiln mode** (next release; sfi R3). A ShroudForge package run by Kiln's interpreter (kiln mode)
+**Run-time writers of kiln mode** (since 0.2.0-dev.32). A ShroudForge package run by Kiln's interpreter (kiln mode)
 changes a loaded resource's field at run time through kiln.assets (`game.assets.write_loaded_field`, a resource
 override, a template component's `write_field`), and kiln.assets keeps a record of each place's newest write with the
 package that made it. Where the drift probe, a later write or a skipped write finds the game's value changed outside
@@ -715,7 +689,7 @@ names the package as it names an archive-writer package (`big_stacks (ShroudForg
 A record's writer is what its caller said: Kiln shows only a ShroudForge package's name (`shroudforge:` and a plain id, as
 Kiln's interpreter writes it), any other text names nobody. Anything the records do not prove keeps the `drift` row: a
 value something else wrote over the package's, a package that wrote over another value than Kiln's, writes of a Kiln interpreter or
-kiln.assets older than this release (their records name no package), hosted or installed ShroudForge (its run-time
+kiln.assets older than 0.2.0-dev.32 (their records name no package), hosted or installed ShroudForge (its run-time
 writes go to memory outside Kiln). kiln.assets keeps 16,384 places for the process; the place written longest ago goes
 first. The records are asked for only when a row needs a name, once per report.
 
@@ -735,7 +709,7 @@ seen, and a field nobody edits through the registry is not checked. Neither is a
 input, an element of a list of structs, `[*]` over every recipe) have no field row to explain it, so a change there is
 never called another loader's.
 
-### Effect replay of ShroudForge and EML packages (opt-in, next release)
+### Effect replay of ShroudForge and EML packages (opt-in, since 0.2.0-dev.32)
 
 A ShroudForge or EML package edits the game's data by its own Lua, which names the game's types, member paths and GUIDs.
 After a game update that Lua can fail, and the package then changes nothing until its author updates it. **Effect replay**
@@ -765,7 +739,7 @@ decision D6: mechanism, not policy).
 - **Replaying:** in a start whose journal lists an opted-in package as not applied (`notApplied`: its Lua failed, or it
   needs a package that did), on another game build than the one its record was made on, from the same archive writer's
   journal, with the same id, version and content digest (hosted ShroudForge's journal carries a digest of each package's
-  files since this release; EML's own pass carries none: id and version), Kiln adds the record's values as absolute
+  files since 0.2.0-dev.32; EML's own pass carries none: id and version), Kiln adds the record's values as absolute
   registry edits of a stand-in writer, `replay.sf.<id>`, before every mod, in the journal's (the plan's) order. Registry
   mods' edits win over them and relative edits compose on them, as on the package's own archive values (D1); a stand-in
   edit never makes another mod's `exclusive` edit a conflict or its `yield` edit stand back. The package's value lay below

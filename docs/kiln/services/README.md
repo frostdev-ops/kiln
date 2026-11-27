@@ -32,14 +32,14 @@ available is generated from a boot's `capabilities.json`: [../status.generated.m
 | [gems.md](gems.md) | Gems: how a gem works, changing one with a data pack, the `Gems` read API and gem events; with [gems-new.md](gems-new.md) (new gems, `Gems.Register`), [gems-forge.md](gems-forge.md) (forge actions from code) and [gems-sockets.md](gems-sockets.md) (sockets on rings, armour, shields) |
 | [gameplay.md](gameplay.md) | kiln.gameplay: player/world interaction events and protection zones |
 | [hooks.md](hooks.md) | kiln.hooks v2: one registry for every hook |
-| [item-costs.md](item-costs.md) | kiln.item_costs: exact costs from a selected slot, with receipts (since 0.2.0-dev.32) |
+| [item-costs.md](item-costs.md) | kiln.item_costs: exact costs from a selected slot, with receipts (since 0.2.0-dev.32) Guide: [modding/item-costs.md](../modding/item-costs.md). |
 | [items.md](items.md) | kiln.items: items in inventories |
 | [knowledge.md](knowledge.md) | kiln.knowledge: the game's knowledge, the vanilla journal, dialogue events, the client veto |
 | [client-building-input.md](client-building-input.md) | kiln.client / BuildingInput: the local player's building input (select, place, remove, undo, dismantle) on game client 26430625, hooked at the first request (since 0.2.0-dev.30.3) |
 | [markers.md](markers.md) | kiln.markers / Kiln.Markers: markers on the game's map, Kiln's compass strip and world labels, following an entity, server markers to players with Kiln |
 | [net-steam-messages.md](net-steam-messages.md) | kiln.net / SteamMessages: Steam peer-to-peer messages on leased Steam channels, each lease its owner's (since 0.2.0-dev.30.3; C# mods opt in with `"steamMessages": true`) |
 | [npcs.md](npcs.md) | Friendly NPCs and quests in the game's own UI |
-| [npc-speech.md](npc-speech.md) | kiln.npcspeech / Kiln.Npcs: a mod's lines in the game's speech bubble over a friendly NPC (`Npcs.Say`, `Npcs.Speech` Suppress / Replace), host-decided, shown by Kiln clients (since 0.2.0-dev.31.16, mod API 0.2.23); since 0.2.0-dev.32 picks per greeting, farewells, the dialogue menu's own line, replies and talk-page topics (`Npcs.Farewells`, `MenuLine`, `MenuSay`, `Topics`) |
+| [npc-speech.md](npc-speech.md) | kiln.npcspeech / Kiln.Npcs: a mod's lines in the game's speech bubble over a friendly NPC (`Npcs.Say`, `Npcs.Speech` Suppress / Replace), host-decided, shown by Kiln clients (since 0.2.0-dev.31.16, mod API 0.2.23); since 0.2.0-dev.32 picks per greeting, farewells, the dialogue menu's own line, replies and talk-page topics (`Npcs.Farewells`, `MenuLine`, `MenuSay`, `Topics`) Guide: [modding/npc-dialogue.md](../modding/npc-dialogue.md). |
 | [survivors.md](survivors.md) | kiln.survivors: recruit roster survivors, give their summon tool, summon them into a base, assign beds (since 0.2.0-dev.31) |
 | [pacing.md](pacing.md) | kiln.pacing: where the game waits, and its task pools |
 | [player-state.md](player-state.md) | Player state and actions |
@@ -78,11 +78,11 @@ row above and grows its own page.
 |---|---|
 | [../ui.md](../ui.md#values-in-the-games-own-ui-dev28) | kiln.ui.values / `Ui.Values` (in-core, client): values in the game's own UI, tooltip lines in Kiln's Item details window, the slots of each UI frame; the player-UI stage for 09 |
 | [queries.md](queries.md) | `Kiln.Queries`: voxel rays, ground below a point, voxel line of sight, entity origins in a sphere or box; the shared ray budget |
-| [terrain.md](terrain.md) | `Kiln.Terrain`: bounded terrain overlays (a vein, a mound, a tunnel) applied once per world with a ledger of owned blocks; managed only, over kiln.build |
+| [terrain.md](terrain.md) | `Kiln.Terrain`: bounded terrain overlays (a vein, a mound, a tunnel) applied once per world with a ledger of owned blocks; managed only, over kiln.build Guide: [modding/terrain-tiles.md](../modding/terrain-tiles.md). |
 | [boot.md](boot.md) | kiln.boot (in-core): `Mod.OnBoot`'s one generation per process; the table, the collector contract (bind, prepare, destroy), `activation_fault`, exit code 0x4B01, `state/boot.json` |
 | [creature-control.md](creature-control.md) | kiln.creature_control / CreatureControl: the one broker that owns a controlled creature body's AI-off layer and SteeringAgent; leases for pets, mounts, vehicles and NPC brains |
-| [pets.md](pets.md) | Kiln.Pets / kiln.pets (dev.32): the pet framework: owned records, bodies through the broker, the native guard and target rule, revive with cost receipts, the owner's view and bar; every behaviour choice is the mod's |
-| [taming.md](taming.md) | Kiln.Taming (dev.32): the taming framework: attempts with exact-cost steps and receipts, replay-safe requests, timeouts, refund policies, tames bound to Kiln.Pets records, and the game's own taming as mechanism (NativeTaming); every policy is the mod's |
+| [pets.md](pets.md) | Kiln.Pets / kiln.pets (dev.32): the pet framework: owned records, bodies through the broker, the native guard and target rule, revive with cost receipts, the owner's view and bar; every behaviour choice is the mod's Guide: [modding/pets.md](../modding/pets.md). |
+| [taming.md](taming.md) | Kiln.Taming (dev.32): the taming framework: attempts with exact-cost steps and receipts, replay-safe requests, timeouts, refund policies, tames bound to Kiln.Pets records, and the game's own taming as mechanism (NativeTaming); every policy is the mod's Guide: [modding/taming.md](../modding/taming.md). |
 | [systems.md](systems.md) | `Kiln.Systems` / kiln.world v4: Before, After and Replace on the game's own ECS programs, per slice or per entity; entity views, write events, attribute formulas |
 
 ### Service pages added in dev.29

@@ -15,7 +15,8 @@ Outputs:
   managed/services/Kiln.Registry/Generated/<R>.gen.cs      the C# entry types of each registry (Kiln.Registry)
   managed/services/Kiln.Registry/Generated/RegistrySchema.gen.cs   the field catalog (Kiln.Registry.RegistrySchema)
   schema/registry-section.schema.json                    the data section's schema (content/*.json "registry")
-  docs/kiln/modding/registries/<registry>.md             one page per registry
+  docs/kiln/modding/registries/<registry>.md             one page per registry: the reference made from the schema, then the
+                                                         hand-written sections of schema/registry/<registry>.guide.md
   managed/Kiln.Analyzers/src/Kiln.Analyzers/RegistryHints.g.cs   the analyzers' hint table (KILN124, KILN125): the old data
                                                          paths and game functions each registry field covers, from
                                                          regmap/common (Kiln's part: the analyzers read a mod's old paths)
@@ -40,6 +41,10 @@ SECTION = "schema/registry-section.schema.json"
 DOCS = "docs/kiln/modding/registries"
 HINTS = "managed/Kiln.Analyzers/src/Kiln.Analyzers/RegistryHints.g.cs"
 HAND_PAGES = ("README.md", "views.md")  # pages of the registries' folder that no schema makes
+# A registry page ends with the hand-written part of schema/registry/<registry>.guide.md. Every guide has these sections, in this
+# order, and no other "##" section: every registry page then has the same shape (what it holds, ids and fields from the schema,
+# then these).
+GUIDE_SECTIONS = ("Edit it from a data pack", "Edit it from C#", "Views", "Worked example", "In multiplayer", "Known limits")
 # The old paths' sections and the game type their paths start from: kiln.gamedata's (native gamedata_res.cpp builds each from
 # that type; tests check the two agree) and the item data section. kiln.content's items, recipes, loot and drops sections start
 # where the registry of the same name does (regmap/common entries).
@@ -120,6 +125,7 @@ class Registry:
     src: str
     doc: dict
     rows: list = dc_field(default_factory=list)
+    guide: str = ""            # the hand-written sections of <registry>.guide.md ("" when the file is not there)
 
     @property
     def leaves(self):
@@ -176,8 +182,13 @@ def load(root):
             continue
         docs[name] = (p.name, d)
     known = set(docs) | set(LATER_REGISTRIES)
+    for p in sorted((root / SCHEMA_DIR).glob("*.guide.md")):
+        if p.name[:-len(".guide.md")] not in docs:
+            errors.append(f"{p.name}: no schema/registry/{p.name[:-len('.guide.md')]}.json for this guide")
     for name, (src, d) in docs.items():
         reg = Registry(name, src, d)
+        reg.guide, guide_errs = read_guide(root, name)
+        errors += guide_errs
         errors += check_registry(d, name)
         walk(reg, d.get("fields") or {}, "", None, None, False, errors, known)
         regs[name] = reg
@@ -185,6 +196,36 @@ def load(root):
     errors += check_type_names(regs)
     errors += check_game_words(regs, game_names(root, regs))
     return Model(regs, errors, str(root))
+
+
+def guide_sections(text):
+    """The "##" headings of a guide, outside code fences."""
+    heads, fence = [], None
+    for line in text.splitlines():
+        m = re.match(r"^ {0,3}(`{3,}|~{3,})", line)
+        if m:
+            fence = None if fence and line.strip().startswith(fence) else (fence or m.group(1))
+        elif fence is None and line.startswith("## "):
+            heads.append(line[3:].strip())
+    return heads
+
+
+def read_guide(root, name):
+    """(text, errors) of schema/registry/<name>.guide.md: the registry page's hand-written sections, in GUIDE_SECTIONS' order."""
+    p = Path(root) / SCHEMA_DIR / f"{name}.guide.md"
+    if not p.is_file():
+        return "", []
+    text = p.read_text(encoding="utf-8").strip()
+    heads = guide_sections(text)
+    if tuple(heads) != GUIDE_SECTIONS:
+        return text, [f"{p.name}: the sections are {heads}, a registry page has exactly {list(GUIDE_SECTIONS)} (in this order)"]
+    return text, []
+
+
+def missing_guides(model):
+    """The registries with no guide file: in a real tree every registry page has the same shape (tests may use bare trees)."""
+    return [f"{SCHEMA_DIR}/{name}.guide.md is missing: every registry page ends with the sections {', '.join(GUIDE_SECTIONS)}"
+            for name, reg in sorted(model.registries.items()) if not reg.guide]
 
 
 def check_lengths(regs):
@@ -1348,6 +1389,8 @@ def render_doc(model, lock, reg):
     if retired:
         out += ["", "## Retired names", "", "Never used again.", ""]
         out += [f"- {code(k)} (since {v.get('since')}, retired in {v.get('retiredIn')})" for k, v in retired.items()]
+    if reg.guide:
+        out += ["", reg.guide]
     return "\n".join(out) + "\n"
 
 
@@ -1546,7 +1589,7 @@ def main(argv=None):
         return 1
     model = load(root)
     lock = read_lock(root)
-    errs = lock_errors(model, lock)
+    errs = lock_errors(model, lock) + missing_guides(model)
     if errs:
         for e in errs:
             print(f"registrygen: {e}", file=sys.stderr)

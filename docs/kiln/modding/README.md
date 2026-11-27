@@ -57,8 +57,14 @@ generated [../status.generated.md](../status.generated.md); what has no API yet 
 | [../services/queries.md](../services/queries.md) | `Kiln.Queries`: what is on a line through the terrain, the ground below a point, voxel line of sight, the entities in a sphere or a box; the ray budget all mods share |
 | [../typegen.md](../typegen.md) | Typed reads of the game's ECS components: `Kiln.Ecs` (`TryGet`, `Get`, `Has`, `All`, `Supports`), generated per game build; example in §4.3 |
 | [typed-fields.md](typed-fields.md) | The game's data as typed C# structures, for what blocks don't cover: `GameFields`, `GameEnums`, checked string paths |
-| [registries/README.md](registries/README.md) | Kiln's registries (items, recipes, loot, drops, balance, arsenals, creatures, perks, skills, stations, abilities, buffs, difficulty, world, limits, lootRules, randomLoot): the game's data under Kiln-owned names and ids, with when each field takes effect. Experimental (KILNX031) |
+| [registries/README.md](registries/README.md) | Kiln's 17 registries (items, recipes, loot, drops, balance, creatures, arsenals, perks, skills, stations, buffs, abilities, world, difficulty, limits, lootRules, randomLoot): the game's data under Kiln-owned names and ids, with when each field takes effect; one page each, the same sections on all. Experimental (KILNX031) |
 | [registries/views.md](registries/views.md) | One read-only view over every registry and every other resource type of the game, under Kiln names (since 0.2.0-dev.32, KILNX031) |
+| [pets.md](pets.md) | Pets (since 0.2.0-dev.32): make a hound that follows its owner, then define, give, summon, order, revive and release, per-pet choices, measured clearance, the HUD |
+| [taming.md](taming.md) | Taming (since 0.2.0-dev.32): make a wolf tamed in two steps, then declare steps and costs, drive an attempt, refunds, the game's own taming |
+| [npc-dialogue.md](npc-dialogue.md) | NPC dialogue (since 0.2.0-dev.32): make a craftsperson who asks to be fed, then the speech bubble, farewells, the menu's line and talk pages |
+| [gear-rules.md](gear-rules.md) | Gear rules: make gear last longer and sockets likelier with a data-only mod: the `gear` section and the `gearRules` boot values |
+| [terrain-tiles.md](terrain-tiles.md) | Terrain: make a mound with an overlay, and the baked tiles behind it: read, check and cook a lab pack with `kfc.py terrain` |
+| [item-costs.md](item-costs.md) | Item costs (since 0.2.0-dev.32): charge an exact price from one slot, once, with a receipt, and give it back |
 | [tiers.md](tiers.md) | Stable, Advanced, Native: what each public surface promises across a game update, what API 1.0.0 freezes, and how to move a mod up a tier |
 | [resource-patches.md](resource-patches.md) | Change a field of the game's data before the game reads it (the balancing table and the like): `resourcePatches` in a boot mod |
 | [player-states.md](player-states.md) | Every state and action a player can be in: `player.Is(...)`, `PlayerStateChangedEvent`, `PlayerActionEvent`, and what is left out |

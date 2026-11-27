@@ -567,6 +567,54 @@ class Outputs(unittest.TestCase):
         self.assertEqual(rg.stale(self.t.root, self.out), ["docs/kiln/modding/registries/things.md"])
 
 
+class Guides(unittest.TestCase):
+    """A registry page ends with the hand-written sections of schema/registry/<registry>.guide.md, always the same ones."""
+
+    def guide(self, sections=rg.GUIDE_SECTIONS, extra=""):
+        return "\n\n".join(f"## {h}\n\nText of {h}." for h in sections) + extra + "\n"
+
+    def tree(self, text):
+        t = Tree()
+        self.addCleanup(t.close)
+        rg.update_lock(t.root)
+        if text is not None:
+            (t.root / "schema" / "registry" / "things.guide.md").write_text(text, encoding="utf-8")
+        return t
+
+    def test_the_page_ends_with_the_guide(self):
+        t = self.tree(self.guide())
+        model = rg.load(t.root)
+        self.assertEqual(model.errors, [])
+        md = rg.render(model, rg.read_lock(t.root))["docs/kiln/modding/registries/things.md"]
+        self.assertIn("Do not edit", md)
+        self.assertTrue(md.endswith("## Known limits\n\nText of Known limits.\n"), md[-120:])
+        self.assertLess(md.index("## Entries"), md.index("## Edit it from a data pack"))
+
+    def test_a_missing_or_reordered_section_is_an_error(self):
+        for sections in (rg.GUIDE_SECTIONS[:-1], rg.GUIDE_SECTIONS[::-1], rg.GUIDE_SECTIONS + ("Extra",)):
+            t = self.tree(self.guide(sections))
+            self.assertTrue(any("things.guide.md" in e and "exactly" in e for e in rg.load(t.root).errors), sections)
+
+    def test_a_heading_in_a_code_fence_is_no_section(self):
+        t = self.tree(self.guide(extra="\n\n```md\n## Not a section\n```"))
+        self.assertEqual(rg.load(t.root).errors, [])
+
+    def test_a_guide_of_no_registry_is_an_error(self):
+        t = self.tree(self.guide())
+        (t.root / "schema" / "registry" / "other.guide.md").write_text(self.guide(), encoding="utf-8")
+        self.assertTrue(any("other.guide.md" in e for e in rg.load(t.root).errors))
+
+    def test_main_wants_a_guide_for_every_registry(self):
+        t = self.tree(None)
+        self.assertEqual(rg.missing_guides(rg.load(t.root)), [
+            f"schema/registry/things.guide.md is missing: every registry page ends with the sections {', '.join(rg.GUIDE_SECTIONS)}"])
+
+    def test_every_registry_of_this_repository_has_its_guide(self):
+        model = rg.load(REPO)
+        self.assertEqual(rg.missing_guides(model), [])
+        self.assertEqual(model.errors, [])
+
+
 class Repository(unittest.TestCase):
     def test_the_repository_is_current(self):
         """registrygen.py --check on this tree: the schemas are valid, every name is locked, the outputs are fresh."""

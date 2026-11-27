@@ -137,7 +137,7 @@ In Wine, SF's own tests pass: `bundled_lua` 3/3 and `survival` 1/1. Kiln's `tool
 `shroudforge` component (default on, both sides). `tools/deploy-server.sh` deploys an existing build.
 `tools/release/release.sh` exports and ships its source (`tools/release/lib/sf-source.sh`) and appends its notice.
 
-**The pass's change journal** (next release; fork branch `dev32/review-j3` at `6e01cd74`: `24496270` of
+**The pass's change journal** (since 0.2.0-dev.32; fork branch `dev32/review-j3` at `6e01cd74`: `24496270` of
 `dev32/j3-shroudforge-registries`, on top of `6cf01443`, and the review's two commits, the digest and the budget; `kiln/README.md` "The pass's
 change journal"): after each package's entrypoint the pass compares the resources
 it edited with what they held before (as the commit encodes them; at most 3 s of encoding and comparing per pass, then

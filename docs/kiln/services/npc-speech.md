@@ -51,8 +51,9 @@ Larder).
 
 - **0.2.0-dev.32 (picks, farewells, the menu's line, talk pages): static only** on client 26430625 (the dialogue
   window's functions and fields read in the code, `client.d/npcdialog.json` resolves all of them there, and the host
-  tests run the rules on fake structs). The lab: see the lane report (dedicated server 26430253, Kiln lab peers, a LABBOT
-  bot). Nothing of the menu parts has been seen in a real game yet.
+  tests run the rules on fake structs). Lab (dedicated server 26430253, dev.32, 31.21-like and vanilla lab peers and a LABBOT
+  bot player, 2026-11-27): `npcdialogtest.py` 29 PASS, 0 FAIL and `npcspeechtest.py` 17 PASS, 0 FAIL. Nothing of the menu parts
+  has been seen in a real game yet.
 
 ## Using it
 
