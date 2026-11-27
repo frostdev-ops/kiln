@@ -72,8 +72,34 @@ that no bot held in this server session ... restart the lab". Bots may leave and
 under new names or the same one (the same name is the same character; a bot uploads a new character at each join, so
 its inventory starts empty again: the game keeps a character's save on its client).
 
+### Using items (since dev.32)
+
+```python
+bot.give("Food_T2_Dog_Bait", 3)               # the game's own inventory add (Items.Give); names or item ids
+bot.count("Food_T2_Dog_Bait")                 # 3 (over all its slots); bot.inventory(): the slots
+bot.use("Food_T1_raw_fruit_Red_Berries")      # eats it: the game takes one when its sequence's consume event runs
+bot.buffs()                                   # ... and the meal's buff is in a Food slot
+bot.use("Food_T2_Dog_Bait", at=(x, y, z), pitch=44)  # throws the bait from its eyes towards (x, y, z), 44 degrees down
+lab.near(x, y, z, 10)                         # the placed bait: [{"entity", "name": "FoodBait_T2_Dog", "position", ...}]
+```
+
+`use` is the game's own use of a hotbar item (`Abilities.UseItem`: the item's own sequence with that slot as the used
+item). The bot's client first says it is ready for gameplay (`LabBots.SetReady`: the game refuses a use by a player that is
+not), and with `at` or `yaw`/`pitch` its camera is set first (`LabBots.SetCamera`, at its eyes 1.7 m above its feet): an
+item whose use spawns at the "crosshair" (an animal bait) starts at the camera and flies along its view, the bait at 5 m/s
+up and 10 m/s forward, so `pitch` picks how far it lands (on flat ground about 12.9 m at 0 degrees, 8 m at 22.5, 4 m at
+44, 2 m at 66). `bot.look(...)` and `bot.ready()` set them alone. The answer is `{"result": "Started", ...}`; anything else
+(`NotConsumable`, `Busy`, `NotReady` still after `wait` seconds, 30 by default, ...) raises `LabBotError` with the bot's
+states. Saying ready makes the game play a new character's first-time spawn intro (17.7 s; a bot is a new character at every
+join), so the first use waits for it: call `bot.ready()` right after the join. A wild animal senses a thrown bait in the
+game's own way (lab p2: a dog took the bot's bait and pursued it), but only in some of its states; `docs/re/labbot.md`
+"Using an item" has what is open. Lab probes for the result: `lab.spawn_entity(template,
+x, y, z)` (transient), `lab.near(x, y, z, radius, component="PickupItem")`, `lab.component(entity, "DynamicWildlife")`
+(bytes, or None), `lab.destroy(entity)`; the names are the game's, for test scripts only.
+
 From a shell: `python3 -I tools/labbot/labbot.py --port <labPort> status|list|players|spawn NAME|info ID|wait ID|say ID
-TEXT|command ID LINE|move ID X Y Z|position ID|character ID|leave ID [--drop]` (JSON out; exit 1 = the server answered an error, 2 = no answer).
+TEXT|command ID LINE|move ID X Y Z|position ID|character ID|give ID ITEM [COUNT]|inventory ID|use ID ITEM [X Y Z]|buffs
+ID|leave ID [--drop]` (JSON out; exit 1 = the server answered an error, 2 = no answer).
 
 Tests of the client without a server: `python3 -I tools/labbot/test_labbot.py`; of the native core without a game:
 `native/services/labbot/tests/test-labbot-host.sh`.

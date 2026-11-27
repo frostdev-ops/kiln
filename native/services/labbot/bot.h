@@ -141,6 +141,46 @@ private:
     uint64_t taken_ = 0, faults_ = 0;
 };
 
+// ------------------------------------------------------------------------------------------- client input ----------------
+// What the bot's client says in its input: PlayerInput, the component a client's input messages fill (ServerReceive's
+// player channel 8 queues one per client tick, the GameServer's InputApply copies the step's into the component; no
+// message ever arrives for a bot's slot, so nothing else writes a bot's PlayerInput). kiln.labbot writes the parts a
+// script set after each GameServer receive while the bot is in game, where a client's input would land. The game's own
+// programs read them as a client's: the camera is where an item's "Crosshair" spawn starts (a thrown bait: the
+// SpawnEntityEvent's spawn transform, 0x40580: the camera position + its orientation x (0, 0, distance)), the readiness
+// lets actor_is_ready_for_gameplay set IsReadyForGameplay (a use of an item refuses a player that is not ready).
+struct InputLayout {
+    uint32_t size = 0;                // the component's size (keen::ecs::PlayerInput)
+    int64_t camera_position = -1;     // fromClient.camera.position: keen::WorldPosition, 3 x i64, 32.32 fixed metres
+    int64_t camera_orientation = -1;  // fromClient.camera.orientation: keen::Quaternion, 4 x f32 (x y z w)
+    int64_t camera_distance = -1;     // fromClient.camera.distance: f32, the camera's boom
+    int64_t ready = -1;               // fromClientIsReadyForGameplay: bool
+    bool valid() const;
+};
+struct ClientInput {
+    bool camera = false;              // the camera parts are the bot's client's
+    int64_t position[3] = {};
+    float orientation[4] = {0, 0, 0, 1};
+    float distance = 0;
+    int ready = -1;                   // -1: never said; 0 or 1: what the bot's client says
+    bool any() const { return camera || ready >= 0; }
+};
+// Writes the parts `in` sets into `pi`, a PlayerInput of `size` bytes; the rest of it stays as it is. false: nothing
+// written (no input, a layout that is not valid, or a component smaller than the layout).
+bool write_input(uint8_t* pi, size_t size, const InputLayout& L, const ClientInput& in);
+// The game's reflection as kiln.types answers it (labbot.cpp; tests: a fake).
+struct Fields {
+    virtual ~Fields() = default;
+    // The type's own field `name`: its offset, and its type's qualified name and size. false: no such type or field.
+    virtual bool field(std::string_view type, std::string_view name, int64_t* offset, std::string* field_type,
+                       uint32_t* field_size) = 0;
+    virtual uint32_t size_of(std::string_view type) = 0;  // 0: no such type
+};
+// PlayerInput's client parts by the game's reflection: fromClient (keen::ecs::ClientPlayerInputData) .camera
+// (keen::ecs::ClientCamera) .position (keen::WorldPosition, 24 bytes), .orientation (keen::Quaternion, 16), .distance
+// (4), and fromClientIsReadyForGameplay (1 byte). false with *why: a part is not there, or not of that type and size.
+bool resolve_input(Fields& f, InputLayout* out, std::string* why);
+
 // ------------------------------------------------------------------------------------------ machine indices ----------------
 // The GameServer keeps a machine's sockets until another machine handle takes its index (SyncSockets 0x7bd3c0), and the
 // session's sends to a bot are never acknowledged: what the server sent a bot stays queued on the sockets of its machine

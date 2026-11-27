@@ -3217,7 +3217,15 @@ const _: () = {
     assert!(core::mem::offset_of!(crate::services::kiln_labbot::KilnLabBotStatus, groups) == 12);
     assert!(core::mem::offset_of!(crate::services::kiln_labbot::KilnLabBotStatus, publishes) == 16);
     assert!(core::mem::offset_of!(crate::services::kiln_labbot::KilnLabBotStatus, why) == 24);
-    assert!(core::mem::size_of::<crate::services::kiln_labbot::KilnLabBotApi>() == 48);
+    assert!(core::mem::size_of::<crate::services::kiln_labbot::KilnLabBotInput>() == 56);
+    assert!(core::mem::align_of::<crate::services::kiln_labbot::KilnLabBotInput>() == 8);
+    assert!(core::mem::offset_of!(crate::services::kiln_labbot::KilnLabBotInput, size) == 0);
+    assert!(core::mem::offset_of!(crate::services::kiln_labbot::KilnLabBotInput, flags) == 4);
+    assert!(core::mem::offset_of!(crate::services::kiln_labbot::KilnLabBotInput, camera_position) == 8);
+    assert!(core::mem::offset_of!(crate::services::kiln_labbot::KilnLabBotInput, camera_orientation) == 32);
+    assert!(core::mem::offset_of!(crate::services::kiln_labbot::KilnLabBotInput, camera_distance) == 48);
+    assert!(core::mem::offset_of!(crate::services::kiln_labbot::KilnLabBotInput, ready) == 52);
+    assert!(core::mem::size_of::<crate::services::kiln_labbot::KilnLabBotApi>() == 56);
     assert!(core::mem::align_of::<crate::services::kiln_labbot::KilnLabBotApi>() == 8);
     assert!(core::mem::offset_of!(crate::services::kiln_labbot::KilnLabBotApi, header) == 0);
     assert!(core::mem::offset_of!(crate::services::kiln_labbot::KilnLabBotApi, status) == 8);
@@ -3225,6 +3233,7 @@ const _: () = {
     assert!(core::mem::offset_of!(crate::services::kiln_labbot::KilnLabBotApi, leave) == 24);
     assert!(core::mem::offset_of!(crate::services::kiln_labbot::KilnLabBotApi, info) == 32);
     assert!(core::mem::offset_of!(crate::services::kiln_labbot::KilnLabBotApi, list) == 40);
+    assert!(core::mem::offset_of!(crate::services::kiln_labbot::KilnLabBotApi, input) == 48);
     assert!(core::mem::size_of::<crate::services::kiln_launch::KilnLaunchStatus>() == 200);
     assert!(core::mem::align_of::<crate::services::kiln_launch::KilnLaunchStatus>() == 8);
     assert!(core::mem::offset_of!(crate::services::kiln_launch::KilnLaunchStatus, size) == 0);

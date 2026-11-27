@@ -280,6 +280,59 @@ bool Publisher::apply(Ops& ops) {
     return listed;
 }
 
+// --------------------------------------------------------------------------------------------- client input ----------
+bool InputLayout::valid() const {
+    auto fits = [&](int64_t off, int64_t n) { return off >= 0 && off + n <= int64_t(size); };
+    return size > 0 && fits(camera_position, 24) && fits(camera_orientation, 16) && fits(camera_distance, 4) && fits(ready, 1);
+}
+
+bool write_input(uint8_t* pi, size_t size, const InputLayout& L, const ClientInput& in) {
+    if (!pi || !in.any() || !L.valid() || size < L.size) return false;
+    if (in.camera) {
+        std::memcpy(pi + L.camera_position, in.position, 24);
+        std::memcpy(pi + L.camera_orientation, in.orientation, 16);
+        std::memcpy(pi + L.camera_distance, &in.distance, 4);
+    }
+    if (in.ready >= 0) pi[L.ready] = in.ready ? 1 : 0;
+    return true;
+}
+
+bool resolve_input(Fields& f, InputLayout* out, std::string* why) {
+    auto fail = [&](std::string w) {
+        if (why) *why = std::move(w);
+        return false;
+    };
+    const char* kInput = "keen::ecs::PlayerInput";
+    InputLayout L;
+    L.size = f.size_of(kInput);
+    if (!L.size) return fail("no keen::ecs::PlayerInput in the game's reflection");
+    // one field of `type`, of the type and size expected
+    auto part = [&](std::string_view type, std::string_view name, std::string_view want, uint32_t want_size, int64_t* off,
+                    std::string* got_type) {
+        std::string t;
+        uint32_t n = 0;
+        if (!f.field(type, name, off, &t, &n)) return fail(std::string(type) + " has no " + std::string(name));
+        if ((!want.empty() && t != want) || (want_size && n != want_size))
+            return fail(std::string(type) + "." + std::string(name) + " is " + t + " (" + std::to_string(n) + " bytes), not " +
+                        std::string(want) + " (" + std::to_string(want_size) + ")");
+        if (got_type) *got_type = t;
+        return true;
+    };
+    int64_t from = 0, cam = 0, off = 0;
+    std::string from_type, cam_type;
+    if (!part(kInput, "fromClient", "", 0, &from, &from_type) || !part(from_type, "camera", "", 0, &cam, &cam_type)) return false;
+    if (!part(cam_type, "position", "keen::WorldPosition", 24, &off, nullptr)) return false;
+    L.camera_position = from + cam + off;
+    if (!part(cam_type, "orientation", "keen::Quaternion", 16, &off, nullptr)) return false;
+    L.camera_orientation = from + cam + off;
+    if (!part(cam_type, "distance", "", 4, &off, nullptr)) return false;
+    L.camera_distance = from + cam + off;
+    if (!part(kInput, "fromClientIsReadyForGameplay", "", 1, &L.ready, nullptr)) return false;
+    if (!L.valid()) return fail("PlayerInput's client parts do not fit its " + std::to_string(L.size) + " bytes");
+    *out = L;
+    return true;
+}
+
 // ----------------------------------------------------------------------------------------- machine indices ----------
 void SpentMachines::add(uint32_t index) {
     if (!has(index)) list_.push_back(index);

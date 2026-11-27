@@ -4431,12 +4431,13 @@
           "fields": {
             "header": 0,
             "info": 32,
+            "input": 48,
             "join": 16,
             "leave": 24,
             "list": 40,
             "status": 8
           },
-          "size": 48
+          "size": 56
         },
         "KilnLabBotInfo": {
           "align": 8,
@@ -4460,6 +4461,18 @@
             "slot": 12
           },
           "size": 328
+        },
+        "KilnLabBotInput": {
+          "align": 8,
+          "fields": {
+            "camera_distance": 48,
+            "camera_orientation": 32,
+            "camera_position": 8,
+            "flags": 4,
+            "ready": 52,
+            "size": 0
+          },
+          "size": 56
         },
         "KilnLabBotJoin": {
           "align": 8,
@@ -4487,7 +4500,7 @@
           "size": 224
         }
       },
-      "sha256": "c660b2556e2e786eba0db9864ab627e86442a9bcbbbda688705ed97c6a91ab81"
+      "sha256": "e49cf055e146ba3ecbcd1e9b9e6a70235891cdd8f5a11ed9a9bb716ce7f76a66"
     },
     "native/core/abi/services/kiln_launch.h": {
       "function_macros": [
@@ -10432,7 +10445,7 @@
   },
   "outputs": {
     "src/bindings.rs": "134028a6a9914076cab3f71f98d356141d4fe36c4d7f51bac6a11819501ed935",
-    "src/layout.rs": "24dd4be07dc114644e2df901cbf12be054f4dd0ab5512abe971ec20fce5802b7",
+    "src/layout.rs": "3bccc0b71ba8dc90fd7d44ced4cbfa5772bf4432588f9d39eeea081777f8bf03",
     "src/services/kiln_abilities.rs": "a24dff6123db80e30ed1b2e33f87c772a40982ec3ce379347ca96bb81579f6cb",
     "src/services/kiln_assets.rs": "e7fe4eb1c4d53ad31eeaf05be06f41c551a49362ad5bd4174465ec18a03effe0",
     "src/services/kiln_assets_vfx.rs": "90ed8ce5ad512bbf4f002db3277bc3b439d648ca437a58d4477eac4ce46c3b81",
@@ -10465,7 +10478,7 @@
     "src/services/kiln_items.rs": "997cdc279dc7704128c8d47efff8cd395652e0b93679a9c34848d6c54b6d5519",
     "src/services/kiln_items_inventory_kinds.rs": "8527dd431495bac7067076e59756f8ca82c3113c07e79603247356dee89c3fe2",
     "src/services/kiln_items_storage.rs": "391c254d91450e0f3c935d59c3d4917ce6aafe49fd7b645d1de00ee38f6d1c07",
-    "src/services/kiln_labbot.rs": "6c51ccb0c5653bea45972ff7b62bab431f1b206800cd053655165dbb5738529d",
+    "src/services/kiln_labbot.rs": "0c8e5c497330252ee83e0b866da9ca6f01814b0e61145a677774d256554a82ce",
     "src/services/kiln_launch.rs": "6ffbec313079a115faf49075248fc663d858f91a38d4a804f09c1deeae4dc61b",
     "src/services/kiln_log.rs": "86b18decab13965acd7a5e9d0c3166a80ac5441359f928717b8f4a02cd395df1",
     "src/services/kiln_markers.rs": "396fba83b17be93970b564b4f5bcd5052795c038d78b54ea80fb6c3e3514c9b9",

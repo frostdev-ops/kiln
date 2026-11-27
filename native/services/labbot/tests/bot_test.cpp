@@ -15,7 +15,9 @@
 // 11 logged_in: whether the game made the bot's record (it knows the bot's character from then on);
 // 12 the publisher: listed bots in every publish, a left bot cleared from the next ones even when another bot takes its
 //    place at once;
-// 13 machine indices: a bot gets the highest free index no bot held before in this server session (a left bot's machine
+// 13 the bot's client input: PlayerInput's camera and readiness found by the game's reflection (server f0d824be's
+//    layout), refused when a part is missing or of another type or size; written part by part, nothing else touched;
+// 14 machine indices: a bot gets the highest free index no bot held before in this server session (a left bot's machine
 //    index keeps its never-acknowledged backlog: lab p1), slots the highest free one.
 #include <cstdio>
 #include <cstring>
@@ -678,6 +680,129 @@ void t_publisher() {
 }  // namespace
 
 // ---- 13 ----
+// keen::ecs::PlayerInput and the types under it as server f0d824be reflects them (tests/fixtures/player-storage/
+// client-input-types.json; the crosshair spawn 0x40580 reads the component's +0x28 position, +0x40 orientation and
+// +0x50 distance)
+struct FakeFields final : Fields {
+    struct F {
+        int64_t off;
+        std::string type;
+        uint32_t size;
+    };
+    std::map<std::string, std::map<std::string, F>> types;
+    std::map<std::string, uint32_t> sizes;
+    FakeFields() {
+        sizes = {{"keen::ecs::PlayerInput", 1472}, {"keen::ecs::ClientPlayerInputData", 952}, {"keen::ecs::ClientCamera", 64},
+                 {"keen::WorldPosition", 24}, {"keen::Quaternion", 16}, {"keen::float32", 4}, {"keen::bool", 1}, {"keen::Time", 8}};
+        types["keen::ecs::PlayerInput"] = {{"serverTime", {0, "keen::Time", 8}},
+                                           {"fromClient", {8, "keen::ecs::ClientPlayerInputData", 952}},
+                                           {"fromClientIsReadyForGameplay", {1464, "keen::bool", 1}}};
+        types["keen::ecs::ClientPlayerInputData"] = {{"camera", {32, "keen::ecs::ClientCamera", 64}}};
+        types["keen::ecs::ClientCamera"] = {{"position", {0, "keen::WorldPosition", 24}},
+                                            {"orientation", {24, "keen::Quaternion", 16}},
+                                            {"distance", {40, "keen::float32", 4}},
+                                            {"fovY", {44, "keen::float32", 4}}};
+    }
+    bool field(std::string_view type, std::string_view name, int64_t* offset, std::string* field_type, uint32_t* field_size) override {
+        auto t = types.find(std::string(type));
+        if (t == types.end()) return false;
+        auto f = t->second.find(std::string(name));
+        if (f == t->second.end()) return false;
+        *offset = f->second.off;
+        *field_type = f->second.type;
+        *field_size = f->second.size;
+        return true;
+    }
+    uint32_t size_of(std::string_view type) override {
+        auto i = sizes.find(std::string(type));
+        return i == sizes.end() ? 0 : i->second;
+    }
+};
+
+void t_input() {
+    FakeFields f;
+    InputLayout L;
+    std::string why;
+    CHECK(resolve_input(f, &L, &why), "resolves: %s", why.c_str());
+    CHECK(L.size == 1472 && L.camera_position == 0x28 && L.camera_orientation == 0x40 && L.camera_distance == 0x50 && L.ready == 1464,
+          "the layout the crosshair spawn reads: size %u position %lld orientation %lld distance %lld ready %lld", L.size,
+          (long long)L.camera_position, (long long)L.camera_orientation, (long long)L.camera_distance, (long long)L.ready);
+    CHECK(L.valid(), "valid");
+
+    // refusals, each with its reason
+    {
+        FakeFields g;
+        g.types["keen::ecs::ClientCamera"].erase("orientation");
+        InputLayout M;
+        std::string w;
+        CHECK(!resolve_input(g, &M, &w) && w.find("orientation") != std::string::npos, "a missing part: %s", w.c_str());
+    }
+    {
+        FakeFields g;
+        g.types["keen::ecs::ClientCamera"]["position"] = {0, "keen::float3", 12};
+        InputLayout M;
+        std::string w;
+        CHECK(!resolve_input(g, &M, &w) && w.find("position") != std::string::npos, "a part of another type: %s", w.c_str());
+    }
+    {
+        FakeFields g;
+        g.types["keen::ecs::PlayerInput"]["fromClientIsReadyForGameplay"] = {1472, "keen::bool", 1};
+        InputLayout M;
+        std::string w;
+        CHECK(!resolve_input(g, &M, &w), "a part past the component's end is refused (%s)", w.c_str());
+    }
+    {
+        FakeFields g;
+        g.sizes.erase("keen::ecs::PlayerInput");
+        InputLayout M;
+        std::string w;
+        CHECK(!resolve_input(g, &M, &w) && w.find("PlayerInput") != std::string::npos, "no PlayerInput: %s", w.c_str());
+    }
+    CHECK(!InputLayout{}.valid(), "an unresolved layout is not valid");
+
+    // writes: only the parts the input sets
+    std::vector<uint8_t> pi(1472, 0xcc);
+    ClientInput in;
+    CHECK(!in.any() && !write_input(pi.data(), pi.size(), L, in), "nothing to write");
+    in.ready = 1;
+    CHECK(write_input(pi.data(), pi.size(), L, in), "ready");
+    CHECK(pi[1464] == 1, "ready byte %u", pi[1464]);
+    size_t other = 0;
+    for (size_t i = 0; i < pi.size(); ++i) other += i != 1464 && pi[i] != 0xcc;
+    CHECK(other == 0, "ready alone touches %zu other bytes", other);
+    in.ready = -1;
+    in.camera = true;
+    in.position[0] = int64_t(3841) << 32 | 0x80000000;  // 3841.5 m
+    in.position[1] = int64_t(837) << 32;
+    in.position[2] = -(int64_t(12) << 32);
+    in.orientation[0] = 0.f;
+    in.orientation[1] = 0.70710677f;
+    in.orientation[2] = 0.f;
+    in.orientation[3] = 0.70710677f;
+    in.distance = 2.5f;
+    CHECK(write_input(pi.data(), pi.size(), L, in), "camera");
+    int64_t pos[3];
+    float q[4], d;
+    std::memcpy(pos, pi.data() + 0x28, 24);
+    std::memcpy(q, pi.data() + 0x40, 16);
+    std::memcpy(&d, pi.data() + 0x50, 4);
+    CHECK(pos[0] == in.position[0] && pos[1] == in.position[1] && pos[2] == in.position[2], "position");
+    CHECK(q[1] == in.orientation[1] && q[3] == in.orientation[3] && q[0] == 0.f && q[2] == 0.f, "orientation");
+    CHECK(d == 2.5f, "distance %f", d);
+    CHECK(pi[1464] == 1, "the camera leaves the readiness as it was");
+    CHECK(pi[0x27] == 0xcc && pi[0x54] == 0xcc && pi[0x56] == 0xcc, "nothing around the camera's parts (fovY stays the game's)");
+    in.ready = 0;
+    in.camera = false;
+    CHECK(write_input(pi.data(), pi.size(), L, in) && pi[1464] == 0, "not ready again");
+    std::memcpy(pos, pi.data() + 0x28, 24);
+    CHECK(pos[0] == (int64_t(3841) << 32 | 0x80000000), "the camera stays as last said");
+    in.ready = 1;
+    CHECK(!write_input(pi.data(), 1000, L, in), "a component smaller than the layout is left alone");
+    CHECK(!write_input(nullptr, 1472, L, in), "no component");
+    CHECK(!write_input(pi.data(), pi.size(), InputLayout{}, in), "an unresolved layout");
+}
+
+// ---- 14 ----
 void t_indices() {
     std::vector<bool> free17(17, false);
     SpentMachines spent;
@@ -716,6 +841,7 @@ int main() {
     t_limits_are_time();
     t_logged_in();
     t_publisher();
+    t_input();
     t_indices();
     std::printf("labbot host: %d checks, %d failed\n", g_checks, g_failures);
     return g_failures ? 1 : 0;

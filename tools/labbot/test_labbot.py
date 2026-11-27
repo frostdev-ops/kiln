@@ -100,6 +100,14 @@ class FakeLab(threading.Thread):
         op = rq["op"]
         if op == "status":
             return {"available": True, "bots": len(self.bots), "groups": 4, "publishes": 9, "why": ""}
+        if op == "spawn":
+            return {"entity": 4242, "template": rq["template"]}
+        if op == "near":
+            return {"entities": [{"entity": 4243, "name": "FoodBait_T2_Dog", "distance": 1.5, "position": [rq["x"], rq["y"], rq["z"]]}]}
+        if op == "component":
+            return {"entity": rq["entity"], "name": rq["name"], "exists": True, "has": True, "size": 4, "hex": "0E000102"}
+        if op == "destroy":
+            return {"destroyed": True}
         if op == "join":
             if rq["name"] in [b["name"] for b in self.bots.values()]:
                 return {"ok": False, "error": "ArgumentException: a live bot has it"}
@@ -125,6 +133,15 @@ class FakeLab(threading.Thread):
             return {"id": i}
         if op == "teleport":
             return {"id": i, "position": [rq["x"], rq["y"], rq["z"]]}
+        if op in ("give", "inventory", "look", "ready", "use", "buffs"):  # dev.32 labbot-2: using items
+            if op == "inventory":
+                return {"id": i, "slots": [{"slot": "1a2b0003", "item": 3047029804, "name": "Food_T2_Dog_Bait", "count": 3, "category": "Generic"},
+                                            {"slot": "1a2b0004", "item": 3047029804, "name": "Food_T2_Dog_Bait", "count": 2, "category": "Generic"}]}
+            if op == "buffs":
+                return {"id": i, "buffs": [{"id": "0x89cb0b34", "slot": "Food", "level": 0, "seconds": None}]}
+            if op == "use" and rq.get("item") == "Rock":
+                return {"ok": False, "error": "use Rock: NotConsumable", "result": "NotConsumable"}
+            return dict({k: v for k, v in rq.items() if k not in ("op", "seq")}, result="Started" if op == "use" else None)
         told = getattr(self, "told", [])
         last = max([ln["n"] for ln in told], default=0)
         if op == "told":
@@ -261,6 +278,46 @@ class LabBotTests(unittest.TestCase):
         b.command("pet list")
         with self.assertRaisesRegex(labbot.LabBotError, "was not told"):
             b.wait_told("Summoned", timeout=0.5)  # the cursor moved with the command
+
+    def test_13_using_items(self):
+        f = self.fake()
+        lab = labbot.Lab(f.port, timeout=3)
+        b = lab.spawn("Bot Alder", timeout=10)
+        b.give("Food_T2_Dog_Bait", 3)
+        self.assertEqual({k: v for k, v in f.requests[-1].items() if k != "seq"},
+                         {"op": "give", "id": 1, "item": "Food_T2_Dog_Bait", "count": 3})
+        self.assertEqual(b.count("Food_T2_Dog_Bait"), 5)  # summed over the bot's slots
+        self.assertEqual(b.count(3047029804), 5)
+        self.assertEqual(b.count("Food_T1_raw_fruit_Red_Berries"), 0)
+        self.assertEqual(b.use("Food_T2_Dog_Bait", at=(3705.0, 905.5, 1175.0))["result"], "Started")
+        self.assertEqual({k: v for k, v in f.requests[-1].items() if k != "seq"},
+                         {"op": "use", "id": 1, "item": "Food_T2_Dog_Bait", "at": [3705.0, 905.5, 1175.0]})
+        b.use(slot="1a2b0004", yaw=90, pitch=30)
+        self.assertEqual({k: v for k, v in f.requests[-1].items() if k != "seq"}, {"op": "use", "id": 1, "slot": "1a2b0004", "yaw": 90, "pitch": 30})
+        with self.assertRaisesRegex(labbot.LabBotError, "NotConsumable"):
+            b.use("Rock")
+        b.look(at=(1, 2, 3), distance=2.5)
+        self.assertEqual({k: v for k, v in f.requests[-1].items() if k != "seq"}, {"op": "look", "id": 1, "at": [1, 2, 3], "distance": 2.5})
+        b.ready(False)
+        self.assertEqual(f.requests[-1]["ready"], False)
+        self.assertEqual(b.buffs()[0]["slot"], "Food")
+        self.assertEqual(f.requests[-1]["op"], "buffs")
+        self.assertEqual(lab.spawn_entity("Animal_Wildlife_Dog_05_white_AG2", 1, 2, 3), 4242)
+        self.assertEqual({k: v for k, v in f.requests[-1].items() if k != "seq"},
+                         {"op": "spawn", "template": "Animal_Wildlife_Dog_05_white_AG2", "x": 1, "y": 2, "z": 3, "yaw": 0})
+        self.assertEqual(lab.near(1, 2, 3, 8.5)[0]["name"], "FoodBait_T2_Dog")
+        self.assertEqual(f.requests[-1]["component"], "PickupItem")
+        self.assertEqual(lab.component(4243, "DynamicWildlife"), bytes([0x0e, 0, 1, 2]))
+        self.assertIsNone(self.fake_component_missing(f, lab))
+        self.assertTrue(lab.destroy(4242))
+
+    def fake_component_missing(self, f, lab):
+        saved = f.answer
+        f.answer = lambda rq: {"entity": rq["entity"], "name": rq["name"], "exists": True, "has": False}
+        try:
+            return lab.component(4243, "IsTame")
+        finally:
+            f.answer = saved
 
     def test_9_cli_exit_codes(self):
         f = self.fake()

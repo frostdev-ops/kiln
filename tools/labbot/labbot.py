@@ -13,6 +13,8 @@ speaks that channel as a lab peer (tools/nettest's codec): no game client, no St
     bot.command("pet list")                 # Commands.Execute as the bot: result and immediate output
     bot.wait_told("Hound")                  # a line the server told the bot after its last say/command
     bot.move_to(x, y, z)                    # teleport its entity
+    bot.give("Food_T2_Dog_Bait", 3)         # the game's own inventory add (Items.Give)
+    bot.use("Food_T2_Dog_Bait", at=(x, y, z))  # use it as a hotbar use does; a bait is thrown from its eyes towards at
     bot.leave()                             # logout (final save), waits until it is gone
 
 CLI (one op per call, JSON out):
@@ -20,6 +22,7 @@ CLI (one op per call, JSON out):
     python3 -I tools/labbot/labbot.py --port P spawn NAME [--group admin|least|index] [--index N] [--timeout S]
     python3 -I tools/labbot/labbot.py --port P join NAME | info ID | wait ID | leave ID [--drop]
     python3 -I tools/labbot/labbot.py --port P say ID TEXT | command ID LINE | move ID X Y Z | position ID | character ID
+    python3 -I tools/labbot/labbot.py --port P give ID ITEM [COUNT] | inventory ID | use ID ITEM [X Y Z] | buffs ID
 Exit 0 = ok, 1 = the server answered an error (printed), 2 = no answer (is the lab up with labPort and labbot-test?).
 """
 import argparse
@@ -161,6 +164,24 @@ class Lab:
         info = self.call("info", id=bot_id)["bot"]
         return Bot(self, bot_id, info["name"])
 
+    # ---- probes (labbot-test's lab helpers; the template and component names are the game's) ----
+    def spawn_entity(self, template, x, y, z, yaw=0, timeout=20.0):
+        """Spawns a game template (transient: never saved), e.g. a wild animal next to a bot; returns its entity."""
+        return self.call("spawn", timeout=timeout, template=template, x=x, y=y, z=z, yaw=yaw)["entity"]
+
+    def near(self, x, y, z, radius, component="PickupItem"):
+        """Entities with `component` within `radius` metres, nearest first: [{"entity", "template", "name", "position",
+        "distance"}]. A placed or thrown item (an animal bait) is a PickupItem."""
+        return self.call("near", x=x, y=y, z=z, radius=radius, component=component)["entities"]
+
+    def component(self, entity, name):
+        """The entity's component `name` as bytes (at most 1024), or None when it has none."""
+        r = self.call("component", entity=entity, name=name)
+        return bytes.fromhex(r["hex"]) if r.get("has") else None
+
+    def destroy(self, entity):
+        return self.call("destroy", entity=entity)["destroyed"]
+
 
 class Bot:
     def __init__(self, lab, bot_id, name):
@@ -242,6 +263,64 @@ class Bot:
                 raise LabBotError(f"bot {self.id} '{self.name}' was not told '{pattern}' in {timeout:.0f} s")
             time.sleep(0.25)
 
+    # ---- using items (since dev.32 labbot-2; docs/re/labbot.md "Using an item") ----
+    def give(self, item, count=1, timeout=20.0):
+        """Gives the bot `count` x `item` (a name such as "Food_T2_Dog_Bait", or an item id) through the game's own
+        inventory add (Items.Give); returns {"status", "done", ...}; raises LabBotError when nothing was given."""
+        return self.lab.call("give", timeout=timeout, id=self.id, item=item, count=count)
+
+    def inventory(self):
+        """The bot's non-empty slots: [{"slot", "item", "name", "count", "category"}]."""
+        return self.lab.call("inventory", id=self.id)["slots"]
+
+    def count(self, item):
+        """How many of `item` (a name or an item id) the bot has, over all its slots."""
+        return sum(s["count"] for s in self.inventory() if item in (s["name"], s["item"]))
+
+    @staticmethod
+    def _look(at=None, yaw=None, pitch=None, eye=None, distance=None):
+        o = {}
+        if at is not None:
+            o["at"] = list(at)
+        for k, v in (("yaw", yaw), ("pitch", pitch), ("eye", eye), ("distance", distance)):
+            if v is not None:
+                o[k] = v
+        return o
+
+    def look(self, at=None, yaw=None, pitch=None, eye=None, distance=None):
+        """Sets the bot's client camera (LabBots.SetCamera): at its eyes (`eye` metres above its feet, 1.7 by default)
+        looking at `at` (x, y, z) or along `yaw` (degrees, 0 = +Z, 90 = +X) and `pitch` (degrees, positive looks down;
+        with `at`, it replaces the line of sight's); `distance`: the camera's boom. Returns the camera it set."""
+        return self.lab.call("look", id=self.id, **self._look(at, yaw, pitch, eye, distance))
+
+    def ready(self, ready=True):
+        """The bot's client says it is ready for gameplay (LabBots.SetReady); use() says so itself. The game then plays a
+        new character's first-time spawn intro (Player_Spawn_Initial_FirstTime_PodWakeup, 17.7 s) before it can use an
+        item, so a script that will use items calls this right after the join."""
+        return self.lab.call("ready", id=self.id, ready=ready)
+
+    def use(self, item=None, slot=None, at=None, yaw=None, pitch=None, eye=None, distance=None, wait=None, timeout=45.0):
+        """Uses `item` (a name or id: the first slot holding it) or the item in `slot` the way the game does for a hotbar
+        use (Abilities.UseItem: the item's own sequence with that slot as the used item; the game takes the item when its
+        sequence's consume event runs). The bot says it is ready for gameplay first; with `at` or `yaw`/`pitch` its camera
+        is set first: a thrown item (an animal bait: 5 m/s up, 10 m/s along the view) starts at its eyes and flies
+        towards `at`. The server waits while the game answers NotReady or Busy, at most `wait` seconds (30 by default):
+        a bot that just became ready plays the game's first-time spawn intro (17.7 s), so call ready() early. Returns
+        {"result": "Started", "slot", "item", "name", "countBefore", "tries", "waited", "look"?}; raises LabBotError with
+        the game's answer (NotConsumable, Busy, NotReady, ...) and the bot's states otherwise."""
+        args = self._look(at, yaw, pitch, eye, distance)
+        if wait is not None:
+            args["wait"] = wait
+        if slot is not None:
+            args["slot"] = slot
+        else:
+            args["item"] = item
+        return self.lab.call("use", timeout=timeout, id=self.id, **args)
+
+    def buffs(self):
+        """The bot's buffs: [{"id", "slot", "level", "seconds"}] (a meal's buff is in a Food slot)."""
+        return self.lab.call("buffs", id=self.id)["buffs"]
+
     def stay(self, seconds):
         """Keeps the bot in the world, doing nothing, for `seconds` (it only moves when moved); returns its info.
         Asks for the bot's info every KEEPALIVE seconds meanwhile, which keeps this lab peer known to kiln.net, and
@@ -310,6 +389,14 @@ def main(argv=None):
                 out = b.position()
             elif op == "character":
                 out = b.character()
+            elif op == "give":
+                out = b.give(x[1], int(x[2]) if len(x) > 2 else 1)
+            elif op == "inventory":
+                out = b.inventory()
+            elif op == "use":
+                out = b.use(x[1], at=tuple(float(v) for v in x[2:5]) if len(x) >= 5 else None)
+            elif op == "buffs":
+                out = b.buffs()
             else:
                 ap.error(f"unknown op {op}")
         print(json.dumps(out, indent=1))

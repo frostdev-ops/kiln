@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
@@ -36,6 +37,8 @@
 #include "services/kiln_hooks.h"
 #include "services/kiln_labbot.h"
 #include "services/kiln_net.h"
+#include "services/kiln_types.h"
+#include "services/kiln_world.h"
 
 namespace {
 
@@ -326,6 +329,8 @@ struct Slot {
     Phase logged = Phase::Free;
     uint64_t last_note = 0;
     uint64_t joined_step = 0, in_game_step = 0;  // server steps (KilnLabBotInfo); the bot itself counts milliseconds
+    labbot::ClientInput input;                   // what its client says in its input (input()); written while in game
+    bool input_written = false, input_failed = false;  // the first write's outcome was logged
 };
 std::recursive_mutex g_mu;  // the bots; GameServer thread steps them, any thread reads info/list
 Slot g_slots[KILN_LABBOT_MAX];
@@ -361,6 +366,97 @@ void fill_info(const Slot& s, KilnLabBotInfo* out) {
     std::snprintf(out->reason, sizeof out->reason, "%s", s.bot.reason.c_str());
 }
 
+// ------------------------------------------------------------------------------------- the bots' client input --------
+// PlayerInput's client parts (bot.h InputLayout), from the game's reflection at on_ready; kiln.world gives the bot's
+// component. A bot's PlayerInput is written by nothing else (no input message arrives for its slot).
+labbot::InputLayout g_input;
+bool g_input_ok = false;
+std::string g_input_why = "not resolved yet";
+const KilnWorldApi* g_world = nullptr;
+uint32_t g_input_hash = 0;  // component hash of keen::ecs::PlayerInput
+
+struct TypesFields final : labbot::Fields {
+    const KilnTypesApi* t = nullptr;
+    const KilnType* find(std::string_view name) const { return t->type_by_name(KilnStr{name.data(), name.size()}); }
+    bool info(const KilnType* ty, KilnTypeInfo* out) const {
+        std::memset(out, 0, sizeof *out);
+        out->size = sizeof *out;
+        return ty && t->type_info(ty, out) == KILN_OK;
+    }
+    bool field(std::string_view type, std::string_view name, int64_t* offset, std::string* field_type, uint32_t* field_size) override {
+        const KilnType* ty = find(type);
+        KilnTypeInfo ti;
+        if (!info(ty, &ti)) return false;
+        for (uint32_t k = 0; k < ti.field_count; ++k) {
+            KilnTypeField f{};
+            if (t->type_field(ty, k, &f) != KILN_OK || std::string_view(f.name.ptr ? f.name.ptr : "", f.name.ptr ? f.name.len : 0) != name)
+                continue;
+            KilnTypeInfo fi;
+            if (!info(f.type, &fi)) return false;
+            *offset = static_cast<int64_t>(f.offset);
+            field_type->assign(fi.qualified_name.ptr ? fi.qualified_name.ptr : "", fi.qualified_name.ptr ? fi.qualified_name.len : 0);
+            *field_size = fi.type_size;
+            return true;
+        }
+        return false;
+    }
+    uint32_t size_of(std::string_view type) override {
+        KilnTypeInfo ti;
+        return info(find(type), &ti) ? ti.type_size : 0;
+    }
+};
+
+void resolve_input() {
+    const auto* types = static_cast<const KilnTypesApi*>(g_api->service(kstr(KILN_TYPES_SERVICE), 1));
+    g_world = static_cast<const KilnWorldApi*>(g_api->service(kstr(KILN_WORLD_SERVICE), 1));
+    if (!types || types->header.size < offsetof(KilnTypesApi, type_field) + sizeof(void*)) {
+        g_input_why = "kiln.types is not here";
+    } else if (!g_world || g_world->header.size < offsetof(KilnWorldApi, component) + sizeof(void*)) {
+        g_input_why = "kiln.world is not here";
+    } else {
+        TypesFields f;
+        f.t = types;
+        std::string why;
+        if (!labbot::resolve_input(f, &g_input, &why)) {
+            g_input_why = "PlayerInput's client parts did not resolve: " + why;
+        } else {
+            g_input_hash = g_world->component_hash(kstr("PlayerInput"));
+            g_input_ok = g_input_hash != 0;
+            g_input_why = g_input_ok ? "" : "no component hash for PlayerInput";
+        }
+    }
+    if (g_input_ok)
+        logf(KILN_LOG_INFO, "labbot: bots' client input: PlayerInput %u bytes, camera at +0x%llx, readiness at +0x%llx", g_input.size,
+             static_cast<unsigned long long>(g_input.camera_position), static_cast<unsigned long long>(g_input.ready));
+    else
+        logf(KILN_LOG_WARN, "labbot: bots' client input is off: %s", g_input_why.c_str());
+}
+
+int guarded_write_input(uint8_t* pi, uint32_t size, const labbot::ClientInput& in) {
+    __try {
+        return labbot::write_input(pi, size, g_input, in) ? 1 : 0;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return -1;
+    }
+}
+
+// After the GameServer's receive, where a client's input lands: the parts the bot's client says.
+void send_input(Slot& s) {
+    if (!g_input_ok || !g_world || !s.bot.entity) return;
+    uint32_t size = 0;
+    auto* pi = static_cast<uint8_t*>(const_cast<void*>(g_world->component(s.bot.entity, g_input_hash, &size)));
+    const int r = pi ? guarded_write_input(pi, size, s.input) : 0;
+    if (r > 0 && !s.input_written) {
+        s.input_written = true;
+        logf(KILN_LOG_INFO, "labbot: bot %u '%s' sends its client input (camera %s, ready %d)", s.id, s.bot.name.c_str(),
+             s.input.camera ? "set" : "not set", s.input.ready);
+    } else if (r <= 0 && !s.input_failed) {
+        s.input_failed = true;
+        logf(KILN_LOG_WARN, "labbot: bot %u '%s': its input could not be written (%s)", s.id, s.bot.name.c_str(),
+             !pi ? "its entity has no PlayerInput" : r < 0 ? "a fault" : "the component is smaller than the layout");
+    }
+}
+
 void step_bots(uintptr_t gs) {
     std::lock_guard<std::recursive_mutex> lk(g_mu);
     const uint64_t now = g_step.fetch_add(1, std::memory_order_relaxed) + 1;
@@ -376,6 +472,7 @@ void step_bots(uintptr_t gs) {
         if (!s.joined_step) s.joined_step = now;
         if (after == Phase::InGame && !s.in_game_step) s.in_game_step = now;
         pub_set(i, s.bot.entry, s.bot.injected());
+        if (after == Phase::InGame && s.input.any()) send_input(s);
         if (after == Phase::Loading && s.logged == Phase::LoggingIn) {
             const labbot::SaveView sv = eng.save(s.bot.entry.slot);
             logf(KILN_LOG_INFO, "labbot: bot %u '%s': the server took its character upload (its upload buffer holds %llu bytes)", s.id,
@@ -589,7 +686,42 @@ KilnResult KILN_CALL t_list(KilnLabBotInfo* out, uint32_t cap, uint32_t* count) 
     return KILN_OK;
 }
 
-const KilnLabBotApi kTable = {{sizeof(KilnLabBotApi), KILN_LABBOT_VERSION}, &t_status, &t_join, &t_leave, &t_info, &t_list};
+KilnResult KILN_CALL t_input(uint32_t id, const KilnLabBotInput* in) {
+    if (!g_allowed) return KILN_ERR_UNAVAILABLE;
+    if (!g_api->on_tick_thread()) return KILN_ERR_WRONG_THREAD;
+    constexpr uint32_t kKnown = KILN_LABBOT_INPUT_CAMERA | KILN_LABBOT_INPUT_READY;
+    if (!in || in->size < sizeof(KilnLabBotInput) || !in->flags || (in->flags & ~kKnown)) return KILN_ERR_INVALID_ARGUMENT;
+    if (in->flags & KILN_LABBOT_INPUT_CAMERA) {
+        float len = 0;
+        for (float c : in->camera_orientation) {
+            if (!std::isfinite(c)) return KILN_ERR_INVALID_ARGUMENT;
+            len += c * c;
+        }
+        if (len < 1e-6f || !std::isfinite(in->camera_distance) || in->camera_distance < 0) return KILN_ERR_INVALID_ARGUMENT;
+    }
+    if (!g_input_ok) {
+        logf(KILN_LOG_WARN, "labbot: bot %u's input refused: %s", id, g_input_why.c_str());
+        return KILN_ERR_UNAVAILABLE;
+    }
+    std::lock_guard<std::recursive_mutex> lk(g_mu);
+    Slot* s = find(id);
+    if (!s || !live(*s)) return KILN_ERR_NOT_FOUND;
+    if (in->flags & KILN_LABBOT_INPUT_CAMERA) {
+        s->input.camera = true;
+        std::memcpy(s->input.position, in->camera_position, sizeof s->input.position);
+        std::memcpy(s->input.orientation, in->camera_orientation, sizeof s->input.orientation);
+        s->input.distance = in->camera_distance;
+    }
+    if (in->flags & KILN_LABBOT_INPUT_READY) s->input.ready = in->ready ? 1 : 0;
+    s->input_written = s->input_failed = false;  // the next write says how it went
+    logf(KILN_LOG_INFO, "labbot: bot %u '%s' input: camera %s (%.2f, %.2f, %.2f; distance %.2f), ready %d", s->id, s->bot.name.c_str(),
+         s->input.camera ? "set" : "not set", static_cast<double>(s->input.position[0]) / 4294967296.0,
+         static_cast<double>(s->input.position[1]) / 4294967296.0, static_cast<double>(s->input.position[2]) / 4294967296.0,
+         static_cast<double>(s->input.distance), s->input.ready);
+    return KILN_OK;
+}
+
+const KilnLabBotApi kTable = {{sizeof(KilnLabBotApi), KILN_LABBOT_VERSION}, &t_status, &t_join, &t_leave, &t_info, &t_list, &t_input};
 
 // ------------------------------------------------------------------------------------------- lifecycle -------------
 void KILN_CALL on_world(const KilnWorldEvent* ev, void*) {
@@ -667,6 +799,7 @@ void KILN_CALL on_ready(void*) {
     } else {
         g_allowed = true;
         g_why_off.clear();
+        resolve_input();
         logf(KILN_LOG_WARN, "labbot: on (lab port %u, policy any; bot players for tests only, never on a public server)", g_lab_port);
         return;
     }

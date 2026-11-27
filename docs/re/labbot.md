@@ -89,7 +89,8 @@ entity from the player template, user-group rights, saves, logout, removal).
    SyncSockets made its machine's sockets (the GameServer's socket set, `net/gs.sockets` `+net/sockets.machines`), the
    Login (`AddPlayer`); once Save2's slot carries the bot's handle and waits, the character upload (`Save2Receive`);
    SystemsReady and GameplayReady (`MachineLogin`) when the record is loaded; acks of every save the server sends;
-   and on leave the final request plus what `ServerReceive` does after it.
+   and on leave the final request plus what `ServerReceive` does after it. While it is in game, the parts of its client
+   input a script set (below, "Using an item").
 
 ## The lab sessions (dev32 LABBOT, 2026-11-27, lab dev32-labbot, server f0d824be)
 
@@ -175,3 +176,54 @@ server's own), so about 15 joins per server session, less one for each player co
 Not fixed: the backlog itself. A bot in game keeps adding to its sockets' counters (channel 11 about 0.2 MB a second in
 p1); they are 32-bit, so a bot in game for some hours could wrap them (not seen; the review's 5-minute stays were fine).
 Draining it would mean answering the session's reliable channel as a client does (acknowledgements), not built.
+
+## Using an item (dev.32 labbot-2)
+
+A client uses an item from its hotbar: the player programs turn the press into a trigger of the item's own sequence
+(`ItemInfo.sequences[]` with `triggeredBy` Primary) with the slot as the trigger context's used item, and the sequence's
+events do the rest on the server. Kiln already starts that sequence the same way (`Abilities.UseItem`, kiln.abilities
+`item_use`: the helper player actions use, `ActorInput.triggerContext`), so a bot's use is that call on its slot. Two
+parts of the bot's client input decide whether and where it works **[static] [lab]**:
+
+- **Readiness.** `actor_is_ready_for_gameplay` sets `IsReadyForGameplay` only when the client's
+  `PlayerInput.fromClientIsReadyForGameplay` (+0x5b8) is set and the terrain at the character is loaded
+  (docs/re/player-state.md), and `Abilities.UseItem` refuses a player that is not ready (`NotReady`). A bot sends no input,
+  so it was never ready: `LabBots.SetReady` makes its client say so.
+- **The camera.** The dog bait `Food_T2_Dog_Bait` (`0xb59dfc2c`, category AnimalFood, flag `IsAnimalBait`) has one use
+  sequence, `e638b71f-…` `UseItem_Drop_FoodBait` (0.3 s): at 0.15 s a `SpawnEntityEvent` with an empty template (so the
+  used item's `equipment.placedEntity`, `FoodBait_T2_Dog` `21eb90be-…`), `spawnTransform` **Crosshair**,
+  `useTargetingPosition`, `spawnOffset` local (0, 0, 0.5), `consume` on, and the item's `placedEntityLocalSpawnVelocity`
+  (0, 5, 10) (`tools/kfc` decode of the server's data). The spawn transform's switch (`0x3f72a` in the command builder
+  `0x3f6a0`, a jump table at `0x40558`) sends Crosshair (2) to `0x40580`, which reads the actor's PlayerInput (`ctx+0x88`)
+  at `+0x28` (`fromClient.camera.position`), `+0x40` (`.orientation`) and `+0x50` (`.distance`): the spawn point is the
+  camera's position moved `distance` along its view, turned as the camera. So the bait is thrown from the camera along
+  the view, 5 m/s up and 10 m/s forward. A bot's camera was at the world's origin (kiln.playerstate's `aim` reads it as
+  no camera); `LabBots.SetCamera` sets it.
+
+kiln.labbot writes those parts (`input`, `KilnLabBotInput`) into the bot's PlayerInput after each GameServer receive while
+the bot is in game. That is where a client's input lands: `ServerReceive`'s player channel 8 queues a client's input per
+tick and `InputApply` (`0x600ff0`) copies the step's entry into PlayerInput; no entry ever arrives for a bot's slot, so
+nothing overwrites what kiln.labbot wrote. The parts are found by the game's reflection (kiln.types: PlayerInput,
+ClientPlayerInputData, ClientCamera), the component through kiln.world.
+
+The labbot-test mod's `give` (Items.Give: the game's own inventory add) and `use` ops (ready, the camera at the bot's eyes
+looking at a point, then `Abilities.UseItem` once the game marks the bot ready) are what lab scripts call
+(`tools/labbot`: `bot.give`, `bot.use(item, at=...)`).
+
+**The labs (dev32-labbot-2, 2026-11-27; `out/labbot-2/runs`)** **[lab]**:
+
+| Run | What happened | What it showed |
+|---|---|---|
+| u3 | the bot said it is ready, a use answered Busy for 10 s | ready makes the game play a new character's first-time spawn intro, `Player_Spawn_Initial_FirstTime_PodWakeup` (17.7 s, trigger ActionRespawn, StateFlag Spawning); a bot uploads a new character at every join, so it plays at every join. labbot-test's `use` waits for it (30 s by default) |
+| u4-u6, p2 | 3 dog baits and 3 berries given (Items.Give: Done 3), one berry eaten, one bait thrown | the berry: `UseItem` Started after the intro, the game took one (3 to 2) and put buff `0x4c958a05` (28.5 s) in a Food slot; the bait: Started, the game took one (3 to 2), and a `FoodBait_T2_Dog` entity (template 21eb90be) lay 1.85 m along the view (pitch 43.8 degrees down from 1.7 m: the flat-ground model of (0, 5, 10) says 4 m), carrying `UsedItem` = the bait item (the spawn path's; a bait spawned from its template has none) |
+| p2 (a probe build that hooked the bait sensor `0x21e160` and its query `0x166ef0`, observing only) | a wild dog 3.5 m east of the bot, facing it, the bait 1.8 m in front of it | **the dog's own sensor took the thrown bait**: `DynamicWildlife.foodBaitEntityId` = the thrown bait's entity, `hasSensedFoodBait` 1, then FoodBaitPursue (state 14), alternating with Roaming (6) for 30 s; it never ate (state 15) with the bot 1.85 m from the bait. It sensed after it had been alerted (state 4 Alert, 7 RunAway) |
+| u4, u5, u6 | the same throw; in u6 the bot backed off 9 m after it | not sensed: the dogs stayed in Idle (3) and Roaming (6) and were never alerted |
+| controls (u4, u5, u6) | a bait spawned from its template (Spawn.Entity), u6 on the spot a thrown one lands | never sensed, but its dogs never left Idle and Roaming either (and u5's fell 7 m into a hole), so they do not show that a template spawn cannot be sensed |
+
+The sensor, statically: `0x21e160`, called through `0x220640` from the behaviour update (`0x21eaad`) for a Tameable
+template, every 32 frames per animal (`0x69d740(ctx, 4)`), after a 10 s cooldown from the last step (`0x21d750`, record
+`+0x78`): an AABB query (`0x166ef0` over `0x67a830`, collision mask `0xfb877d0f`) of `foodBaitSensorRange` around the animal
+for an entity whose template is the favourite food (`0x65bc10`), with an angle check beyond
+`foodBaitAngleCheckMinDistance` (2.5 m for the dog). **Open:** which wildlife states reach that call (p2 suggests the
+alerted ones), and why a dog that sensed the bait did not eat it (the bot next to it; `foodBaitEatAdaptFleeRadiusDistance`
+6 m). Next lab steps for TAME: alert the dog first (or find that state), throw, back off, then the pet sequence.

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 #pragma warning disable KILNX001  // LabBots is lab-only API
+using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -18,19 +19,33 @@ public sealed unsafe class LabBotsTests : IDisposable
     private static string _name = "";
     private static uint _group, _groupIndex, _flags, _leaveId, _leaveFlags;
     private static ulong _owner;
-    private static readonly LabBotNative.Table* Table = MakeTable();
+    private static uint _inputId;
+    private static LabBotNative.InputData _input;
+    private static readonly LabBotNative.Table* Table = MakeTable(withInput: true);
+    private static readonly LabBotNative.Table* OldTable = MakeTable(withInput: false);  // kiln.labbot before input()
 
-    private static LabBotNative.Table* MakeTable()
+    private static LabBotNative.Table* MakeTable(bool withInput)
     {
-        var t = (LabBotNative.Table*)NativeMemory.AllocZeroed((nuint)sizeof(LabBotNative.Table));
-        ((uint*)t)[0] = (uint)sizeof(LabBotNative.Table);  // KilnServiceHeader {size, version}
+        var size = withInput ? sizeof(LabBotNative.TableV2) : sizeof(LabBotNative.Table);
+        var t = (LabBotNative.Table*)NativeMemory.AllocZeroed((nuint)size);
+        ((uint*)t)[0] = (uint)size;  // KilnServiceHeader {size, version}
         ((uint*)t)[1] = 1;
         t->StatusFn = &FakeStatus;
         t->Join = &FakeJoin;
         t->Leave = &FakeLeave;
         t->InfoFn = &FakeInfo;
         t->List = &FakeList;
+        if (withInput) ((LabBotNative.TableV2*)t)->InputFn = &FakeInput;
         return t;
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static int FakeInput(uint id, LabBotNative.InputData* i)
+    {
+        _inputId = id;
+        _input = *i;
+        if (i->Size != 56) return 1;
+        return _rc;
     }
 
     private static void Put(byte* dst, int cap, string s)
@@ -244,6 +259,78 @@ public sealed unsafe class LabBotsTests : IDisposable
     }
 
     [Fact]
+    public void SetCameraSendsTheCameraAsTheGameHoldsIt()
+    {
+        var at = new WorldPosition(3841.5, 837.25, -12.5);
+        var q = Quaternion.CreateFromYawPitchRoll(MathF.PI / 2, 0.3f, 0);
+        LabBots.SetCamera(5, at, q, 2.5f);
+        Assert.Equal(5u, _inputId);
+        Assert.Equal(56u, _input.Size);
+        Assert.Equal(1u, _input.Flags);  // KILN_LABBOT_INPUT_CAMERA only: the readiness stays as it was
+        Assert.Equal(3841L << 32 | 0x80000000L, _input.X);  // keen::WorldPosition: 32.32 fixed point metres
+        Assert.Equal(837L << 32 | 0x40000000L, _input.Y);
+        Assert.Equal(-(12L << 32 | 0x80000000L), _input.Z);
+        // normalised on the way (a unit quaternion stays one, give or take a float's last bit)
+        Assert.Equal(q.X, _input.Qx, 6);
+        Assert.Equal(q.Y, _input.Qy, 6);
+        Assert.Equal(q.Z, _input.Qz, 6);
+        Assert.Equal(q.W, _input.Qw, 6);
+        Assert.Equal(2.5f, _input.Distance);
+        LabBots.SetCamera(5, at, new Quaternion(0, 0, 0, 2));  // not unit: sent as the unit rotation it is
+        Assert.Equal((0f, 0f, 0f, 1f), (_input.Qx, _input.Qy, _input.Qz, _input.Qw));
+        Assert.Equal(0f, _input.Distance);  // the default boom
+    }
+
+    [Fact]
+    public void SetReadySendsTheReadinessAlone()
+    {
+        LabBots.SetReady(5);
+        Assert.Equal((5u, 2u, 1u), (_inputId, _input.Flags, _input.Ready));  // KILN_LABBOT_INPUT_READY only
+        LabBots.SetReady(5, ready: false);
+        Assert.Equal((2u, 0u), (_input.Flags, _input.Ready));
+    }
+
+    [Fact]
+    public void InputRefusalsBecomeExceptions()
+    {
+        // checked before kiln.labbot is asked: a rotation that is none, a negative or endless boom
+        _inputId = 0;
+        Assert.Throws<ArgumentException>(() => LabBots.SetCamera(5, new WorldPosition(1, 2, 3), new Quaternion(0, 0, 0, 0)));
+        Assert.Throws<ArgumentException>(() => LabBots.SetCamera(5, new WorldPosition(1, 2, 3), new Quaternion(float.NaN, 0, 0, 1)));
+        Assert.Throws<ArgumentOutOfRangeException>(() => LabBots.SetCamera(5, new WorldPosition(1, 2, 3), Quaternion.Identity, -1));
+        Assert.Throws<ArgumentOutOfRangeException>(() => LabBots.SetCamera(5, new WorldPosition(1, 2, 3), Quaternion.Identity, float.PositiveInfinity));
+        Assert.Equal(0u, _inputId);
+        _rc = 2;
+        Assert.Contains("no live bot", Assert.Throws<ArgumentException>(() => LabBots.SetReady(9)).Message);
+        _rc = 1;
+        Assert.Throws<ArgumentException>(() => LabBots.SetCamera(5, new WorldPosition(1, 2, 3), Quaternion.Identity));
+        _rc = 3;
+        var e = Assert.Throws<KilnUnavailableException>(() => LabBots.SetReady(5));
+        Assert.Equal(LabBots.Capability, e.Capability);
+    }
+
+    [Fact]
+    public void AnOlderKilnLabbotHasNoInput()
+    {
+        LabBotNative.UseTable(OldTable);
+        var e = Assert.Throws<KilnUnavailableException>(() => LabBots.SetReady(5));
+        Assert.Equal(LabBots.Capability, e.Capability);
+        Assert.Contains("newer kiln.labbot", e.Message);
+        Assert.Equal(5, LabBots.Join("Bot Alder"));  // the rest of it still works
+    }
+
+    [Fact]
+    public void TheInputLayoutIsTheHeaders()
+    {
+        Assert.Equal(56, sizeof(LabBotNative.InputData));
+        Assert.Equal(56, sizeof(LabBotNative.TableV2));
+        Assert.Equal(8, (int)Marshal.OffsetOf<LabBotNative.InputData>(nameof(LabBotNative.InputData.X)));
+        Assert.Equal(32, (int)Marshal.OffsetOf<LabBotNative.InputData>(nameof(LabBotNative.InputData.Qx)));
+        Assert.Equal(48, (int)Marshal.OffsetOf<LabBotNative.InputData>(nameof(LabBotNative.InputData.Distance)));
+        Assert.Equal(52, (int)Marshal.OffsetOf<LabBotNative.InputData>(nameof(LabBotNative.InputData.Ready)));
+    }
+
+    [Fact]
     public void WithoutKilnLabbotEveryMemberThrowsKilnUnavailable()
     {
         LabBotNative.UseTable(null);
@@ -251,5 +338,6 @@ public sealed unsafe class LabBotsTests : IDisposable
         Assert.Throws<KilnUnavailableException>(() => LabBots.Join("Bot Alder"));
         Assert.Throws<KilnUnavailableException>(() => LabBots.Info(1));
         Assert.Throws<KilnUnavailableException>(() => LabBots.All());
+        Assert.Throws<KilnUnavailableException>(() => LabBots.SetReady(1));
     }
 }

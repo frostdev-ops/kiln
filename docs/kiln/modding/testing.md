@@ -283,8 +283,13 @@ used. How it works: `docs/re/labbot.md`.
    `Info(id).Entity` is its player entity. `LabBots.Leave(id)` logs it out (final save; `drop: true` = a lost
    connection). A mod's bots drop when it unloads; every bot leaves when the world stops.
 3. From a lab script (Python), with `mods/tests/labbot-test` in the lab: `tools/labbot/labbot.py` (`Lab(port).spawn(name)`,
-   `bot.say("/pet give hound")`, `bot.command("pet list")`, `bot.move_to(x, y, z)`, `bot.leave()`); see
-   `tools/lab/README.md`, "Bot players".
+   `bot.say("/pet give hound")`, `bot.command("pet list")`, `bot.move_to(x, y, z)`, `bot.give(item, n)`,
+   `bot.use(item, at=(x, y, z))`, `bot.leave()`); see `tools/lab/README.md`, "Bot players" and "Using items".
+4. Using an item (since dev.32): what a bot's client says in its input is `LabBots.SetReady(id)` (ready for gameplay: the
+   game refuses a use by a player that is not) and `LabBots.SetCamera(id, position, rotation, distance)` (where its
+   camera is and looks: an item whose use spawns at the "crosshair", such as an animal bait, starts there and flies along
+   the view). Then `Abilities.UseItem(entity, slot)` uses an item from its inventory the way the game does for a hotbar
+   use; `Items.Give` gives it one first.
 
 The bot's name picks its character and account, so the same name is the same character on a world: its per-character
 data (pets, quests) is there when it joins again, in this server session or a later one. Each bot needs a machine index
