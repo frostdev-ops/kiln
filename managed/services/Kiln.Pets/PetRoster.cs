@@ -439,6 +439,24 @@ internal sealed partial class PetRoster
         return !r.Exists || r.Lethal || r.ProtectionLost;
     }
 
+    /// <summary>A down the final save staging captured, or one the body shows now (<see cref="DownedNow"/>); null when none.</summary>
+    private PetChangeCause? DownBefore(PetState p) => p.PendingDown ?? (DownedNow(p, out var cause) ? cause : (PetChangeCause?)null);
+
+    /// <summary>A down takes over a dismiss or a release in flight: it settles as the definition (or PetDowningEvent) says, and
+    /// the request reports it. A release of a pet that is down then goes on (as <see cref="Release"/> does).</summary>
+    private void DownDuring(Op op, PetState p, PetChangeCause cause)
+    {
+        BeginDown(p, cause);
+        if (op.Kind != Kind.Release)
+        {
+            Complete(op, false, "BodyDowned: the pet went down before it was dismissed", p);
+            return;
+        }
+        if (p.Life == PetLife.Released) Complete(op, true, null, p);
+        else if (p.Transition == PetTransition.Downing) Complete(op, false, "Busy: the pet is going down; release it once it is down", p);
+        else ReleaseBodyless(op, p);
+    }
+
     private void ReadInto(PetState p)
     {
         if (p.Body is null) return;
@@ -461,7 +479,13 @@ internal sealed partial class PetRoster
         {
             if (p.PendingLeave is { } leave && p.Body is not null)
             {
-                RetireForLeave(p, leave);
+                // 19d §4.5: a retried retirement reads the wounds again first; a down that came meanwhile is a down
+                if (DownBefore(p) is { } down)
+                {
+                    p.PendingLeave = null;
+                    BeginDown(p, down);
+                }
+                else RetireForLeave(p, leave);
                 continue;
             }
             if (p.Transition == PetTransition.Downing)
@@ -471,7 +495,8 @@ internal sealed partial class PetRoster
             }
             if (p.PendingDown is { } pending)
             {
-                BeginDown(p, pending);
+                if (p.Running is { Kind: Kind.Dismiss or Kind.Release } voluntary) DownDuring(voluntary, p, pending);
+                else BeginDown(p, pending);
                 continue;
             }
             if (p.Body is null || p.Presence != PetPresence.Live || p.Transition is PetTransition.Spawning or PetTransition.Dismissing or PetTransition.Releasing) continue;
@@ -988,6 +1013,11 @@ internal sealed partial class PetRoster
             AdvanceRetire(op, p);
             return;
         }
+        ReleaseBodyless(op, p);
+    }
+
+    private void ReleaseBodyless(Op op, PetState p)
+    {
         CancelChannel(p, PetChangeCause.Request);
         Mutate(p, op.OperationId, PetChangeCause.Request, s =>
         {
@@ -1002,6 +1032,13 @@ internal sealed partial class PetRoster
     private void AdvanceRetire(Op op, PetState p)
     {
         if (op.Phase != 1 || p.Body is null) return;
+        // 19d §4.5: every try of the voluntary destroy reads the wounds again (a try retried while a rider gets off, or after
+        // a destroy that did not take, must not hide a down latched meanwhile)
+        if (DownBefore(p) is { } down)
+        {
+            DownDuring(op, p, down);
+            return;
+        }
         if (!_world.Retire(p.Body, PetChangeCause.Request))
         {
             if (++p.RetireTries < RetireRetries) return;
@@ -1113,14 +1150,15 @@ internal sealed partial class PetRoster
                     if (!p.DownCaptured) CaptureDown(p);
                     continue;
                 }
-                if (p.Presence != PetPresence.Live) continue;
+                if (p.Presence is not (PetPresence.Live or PetPresence.Retiring)) continue;
                 var r = _world.Read(p.Body);
                 if (!r.Exists || r.Lethal || r.ProtectionLost)
                 {
+                    // also a body being dismissed, released or retired at a logout: its next try takes the down
                     CaptureDown(p);
                     p.PendingDown = !r.Exists ? PetChangeCause.BodyLost : r.ProtectionLost ? PetChangeCause.ProtectionLost : PetChangeCause.NativeLethal;
                 }
-                else if (r.HealthMax > 0 && (r.Health != p.Health || r.HealthMax != p.HealthMax))
+                else if (p.Presence == PetPresence.Live && r.HealthMax > 0 && (r.Health != p.Health || r.HealthMax != p.HealthMax))
                 {
                     p.Health = r.Health;
                     p.HealthMax = r.HealthMax;

@@ -614,6 +614,82 @@ public sealed class VoluntaryRetireTests : IDisposable
         Assert.Equal(PetLife.Downed, _t.Roster.Get(p.Id)!.Life);
     }
 
+    // review of dev.32 pets (19d §4.5): a dismiss, release or logout whose destroy had to be tried again (a rider getting
+    // off, a destroy that did not take) read the wounds only at its first try, so a down latched in between was hidden and
+    // the pet settled Ready with its health
+    [Fact]
+    public void A_down_during_a_retried_dismiss_is_a_down()
+    {
+        var p = _t.Summoned(_t.A);
+        _t.World.RetireRefuses = true;
+        var t = _t.Roster.Submit(_t.Op(PetRoster.Kind.Dismiss, _t.A, p.Id));
+        _t.Step();
+        Assert.Equal(PetTransition.Dismissing, _t.Roster.Get(p.Id)!.Transition);
+        _t.BodyOf(p.Id).DownPending = true;   // a hostile's lethal hit, latched while the dismiss waits
+        _t.World.RetireRefuses = false;
+        _t.Step();
+        Assert.True(t.IsCompleted);
+        Assert.StartsWith("BodyDowned", t.Result.Reason);
+        var d = _t.Roster.Get(p.Id)!;
+        Assert.Equal((PetLife.Downed, 0), (d.Life, d.Health));
+        Assert.Contains("Downed", _t.Names());
+        Assert.Empty(_t.World.Bodies);
+    }
+
+    [Fact]
+    public void A_down_during_a_retried_release_goes_down_then_releases()
+    {
+        var p = _t.Summoned(_t.A);
+        _t.World.RetireRefuses = true;
+        var t = _t.Roster.Submit(_t.Op(PetRoster.Kind.Release, _t.A, p.Id));
+        _t.Step();
+        _t.BodyOf(p.Id).Health = 0;
+        _t.World.RetireRefuses = false;
+        _t.Step();
+        Assert.True(t.Result.Ok, t.Result.Reason);
+        Assert.Equal(PetLife.Released, _t.Roster.Get(p.Id)!.Life);
+        var names = _t.Names();
+        Assert.True(names.IndexOf("Downed") >= 0 && names.IndexOf("Downed") < names.IndexOf("Released"), string.Join(",", names));
+    }
+
+    [Fact]
+    public void A_down_during_a_retried_logout_is_a_down()
+    {
+        var p = _t.Summoned(_t.A);
+        _t.World.RetireRefuses = true;
+        _t.World.Leave(_t.A);
+        _t.Step();
+        Assert.Equal(PetPresence.Retiring, _t.Roster.Get(p.Id)!.Presence);
+        _t.BodyOf(p.Id).Health = 0;
+        _t.World.RetireRefuses = false;
+        _t.Step();
+        var d = _t.Roster.Get(p.Id)!;
+        Assert.Equal((PetLife.Downed, 0), (d.Life, d.Health));
+        Assert.True(d.WantsSummoned);   // a logout never clears the wish
+        Assert.Contains("Downed", _t.Names());
+    }
+
+    [Fact]
+    public void A_lethal_body_being_dismissed_at_the_snapshot_is_written_downed_and_the_dismiss_reports_it()
+    {
+        var p = _t.Summoned(_t.A);
+        _t.World.RetireRefuses = true;
+        var t = _t.Roster.Submit(_t.Op(PetRoster.Kind.Dismiss, _t.A, p.Id));
+        _t.Step();
+        _t.BodyOf(p.Id).Health = 0;
+        _t.Store.Stage(6, snapshot: true);
+        var rec = PetRecordJson.Read(_t.Store.Docs[_t.A], _t.A)!.Pets.Single();
+        Assert.Equal(PetLife.Downed, rec.Life);
+        _t.World.RetireRefuses = false;
+        _t.Step();
+        Assert.True(t.IsCompleted);
+        Assert.StartsWith("BodyDowned", t.Result.Reason);
+        var d = _t.Roster.Get(p.Id)!;
+        Assert.Equal(PetLife.Downed, d.Life);
+        Assert.Equal(rec.StateRevision, d.StateRevision);
+        Assert.Null(_t.Roster.State(p.Id)!.Running);   // never left Busy
+    }
+
     [Fact]
     public void A_lethal_body_released_goes_down_first()
     {
