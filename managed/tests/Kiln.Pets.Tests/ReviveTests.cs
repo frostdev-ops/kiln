@@ -266,6 +266,46 @@ public sealed class ReviveTests : IDisposable
         Assert.Empty(_t.World.Bodies);
     }
 
+    // review of dev.32 pets: a logout (or the definition's mod unloading) while the exact debit was in flight answered
+    // CanceledNoCost at once, and the items the debit then took were in no receipt
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void A_cut_while_the_debit_settles_reports_what_was_taken(bool logout)
+    {
+        var d = Downed();
+        _costs.HeldCommit = new TaskCompletionSource<CostReceipt>();
+        var t = Revive(d);
+        for (var i = 0; i < 200 && _costs.Commits == 0; i++) _t.Step();
+        Assert.Equal(1, _costs.Commits);
+        if (logout) _t.World.Leave(_t.A);
+        else _t.Roster.Unload(["mod-a:paid"]);
+        _t.Step();
+        Assert.Empty(_t.World.Bodies);   // the preview goes at once
+        Assert.False(t.IsCompleted);     // the answer waits for the receipt
+        _costs.HeldCommit.SetResult(new CostReceipt(new ItemId(77), 3, 3, true));
+        _t.Step();
+        Assert.True(t.IsCompleted);
+        Assert.StartsWith("CanceledCostCommitted", t.Result.Reason);
+        Assert.Equal(3, Assert.Single(t.Result.Costs).Taken);
+        Assert.Equal(PetLife.Downed, _t.Roster.Get(d.Id)!.Life);
+    }
+
+    [Fact]
+    public void A_cut_while_a_refused_debit_settles_takes_nothing()
+    {
+        var d = Downed();
+        _costs.HeldCommit = new TaskCompletionSource<CostReceipt>();
+        var t = Revive(d);
+        for (var i = 0; i < 200 && _costs.Commits == 0; i++) _t.Step();
+        _t.World.Leave(_t.A);
+        _t.Step();
+        _costs.HeldCommit.SetResult(new CostReceipt(new ItemId(77), 3, 0, false));
+        _t.Step();
+        Assert.StartsWith("CanceledNoCost", t.Result.Reason);
+        Assert.Empty(t.Result.Costs);
+    }
+
     [Fact]
     public void A_second_revive_during_a_channel_is_busy()
     {

@@ -24,6 +24,7 @@ internal sealed partial class PetRoster
         public Task<CostReceipt>? Commit;
         public PetCreatureInfo? Creature;
         public bool CancelRequested;
+        public string? Cut;           // the world cut the channel while its debit settled (logout, unload): why
         public Op? CancelOp;
         public double PreviewSince;
     }
@@ -183,18 +184,20 @@ internal sealed partial class PetRoster
                 if (rv.Commit is { } commit)
                 {
                     var receipt = commit.IsCompletedSuccessfully ? commit.Result : new CostReceipt(rv.Def.Revive.Cost!.Item, rv.Def.Revive.Cost.Count, 0, false);
-                    if (!receipt.Committed)
+                    if (receipt.Committed) op.Costs.Add(receipt);
+                    else if (!rv.CancelRequested)
                     {
                         DropPreview(op, p);
                         EndChannel(op, p, "CostUnavailable: the cost could not be taken at completion (nothing was taken)", PetChangeCause.Channel);
                         return;
                     }
-                    op.Costs.Add(receipt);
                 }
                 if (rv.CancelRequested)
                 {
                     DropPreview(op, p);
-                    EndChannel(op, p, op.Costs.Count > 0 ? "CanceledCostCommitted: the revive was canceled after its cost was taken" : "CanceledNoCost: the revive was canceled (nothing was taken)", PetChangeCause.Request);
+                    var ended = rv.Cut is { } cut ? $"the revive was cut ({cut})" : "the revive was canceled";
+                    EndChannel(op, p, op.Costs.Count > 0 ? $"CanceledCostCommitted: {ended} after its cost was taken" : $"CanceledNoCost: {ended} (nothing was taken)",
+                        rv.Cut is null ? PetChangeCause.Request : PetChangeCause.Channel);
                     return;
                 }
                 if (_world.Read(op.Body!) is not { Exists: true } read || read.Lethal || !_world.Activate(op.Body!, out var lost))
@@ -284,12 +287,20 @@ internal sealed partial class PetRoster
         if (((Revival)op.Extra!).CancelOp is { } done) Complete(done, true, null, p);
     }
 
-    /// <summary>A channel is cut by the world, not a request (the owner left, the pet went down meanwhile).</summary>
+    /// <summary>A channel is cut by the world, not a request (the owner left, the pet went down meanwhile). A debit in
+    /// flight settles first: its receipt goes into the answer (CanceledCostCommitted), never lost behind a CanceledNoCost.</summary>
     private void CancelChannel(PetState p, PetChangeCause cause)
     {
         if (p.Running is { Kind: Kind.Revive } op && !op.Source.Task.IsCompleted)
         {
             DropPreview(op, p);
+            if (op.Extra is Revival { Commit: { IsCompleted: false } } settling)
+            {
+                // the preview is gone now; the answer waits for the exact receipt (AdvanceRevive's phase 5)
+                settling.CancelRequested = true;
+                settling.Cut ??= cause.ToString();
+                return;
+            }
             EndChannel(op, p, op.Costs.Count > 0 ? "ReviveFailedCostCommitted: the revive was cut after its cost was taken" : $"CanceledNoCost: the revive was cut ({cause})", cause);
             return;
         }
