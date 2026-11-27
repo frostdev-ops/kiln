@@ -106,7 +106,7 @@ Never deploy to a server players are using. Use a separate local test server.
   `creatures.health.perPlayer`, `lootRules.rarityWeights.legendary`), edit it by Kiln id from a data pack's `registry` section or
   `Mod.OnRegistry`, not by the game's paths. A pass reads the values below its own layers, so `x * 2` never stacks. One call takes at
   most the registry's edit cap (4,096; `randomLoot` 16,384): over it the whole call is refused (logged, never thrown). Settings or
-  state that change while a world runs (dev.32+): `Registry.Reauthor(RegistryEntryPoint.WorldLoad)`, never from inside `OnRegistry`, and read
+  state that change while a world runs (dev.32+): `Registries.Reauthor()` (check its result), never from inside `OnRegistry`, and read
   your inputs first (the pass runs off the tick). `restart` fields (`balance`, `world`, `difficulty`, `limits`) are `GameStart`
   only and both sides need the same values. [references/api-registry.md](references/api-registry.md).
 - **Pets, taming and exact costs (dev.32+).** Server, tick thread, `await` the result; every action takes a fresh

@@ -54,15 +54,15 @@ an ability; `leveled`: it has levels).
 ## Edit it from C#
 
 ```csharp
-registry.Alter(view =>
+registry.Alter(stage =>
 {
-    view.Skills["game:skill_4475e8dd"].Cost = 0;                       // Airborne Architect is free
-    foreach (var node in view.Skills.Select())
+    stage.Skills["game:skill_4475e8dd"].Cost = 0;                       // Airborne Architect is free
+    foreach (var node in stage.Skills.Select())
         if (node.Kind == SkillNodeKind.Active) node.Cost = Math.Max(0, node.Cost - 1);
 });
 ```
 
-`view.Skills` is a `RegistryEntries<SkillNodeEntry>`; `Cost` is the only writable property (`MaxLevel`, `Kind`, `Class` and
+`stage.Skills` is a `RegistryEntries<SkillNodeEntry>`; `Cost` is the only writable property (`MaxLevel`, `Kind`, `Class` and
 `Unlocks` read the node). [RegistryEdits sample](../../../../mods/samples/RegistryEdits/RegistryEditsMod.cs).
 
 ## Views

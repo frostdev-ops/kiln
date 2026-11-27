@@ -122,7 +122,7 @@ var n = kiln.Run(() => Players.Count);          // Kiln API only through Run/As:
   ([tasks.md](tasks.md)); dev.29.19+ `kiln.LogFile` and `kiln.ReadLogFile()` read the harness's kiln.log while it is
   written (`File.ReadAllText` on it fails on Windows).
 - `KilnHarness.Registry` (dev.31+, a recording fake: `Seed` values, `Author(mod, point, phase)` runs one pass and returns the edits
-  it would send, dev.32+ `Reauthors` lists the mods that asked `Registry.Reauthor(RegistryEntryPoint.WorldLoad)`, in order; it proves your
+  it would send, dev.32+ `Reauthors` lists the mods that asked `Registries.Reauthor()`, in order (`RunReauthored(mod, offTick)` runs that pass off the tick, and `Refused` names a call over an edit cap); it proves your
   callback, never the game's mapping, composition or live application, [api-registry.md](api-registry.md)); `KilnHarness.NpcSpeech`
   (dev.31.16+; picks, farewells, menu lines, topics and a pick of one, [api-npcs.md](api-npcs.md)); dev.32+ `KilnHarness.Pets`
   and `KilnHarness.Taming` (Kiln's real roster and attempt engine on the kit's world: `Join` a player, `Place` and `Give`,

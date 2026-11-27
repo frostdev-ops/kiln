@@ -16,12 +16,12 @@ Same edit shape as every registry ([items](items.md#edit-it-from-a-data-pack) sh
 ## Edit it from C#
 
 ```csharp
-registry.Alter(view =>
+registry.Alter(stage =>
 {
     var forge = new RegistryId("game:prop_production_t1_forge");
-    foreach (var recipe in view.Recipes.Select())
+    foreach (var recipe in stage.Recipes.Select())
         if (recipe.Station == forge) recipe.Duration /= 2;          // Duration is a TimeSpan
-    var arrow = view.Recipes["game:ammo_arrow_t3_bronze"];
+    var arrow = stage.Recipes["game:ammo_arrow_t3_bronze"];
     arrow.Inputs[0].Count = 2;                                      // an element of the input list, by its index
     var twig = arrow.Inputs.AppendNew();                            // a new input: then set its fields
     twig.Item = new RegistryId("game:material_t1_twigs");
@@ -29,10 +29,10 @@ registry.Alter(view =>
 });
 ```
 
-`view.Recipes` is a `RegistryEntries<RecipeEntry>`: `Select()` lists every recipe (or a glob), and `Station`, `Inputs`,
+`stage.Recipes` is a `RegistryEntries<RecipeEntry>`: `Select()` lists every recipe (or a glob), and `Station`, `Inputs`,
 `Outputs`, `Duration` and `Unlock` are typed properties. A list of entries has `AppendNew()`, `RemoveWhere(...)` and `Clear()`;
 what a read in the callback shows: [C# authoring](README.md#c-authoring-api-0217). Add a recipe at GameStart with
-`view.Recipes.AddLike(id, like, recipe => ...)`.
+`stage.Recipes.AddLike(id, like, recipe => ...)`.
 
 ## Views
 

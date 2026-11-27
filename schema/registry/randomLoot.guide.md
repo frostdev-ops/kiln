@@ -19,12 +19,12 @@ rarity weights**.
 ## Edit it from C#
 
 ```csharp
-registry.Alter(view =>
+registry.Alter(stage =>
 {
-    foreach (var table in view.RandomLoot.Select("game:labels_*"))             // enemies and generic containers
+    foreach (var table in stage.RandomLoot.Select("game:labels_*"))             // enemies and generic containers
         if (table.Rarity.Legendary.Mode == RandomLootMode.Set)                  // the elite, boss and chest tables with their own odds
             table.Rarity.Legendary.Weight = table.Rarity.Legendary.Weight * 2;
-    foreach (var table in view.RandomLoot.Select("game:labels_*"))
+    foreach (var table in stage.RandomLoot.Select("game:labels_*"))
     {
         table.LevelOffset.Mode = RandomLootMode.Add;
         table.LevelOffset.Value = 2;
@@ -32,8 +32,8 @@ registry.Alter(view =>
 });
 ```
 
-`view.RandomLoot` is a `RegistryEntries<RandomLootEntry>` (about 800 tables). A pass that edits every table (about 12,752 edits)
-fits one call. To follow a setting or the players' level while a world runs, use `Registry.Reauthor(RegistryEntryPoint.WorldLoad)`:
+`stage.RandomLoot` is a `RegistryEntries<RandomLootEntry>` (about 800 tables). A pass that edits every table (about 12,752 edits)
+fits one call. To follow a setting or the players' level while a world runs, use `Registries.Reauthor()`:
 the pass runs on a worker thread and lands in one step, in a few milliseconds
 ([README](README.md#explicit-changes-and-ready)).
 

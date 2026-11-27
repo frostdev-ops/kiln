@@ -104,19 +104,19 @@ in the world (kiln.creatures keeps its per-creature setters for that). Select by
 ## Edit it from C#
 
 ```csharp
-registry.Alter(view =>
+registry.Alter(stage =>
 {
-    var vukah = view.Creatures["game:enemy_vukah_melee"];
+    var vukah = stage.Creatures["game:enemy_vukah_melee"];
     vukah.Sight.Range = vukah.Sight.Range * 1.5;
     vukah.Resist.Fire = 2.0;                               // takes double fire damage; 0 would make it immune
-    foreach (var wolf in view.Creatures.Select("game:enemy_wildbeast_wolf_*"))
+    foreach (var wolf in stage.Creatures.Select("game:enemy_wildbeast_wolf_*"))
         if (wolf.Kind == CreatureKind.Enemy) wolf.Level = 12;
-    var dog = view.Creatures["game:animal_wildlife_dog_05_white_ag2"];
+    var dog = stage.Creatures["game:animal_wildlife_dog_05_white_ag2"];
     if (dog.Tameable) dog.TamingSteps = 3;
 });
 ```
 
-`view.Creatures` is a `RegistryEntries<CreatureEntry>`. A typed property reads 0 (or false) for a creature that has no value of
+`stage.Creatures` is a `RegistryEntries<CreatureEntry>`. A typed property reads 0 (or false) for a creature that has no value of
 that field: tell such creatures by `Kind` or id, never by a 0, which for `Resist.*` would mean immune
 ([RegistryEdits sample](../../../../mods/samples/RegistryEdits/RegistryEditsMod.cs)).
 

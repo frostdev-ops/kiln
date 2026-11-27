@@ -71,14 +71,14 @@ perks also have `armor.*`: the share of the item's armour they add per kind.
 ## Edit it from C#
 
 ```csharp
-registry.Alter(view =>
+registry.Alter(stage =>
 {
-    view.Perks["game:perk_damage_ice"].Value = view.Perks["game:perk_damage_ice"].Value * 2;
-    view.Perks["game:perk_max_adder_health_t7"].Value = 150;     // a whole-number value: a fraction would be refused
+    stage.Perks["game:perk_damage_ice"].Value = stage.Perks["game:perk_damage_ice"].Value * 2;
+    stage.Perks["game:perk_max_adder_health_t7"].Value = 150;     // a whole-number value: a fraction would be refused
 });
 ```
 
-`view.Perks` is a `RegistryEntries<PerkEntry>`; `Value` is a double and `Armor` a group (`Enabled`, `Physical`, `Magical`, `Cut`,
+`stage.Perks` is a `RegistryEntries<PerkEntry>`; `Value` is a double and `Armor` a group (`Enabled`, `Physical`, `Magical`, `Cut`,
 `Pierce`, `Blunt`, `Fire`, `Ice`, `Shroud`, `Lightning`). To give an item a perk, edit the item's `perks` list ([items](items.md)).
 
 ## Views

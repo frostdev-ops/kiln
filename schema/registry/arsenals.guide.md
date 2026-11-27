@@ -11,15 +11,15 @@ it. The id is the first creature that uses it (`game:enemy_vukah_melee`); `creat
 ## Edit it from C#
 
 ```csharp
-registry.Alter(view =>
+registry.Alter(stage =>
 {
-    var arsenal = view.Arsenals["game:enemy_vukah_melee"];
+    var arsenal = stage.Arsenals["game:enemy_vukah_melee"];
     arsenal.Attacks[0].Chance = 0.5;
     foreach (var attack in arsenal.Attacks) attack.MaxRange = attack.MaxRange * 1.25;
 });
 ```
 
-`view.Arsenals` is a `RegistryEntries<ArsenalEntry>`; `Attacks` is a list of `ArsenalAttack` (`Index`, `Chance`, `Threat`, `MinRange`,
+`stage.Arsenals` is a `RegistryEntries<ArsenalEntry>`; `Attacks` is a list of `ArsenalAttack` (`Index`, `Chance`, `Threat`, `MinRange`,
 `MaxRange`, `MaxHeight`). The attack's order is the game's, so name an attack by its index only after reading the arsenal on this
 build.
 

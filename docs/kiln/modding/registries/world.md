@@ -56,8 +56,8 @@ The registry has one entry, `game:world` (the world's scene), and both fields ar
   Shroud, enemies nearby); `"field": "playableAreas", "list": {"clear": true}` lifts the bounds of the big dungeons.
 - Change a box: `"field": "noBuildZones[3].max.y", "op": 300` (`min.x`, `min.y`, `min.z`, `max.x`, `max.y`, `max.z`, in metres from
   the world's origin).
-- Append or remove a box: `"list": {"append": [{"min.x": 0, "min.y": 0, "min.z": 0, "max.x": 10, "max.y": 10, "max.z": 10}]}`,
-  `{"remove": [...]}`, `{"replace": [...]}`. Kiln gives the list its new length in the copy of the world scene the game reads. An
+- Append or remove a box: `"list": {"append": [{"min": {"x": 0, "y": 0, "z": 0}, "max": {"x": 10, "y": 10, "z": 10}}]}` (nested, as
+  the C# type is; the dotted `"min.x": 0` still reads), `{"remove": [...]}`, `{"replace": [...]}`. Kiln gives the list its new length in the copy of the world scene the game reads. An
   element that stays keeps the game's bytes; an appended **playable area** is a plain box: not a big dungeon, no map marker.
 - The game's no-build zones of furniture and creatures are not in this list.
 
@@ -69,16 +69,16 @@ public sealed class BuildAnywhere : Mod
 {
     public override void OnRegistry(RegistryContext context)
     {
-        Kiln.Registry.Registry.For(context).Alter(view =>
+        Kiln.Registry.Registries.For(context).Alter(stage =>
         {
-            view.World.NoBuildZones.Clear();
-            view.World.PlayableAreas.Clear();
+            stage.World.NoBuildZones.Clear();
+            stage.World.PlayableAreas.Clear();
         });
     }
 }
 ```
 
-`view.World` is a `WorldEntry`; its two lists hold `WorldNoBuildZone` and `WorldPlayableArea` elements (`Index`, `Min.X`..`Max.Z`).
+`stage.World` is a `WorldEntry`; its two lists hold `WorldNoBuildZone` and `WorldPlayableArea` elements (`Index`, `Min.X`..`Max.Z`).
 In a mod that declares `ModLoad`, `WorldLoad` or `HotReload`, an edit of a restart field is refused there with `RestartRequired`.
 [RegistryEdits sample](../../../../mods/samples/RegistryEdits/RegistryEditsMod.cs).
 

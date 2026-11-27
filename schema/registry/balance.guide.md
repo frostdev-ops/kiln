@@ -22,10 +22,10 @@ public sealed class Levels : Mod
 {
     public override void OnRegistry(RegistryContext context)
     {
-        var registry = Kiln.Registry.Registry.For(context);
-        registry.Alter(view =>
+        var registry = Kiln.Registry.Registries.For(context);
+        registry.Alter(stage =>
         {
-            var balance = view.Balance;                    // the one entry, no id needed
+            var balance = stage.Balance;                    // the one entry, no id needed
             balance.LevelCap = 60;
             balance.XpPerLevel[2] = 3000;                  // a fixed list: set an element
             balance.SocketChance.Epic = 0.75;
@@ -35,7 +35,7 @@ public sealed class Levels : Mod
 }
 ```
 
-`view.Balance` is a `BalanceEntry` (`LevelCap`, `SkillPointsPerLevel`, `XpPerLevel`, `XpCurve`, `AltarsPerFlameLevel`,
+`stage.Balance` is a `BalanceEntry` (`LevelCap`, `SkillPointsPerLevel`, `XpPerLevel`, `XpCurve`, `AltarsPerFlameLevel`,
 `BuildzoneSizesPerAltarLevel`, `Durability`, `RarityDurability`, `SocketChance`, `UnlockCost`, `FogResistance`, `Gear`). Restart
 fields are written at **GameStart** (and, in a mod that declares `ModLoad`, `WorldLoad` or `HotReload`, such an edit is refused
 there with `RestartRequired`).

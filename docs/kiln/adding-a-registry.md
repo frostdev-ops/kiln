@@ -31,7 +31,7 @@ The path of one edit, and who owns each step:
 | Mapping onto the game | `regmap/common/<r>.json` rows read by `registry/regmap.cpp`, checked by `regmap_check.py` (types against reflection, routing rule, reasons in Kiln words) | the `entries` block and one row per field |
 | Base values | `registry/model.cpp` (`decode` :352, `encode` :509) over `BaseView`/`PristineView`, decoded through reflection (`model_bytes.cpp`) | nothing, unless a new `conv` or entries kind is needed |
 | Ids | `map::assign_ids` (regmap.cpp), `Model::list_all` (model.cpp:898), the per-build id table, alias deltas in the build record; Python twin `regmap_ids.py` / `regmap_entries.py` | the stable-name rule if it is new (`unnamed`, `nameFrom`, `key`) |
-| Edits in | IR (`registry/ir.cpp`), data sections (`ir.cpp` `lower_section`, read by `stage.cpp`), C# `OnRegistry` and `Registry.Change` (Kiln.Host `RegistryDispatch.cs`), native `kiln.registry` / `kiln.registry.live` | nothing |
+| Edits in | IR (`registry/ir.cpp`), data sections (`ir.cpp` `lower_section`, read by `stage.cpp`), C# `OnRegistry` and `Registries.Change` (Kiln.Host `RegistryDispatch.cs`), native `kiln.registry` / `kiln.registry.live` | nothing |
 | Composition | `registry/compose.cpp` (stages, claims, `exclusive`/`yield`, references), `claims.cpp` | ref targets if the registry is referenced |
 | Mapping guard | `registry/unmapped.h` `refuse_unmapped_edits` (stage and live share it) | nothing |
 | Restart fields | boot back-end: `registry/boot_bridge.cpp` `write` (:156), scalar leaves on a resource copy before the game reads it | nothing for scalars |
@@ -103,7 +103,7 @@ would change nothing, so it is refused.
   from C#*, *Views*, *Worked example*, *In multiplayer*, *Known limits*. `registrygen.py` refuses a registry with no guide file or with
   other sections. Links in it are written from the page's folder (`docs/kiln/modding/registries/`). Take the worked example's
   data pack from a lab-run fixture (`mods/tests/registry-*`, `mods/samples`), check its JSON against
-  `schema/registry-section.schema.json` (a selector is an object with an `id`) and its C# against the generated entry type, and put
+  `schema/registry-section.schema.json` (a selector is an object with an `id`, or that id as a plain string) and its C# against the generated entry type, and put
   into *Known limits* what no real game has shown yet.
 
 Done when `registrygen.py --check` passes and `git status` shows the generated files.

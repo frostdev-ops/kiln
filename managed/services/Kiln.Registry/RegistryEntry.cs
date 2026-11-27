@@ -17,9 +17,9 @@ namespace Kiln.Registry;
 /// checked against the field's schema type when it is set, and its range where the edit is composed, as for every edit. Like every
 /// registry object it expires when the callback returns: never keep it. Registry-thread only (<see cref="RegistryThreadOnlyAttribute"/>).</remarks>
 /// <example><code>
-/// registry.Alter(view =&gt;
+/// registry.Alter(stage =&gt;
 /// {
-///     RegistryEntry logs = view.Entries("items")["game:material_t1_wood_logs"];
+///     RegistryEntry logs = stage.Entries("items")["game:material_t1_wood_logs"];
 ///     logs.Set("maxStack", 500);
 ///     for (int i = 0; i &lt; logs.Count("perks"); i++) Log.Info($"perk {i}: {logs.Get&lt;string&gt;($"perks[{i}]")}");
 /// });

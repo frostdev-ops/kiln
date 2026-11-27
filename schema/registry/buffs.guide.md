@@ -18,9 +18,9 @@ public sealed class Poison : Mod
 {
     public override void OnRegistry(RegistryContext context)
     {
-        Kiln.Registry.Registry.For(context).Alter(view =>
+        Kiln.Registry.Registries.For(context).Alter(stage =>
         {
-            var poisoned = view.Buffs["game:buff_5f425faf"];
+            var poisoned = stage.Buffs["game:buff_5f425faf"];
             poisoned.Duration = TimeSpan.FromSeconds(20);
             Log.Info($"Poisoned: {poisoned.Duration.TotalSeconds:0} s, {poisoned.Kind}, applied again: {poisoned.Stacking}");
         });
@@ -28,7 +28,7 @@ public sealed class Poison : Mod
 }
 ```
 
-`view.Buffs` is a `RegistryEntries<BuffEntry>` (`Duration` a `TimeSpan`, `Stacking` a `BuffStacking`, `Kind` and `Saved`
+`stage.Buffs` is a `RegistryEntries<BuffEntry>` (`Duration` a `TimeSpan`, `Stacking` a `BuffStacking`, `Kind` and `Saved`
 read-only). The complete mod: [SpellRegistry sample](../../../../mods/samples/SpellRegistry/SpellRegistryMod.cs).
 
 ## Views

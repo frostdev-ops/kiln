@@ -130,16 +130,16 @@ public sealed class WiderBounds : Mod
 {
     public override void OnRegistry(RegistryContext context)
     {
-        Kiln.Registry.Registry.For(context).Alter(view =>
+        Kiln.Registry.Registries.For(context).Alter(stage =>
         {
-            var bounds = view.Difficulty.EnemyDamageFactor;
+            var bounds = stage.Difficulty.EnemyDamageFactor;
             bounds.Max = Math.Max(bounds.Max, 10);            // never lower another mod's higher bound
         });
     }
 }
 ```
 
-`view.Difficulty` is a `DifficultyEntry`: one group per setting (`PlayerHealthFactor`, `EnemyDamageFactor`, `DayTimeDuration`, ...)
+`stage.Difficulty` is a `DifficultyEntry`: one group per setting (`PlayerHealthFactor`, `EnemyDamageFactor`, `DayTimeDuration`, ...)
 with `Min` and `Max`. [RegistryEdits sample](../../../../mods/samples/RegistryEdits/RegistryEditsMod.cs).
 
 ## Views

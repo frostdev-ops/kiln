@@ -108,23 +108,23 @@ public sealed class Stacks : Mod
 {
     public override void OnRegistry(RegistryContext context)
     {
-        var registry = Kiln.Registry.Registry.For(context);
-        registry.Alter(view =>
+        var registry = Kiln.Registry.Registries.For(context);
+        registry.Alter(stage =>
         {
-            view.Items["game:material_t1_wood_logs"].MaxStack = 500;
-            foreach (var weapon in view.Items.Select("game:weapon_t1_*"))
+            stage.Items["game:material_t1_wood_logs"].MaxStack = 500;
+            foreach (var weapon in stage.Items.Select("game:weapon_t1_*"))
                 if (weapon.HasDamage) weapon.Power = weapon.Power * 2;
         });
         if (context.EntryPoint == RegistryEntryPoint.GameStart)
-            registry.Add(view => view.Items.AddLike(new("my-mod:stout_logs"), new("game:material_t1_wood_logs"), item => item.MaxStack = 100));
+            registry.Add(stage => stage.Items.AddLike(new("my-mod:stout_logs"), new("game:material_t1_wood_logs"), item => item.MaxStack = 100));
     }
 }
 ```
 
-`view.Items[id]` is an `ItemEntry`; `Select(pattern)` lists entries by glob. What a read inside the callback shows:
-[C# authoring](README.md#c-authoring-api-0217). To change an item while a world runs, use `Registry.Change(view => ...)`
+`stage.Items[id]` is an `ItemEntry`; `Select(pattern)` lists entries by glob. What a read inside the callback shows:
+[C# authoring](README.md#c-authoring-api-0217). To change an item while a world runs, use `Registries.Change(stage => ...)`
 (and `change.Revert()`); to follow a setting, declare the `WorldLoad` point and call
-`Registry.Reauthor(RegistryEntryPoint.WorldLoad)` when it changes. [RegistryEdits sample](../../../../mods/samples/RegistryEdits/RegistryEditsMod.cs).
+`Registries.Reauthor()` when it changes. [RegistryEdits sample](../../../../mods/samples/RegistryEdits/RegistryEditsMod.cs).
 
 ## Views
 

@@ -22,15 +22,15 @@ is Fireball I's quick cast). The fields are four moments, in seconds from the ab
 ## Edit it from C#
 
 ```csharp
-Kiln.Registry.Registry.For(context).Alter(view =>
+Kiln.Registry.Registries.For(context).Alter(stage =>
 {
-    var cast = view.Abilities["game:attack_player_staff_fixedanim_fireball_fast"];
+    var cast = stage.Abilities["game:attack_player_staff_fixedanim_fireball_fast"];
     cast.Timing.Release = TimeSpan.FromSeconds(0.45);      // the projectile leaves earlier...
     cast.Timing.Cost = TimeSpan.FromSeconds(0.45);         // ...and the mana is paid at the same moment
 });
 ```
 
-`view.Abilities` is a `RegistryEntries<AbilityEntry>` with one group, `Timing` (`Release`, `Hit`, `Cost`, `Buff`; `TimeSpan`s). The
+`stage.Abilities` is a `RegistryEntries<AbilityEntry>` with one group, `Timing` (`Release`, `Hit`, `Cost`, `Buff`; `TimeSpan`s). The
 complete mod: [SpellRegistry sample](../../../../mods/samples/SpellRegistry/SpellRegistryMod.cs).
 
 ## Views

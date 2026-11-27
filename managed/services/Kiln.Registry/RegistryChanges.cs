@@ -123,7 +123,7 @@ public static partial class Registries
     /// handler runs on the tick thread, never on the loader thread that finished the application. Use it to read the settled
     /// data (<see cref="Read"/>) or to learn that a live <see cref="Change"/> may now apply.</remarks>
     /// <example><code>
-    /// Registry.Ready += ready =&gt; Log.Info($"registry generation {ready.Generation} is in force ({ready.Phase})");
+    /// Registries.Ready += ready =&gt; Log.Info($"registry generation {ready.Generation} is in force ({ready.Phase})");
     /// </code></example>
     [TickThreadOnly]
     public static event Action<RegistryReady> Ready
@@ -179,7 +179,7 @@ public static partial class Registries
     /// <see cref="RegistryChangeOutcome.WorldRequired"/>; a call that makes no edit is <see cref="RegistryChangeOutcome.Refused"/>.
     /// Fields that only apply at game start answer <see cref="RegistryChangeOutcome.RestartRequired"/>.</remarks>
     /// <example><code>
-    /// RegistryChange change = Registry.Change(view =&gt; view.Items["game:material_t1_wood_logs"].MaxStack = 200);
+    /// RegistryChange change = Registries.Change(stage =&gt; stage.Items["game:material_t1_wood_logs"].MaxStack = 200);
     /// if (!change.Result.Ok) Log.Info($"not applied: {change.Result.Outcome}: {change.Result.Reason}");
     /// // later, to undo it:
     /// change.Revert();
@@ -253,7 +253,7 @@ public static partial class Registries
     /// <exception cref="KilnUnavailableException">The capability <c>kiln.registry</c> is off.</exception>
     /// <example><code>
     /// int stack = 0;
-    /// Registry.Read(view =&gt; stack = view.Items["game:material_t1_wood_logs"].MaxStack);
+    /// Registries.Read(stage =&gt; stack = stage.Items["game:material_t1_wood_logs"].MaxStack);
     /// </code></example>
     [TickThreadOnly, RequiresCapability("kiln.registry")]
     public static void Read(Action<RegistryStage> read)

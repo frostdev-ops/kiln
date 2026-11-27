@@ -16,18 +16,18 @@ public sealed class MoreAltars : Mod
 {
     public override void OnRegistry(RegistryContext context)
     {
-        Kiln.Registry.Registry.For(context).Alter(view =>
+        Kiln.Registry.Registries.For(context).Alter(stage =>
         {
-            view.Limits.MaxAltars = 20;
-            view.Limits.GiftingRange = 500;
-            for (var level = 0; level < view.Balance.AltarsPerFlameLevel.Count; level++)
-                view.Balance.AltarsPerFlameLevel[level] = Math.Max(view.Balance.AltarsPerFlameLevel[level], 20);
+            stage.Limits.MaxAltars = 20;
+            stage.Limits.GiftingRange = 500;
+            for (var level = 0; level < stage.Balance.AltarsPerFlameLevel.Count; level++)
+                stage.Balance.AltarsPerFlameLevel[level] = Math.Max(stage.Balance.AltarsPerFlameLevel[level], 20);
         });
     }
 }
 ```
 
-`view.Limits` is a `LimitsEntry` (`MaxAltars`, `GiftingRange`).
+`stage.Limits` is a `LimitsEntry` (`MaxAltars`, `GiftingRange`).
 
 ## Views
 

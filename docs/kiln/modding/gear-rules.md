@@ -101,7 +101,7 @@ when the two copies differ. Nothing changes for the mod: the same file, the same
 file stays below every registry edit (a registry edit of the same field wins; a relative one composes on the file's value). Details,
 the join and the support switch (`front-ends.off`): [registries README](registries/README.md#older-paths-as-front-ends-020-dev32).
 
-To set the same fields from code, edit [`balance`](registries/balance.md) at GameStart (`view.Balance.SocketChance.Epic = 0.75`).
+To set the same fields from code, edit [`balance`](registries/balance.md) at GameStart (`stage.Balance.SocketChance.Epic = 0.75`).
 
 ## In multiplayer
 

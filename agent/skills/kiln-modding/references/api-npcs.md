@@ -36,8 +36,8 @@ languages.
 |---|---|
 | `Npcs.Say(npc, text, duration, SayOptions?)` | one bubble over the NPC now, also when it is not the player's target; a newer Say replaces it; `new SayOptions(Interrupt: false)` is refused while another mod's Say shows; `Npcs.StopSaying(npc)` ends yours |
 | `Npcs.Speech(npc)` -> `NpcSpeech` | your override of the **greeting** bubble: `Replace(lines)` (1 to 32 lines), `Suppress()`, `Clear()`, `Pick`, `Priority`, `Mode` |
-| `Npcs.Farewells(npc)` | your override of the line in the menu's speech box when a player **leaves** it: `Replace`, `Clear`, `Pick`, `Priority` (`Suppress` answers `Ok: false`) |
-| `Npcs.MenuLine(npc)` | the NPC's own line when its menu **opens**, then the topics (or the dialogue ends when there are none): `Replace`, `Clear`, `Pick`, `Priority`, `Refresh()`. A craftsperson with a menu line opens its menu first, so the line is seen |
+| `Npcs.Farewells(npc)` -> `NpcLines` | your override of the line in the menu's speech box when a player **leaves** it: `Replace`, `Clear`, `Pick`, `Priority` (no `Suppress`: the box shows a line or the game's) |
+| `Npcs.MenuLine(npc)` -> `NpcLines` | the NPC's own line when its menu **opens**, then the topics (or the dialogue ends when there are none): `Replace`, `Clear`, `Pick`, `Priority`, `Refresh()`. A craftsperson with a menu line opens its menu first, so the line is seen |
 | `Npcs.MenuSay(npc, player, text)` | one line in **that player's** menu with the NPC: now if it is open, else when it opens within 5 s; once. Wins over the menu line at that open |
 | `Npcs.Topics(npc)` -> `NpcTopics` | your topics on the NPC's talk page: `Set(params NpcTopic[])`, `Add`, `Remove(id)`, `Clear()`, `List` |
 | `Npcs.SpeechOf(npc)`, `IsSaying(npc)`, `CanSpeak(npc)` | what the NPC does now, from every mod; `CanSpeak` is tick-thread |

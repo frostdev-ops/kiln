@@ -48,22 +48,22 @@ over the [recipes](recipes.md) registry. Traits: `npc` (a villager's station).
 ## Edit it from C#
 
 ```csharp
-registry.Alter(view =>
+registry.Alter(stage =>
 {
     var forge = new RegistryId("game:prop_production_t1_forge");
-    foreach (var recipe in view.Recipes.Select())
+    foreach (var recipe in stage.Recipes.Select())
         if (recipe.Station == forge) recipe.Duration /= 2;           // every forge recipe takes half as long
 });
 
 // reading the stations themselves, outside a pass (on the tick thread, in your mod)
-Kiln.Registry.Registry.Read(view =>
+Kiln.Registry.Registries.Read(stage =>
 {
-    foreach (var station in view.Stations.Select())
+    foreach (var station in stage.Stations.Select())
         Log.Info($"{station.Id.Value}: built by {station.Item}, villager's: {station.Npc}");
 });
 ```
 
-`view.Stations` is a `RegistryEntries<StationEntry>` (`Item`, `Npc`: read-only properties, no setters).
+`stage.Stations` is a `RegistryEntries<StationEntry>` (`Item`, `Npc`: read-only properties, no setters).
 
 ## Views
 

@@ -72,7 +72,7 @@ exact costs of [api-items.md](api-items.md#exact-costs-and-receipts-dev32), bake
 | Kiln's menus in the game, chat history, other mods' slash commands, graphics tools | `in-game` |
 | Stable names for game data; edit it from a data pack or `OnRegistry` (dev.31+, experimental) | `registries` |
 | The 12 dev.32 registries (creatures, skills, buffs, world rules, limits ...), views | `new-registries` |
-| How random loot rolls: rarity weights and levels, following a setting (`Registry.Reauthor`, dev.32) | `loot-rules` |
+| How random loot rolls: rarity weights and levels, following a setting (`Registries.Reauthor`, dev.32) | `loot-rules` |
 | Pets: records, summon, orders, going down, revives (dev.32) | `pets` |
 | Taming in steps, exact costs, refunds, the game's own wildlife taming (dev.32) | `taming` |
 | The game's NPC speech bubble, farewells, the menu's line, talk pages (dev.31.16+, dev.32) | `npc-dialogue` |
@@ -227,7 +227,7 @@ dev.32+ (pages in the repository's `docs/kiln/`; new surface on the dev.32 beta,
 | Terrain overlays, and the baked tiles (tools only; `terrain.baked` off) | `modding/terrain-tiles.md`, `services/terrain.md` |
 | The 12 new registries: creatures, arsenals, perks, skills, stations, buffs, abilities, world, difficulty, limits, lootRules, randomLoot | `modding/registries/README.md`, and each registry's page beside it (`modding/registries/creatures.md`, `modding/registries/lootRules.md`, ...) |
 | One read-only view over every registry and resource type (`RegistryViews`) | `modding/registries/views.md` |
-| `Registry.Reauthor`, the edit cap per call, ids of random loot tables | `modding/registries/README.md` "C# authoring", `modding/registries/randomLoot.md` |
+| `Registries.Reauthor`, the edit cap per call, ids of random loot tables | `modding/registries/README.md` "C# authoring", `modding/registries/randomLoot.md` |
 | What survives a game update: the stable, advanced and native tiers; `"native": true` | `modding/tiers.md` |
 | Effect replay of ShroudForge and EML packages; the hosted journal | `modding/registries/README.md` "Effect replay", `shroudforge-compat.md` |
 | Analyzer hints that name a registry field (KILN124, KILN125), KILN122, KILN123 | `modding/analyzers.md` |

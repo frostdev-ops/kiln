@@ -137,7 +137,7 @@ public sealed class RegistryStage
     /// <returns>The registry's entries as <see cref="RegistryEntry"/>: look one up by its Kiln id, or <c>Select</c> a pattern.</returns>
     /// <exception cref="ArgumentException">The name is empty, or the schema has no such registry.</exception>
     /// <example><code>
-    /// registry.Alter(view =&gt; view.Entries("perks")["game:perk_max_adder_health_t7"].Set("value", 150));
+    /// registry.Alter(stage =&gt; stage.Entries("perks")["game:perk_max_adder_health_t7"].Set("value", 150));
     /// </code></example>
     public RegistryEntries<RegistryEntry> Entries(string registry)
     {

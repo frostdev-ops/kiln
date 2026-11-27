@@ -1,8 +1,8 @@
 # The mod API: registries (Kiln.Registry; the stage since dev.31, 12 more registries, views and Reauthor in dev.32)
 
 Part of the mod API guides ([api.md](api.md) is the index). Here: what a registry is, the 17 registries and what each one holds,
-the three ways to edit one (a data pack's `registry` section, `Mod.OnRegistry`, `Registry.Change`), when an edit takes effect,
-re-authoring a pass when settings change (`Registry.Reauthor`), the per-call edit cap, the read-only views over everything else,
+the three ways to edit one (a data pack's `registry` section, `Mod.OnRegistry`, `Registries.Change`), when an edit takes effect,
+re-authoring a pass when settings change (`Registries.Reauthor`), the per-call edit cap, the read-only views over everything else,
 and what a joined player sees. **Experimental (`KILNX031`)**: the shape may change in any release until a registry is marked
 stable; at API 1.0.0 the stable ones are frozen (additive only). The API has no generated index file
 ([api-index/INDEX.md](api-index/INDEX.md) leaves experimental API out): the entry types are generated from the schemas, so read
@@ -87,21 +87,21 @@ public sealed class Tweaks : Mod
     public override void OnRegistry(RegistryContext context)
     {
         if (!Capabilities.Is("kiln.registry")) return;                            // the transport; fields have their own rows
-        var registry = Kiln.Registry.Registry.For(context);
-        registry.Alter(view =>
+        var registry = Kiln.Registry.Registries.For(context);
+        registry.Alter(stage =>
         {
-            view.Items["game:material_t1_wood_logs"].MaxStack = 500;
-            var vukah = view.Creatures["game:enemy_vukah_melee"];
+            stage.Items["game:material_t1_wood_logs"].MaxStack = 500;
+            var vukah = stage.Creatures["game:enemy_vukah_melee"];
             vukah.Sight.Range = vukah.Sight.Range * 1.5;
-            view.Arsenals["game:enemy_vukah_melee"].Attacks[0].Chance = 0.5;
-            view.Skills["game:skill_4475e8dd"].Cost = 0;
-            view.LootRules.RarityWeights.Legendary = view.LootRules.RarityWeights.Legendary * 2;
-            foreach (var table in view.RandomLoot.Select("game:labels_*"))        // enemies and generic containers
+            stage.Arsenals["game:enemy_vukah_melee"].Attacks[0].Chance = 0.5;
+            stage.Skills["game:skill_4475e8dd"].Cost = 0;
+            stage.LootRules.RarityWeights.Legendary = stage.LootRules.RarityWeights.Legendary * 2;
+            foreach (var table in stage.RandomLoot.Select("game:labels_*"))        // enemies and generic containers
                 if (table.Rarity.Legendary.Mode == RandomLootMode.Set)             // the elite, boss and chest tables with their own odds
                     table.Rarity.Legendary.Weight = table.Rarity.Legendary.Weight * 2;
         });
         if (context.EntryPoint == RegistryEntryPoint.GameStart)                    // world rules are restart fields: GameStart only
-            registry.Alter(view => view.World.NoBuildZones.Clear());
+            registry.Alter(stage => stage.World.NoBuildZones.Clear());
     }
 }
 ```
@@ -115,27 +115,27 @@ Entry points (`[RegistryEntryPoints]` is constant metadata Kiln reads without ru
 | `ModLoad` | after `OnLoad`, once the base registry exists | global settings; the layers follow the process across worlds |
 | `WorldLoad` | for each world, a new one included | the world's settings once bound; the layers end with that world |
 | `HotReload` | for the replacement instance after a hot reload | replaces `ModLoad` for that pass |
-| `Manual` | `Registry.Change` only | an active world |
+| `Manual` | `Registries.Change` only | an active world |
 
 - **Reads leave out your own layers.** A runtime pass reads the values from before the pass, so `item.MaxStack = item.MaxStack * 2`
   restates your intent at each point instead of doubling again. Keep copied values, not the context, an entry or a list: they
   stop working when the callback returns (`RegistryContextException`: `Closed`, `WrongThread`, `WorldChanged`, `Unloaded`).
 - **Declaring points without an override is KILN122; Manual as an automatic flag is KILN123.**
-- **Entry operations are GameStart only:** `registry.Add(view => view.Items.AddLike(new("my-mod:stout_logs"), new("game:material_t1_wood_logs"), item => item.MaxStack = 100))`
-  adds an item or recipe; `view.Loot.Remove(pattern)` and item/recipe removal **hide, never delete** (owned copies keep working).
+- **Entry operations are GameStart only:** `registry.Add(stage => stage.Items.AddLike(new("my-mod:stout_logs"), new("game:material_t1_wood_logs"), item => item.MaxStack = 100))`
+  adds an item or recipe; `stage.Loot.Remove(pattern)` and item/recipe removal **hide, never delete** (owned copies keep working).
   A later point answers `RestartRequired`.
-- **Explicit, live changes** on the tick thread of a loaded world: `var change = Registry.Change(view => ...); if (!change.Result.Ok) ...;
+- **Explicit, live changes** on the tick thread of a loaded world: `var change = Registries.Change(stage => ...); if (!change.Result.Ok) ...;
   change.Revert()`. `Ok` only when applied with nothing refused or skipped. A change is not disposable: leaving a scope never
-  undoes it. `Registry.Read(view => ...)` reads live values in an expiring read-only frame. `Registry.Ready` (subscribe in
+  undoes it. `Registries.Read(stage => ...)` reads live values in an expiring read-only frame. `Registries.Ready` (subscribe in
   `OnLoad`) says the registry is ready, not that every edit applied: read the results.
 - **Refusals are per entry** at ModLoad, WorldLoad and HotReload (an exclusive claim, an entry missing in this world, a config
   the entry lacks, a value its storage cannot hold exactly: `not_exact: ...`). The result is `Applied` with `Refused > 0` and the
-  first reason. `Registry.Change` is all or nothing.
+  first reason. `Registries.Change` is all or nothing.
 - **Several mods, one field:** the later mod in load order wins and relative edits compose (x4 then x2 is x8); `exclusive`
   refuses another mod's edit of that field; `yield` applies only where nobody set it. `kiln/state/registry.json` has the writer
   chain per field; the launcher's Conflicts page reads it.
-- **A field by name, without its typed property:** `view.Entries("creatures")["game:enemy_vukah_melee"].Set("health.perPlayer", 1.2)`
-  (`RegistryStage.Entries(name)`) inside `OnRegistry` or `Registry.Change`. The generic `RegistryEntry` makes the same edits and checks the value against the
+- **A field by name, without its typed property:** `stage.Entries("creatures")["game:enemy_vukah_melee"].Set("health.perPlayer", 1.2)`
+  (`RegistryStage.Entries(name)`) inside `OnRegistry` or `Registries.Change`. The generic `RegistryEntry` makes the same edits and checks the value against the
   schema's type first.
 
 ## When an edit takes effect, and who sees it
@@ -158,7 +158,7 @@ values** and the join compares them. So a data pack with only `restart` fields n
 `clients` differs. A server moved past a time (`abilities.timing`) past a later event of the same ability is not sent to Kiln
 clients: the server still acts at the new time.
 
-## Re-author a pass when settings change: `Registry.Reauthor` (dev.32)
+## Re-author a pass when settings change: `Registries.Reauthor` (dev.32)
 
 Edits derived from a config file or the game's state (a player's level) can follow a change without a restart:
 
@@ -168,30 +168,33 @@ public sealed class Leveler : Mod
 {
     public override void OnLoad() => Config.Register<Settings>().Changed += _ =>
     {
-        if (Capabilities.Is("kiln.registry.live")) Kiln.Registry.Registry.Reauthor(RegistryEntryPoint.WorldLoad);
+        if (!Kiln.Registry.Registries.Available) return;                            // the host's registry back-end
+        var r = Kiln.Registry.Registries.Reauthor();
+        if (!r.Ok) Log.Warn($"not authored again: {r.Reason}");
     };
     public override void OnRegistry(RegistryContext context)
     {
         if (context.Phase != RegistryPhase.Alter || !Capabilities.Is("kiln.registry")) return;
-        var w = Kiln.Registry.Registry.For(context).LootRules.RarityWeights;   // the values below this mod: the game's, or other mods' edits
+        var w = Kiln.Registry.Registries.For(context).LootRules.RarityWeights;   // the values below this mod: the game's, or other mods' edits
         w.Legendary = w.Legendary * 4;                                          // never stacks: each pass reads below its own last edit
     }
 }
 ```
 
-- `Registry.Reauthor(RegistryEntryPoint.WorldLoad)` runs your declared WorldLoad pass again from the next host tick, in the
-  same world. Its new layers replace the layers that point made, **in one turn**: the game never sees a moment without your
-  values. It returns **false**, with the reason in kiln.log, for any other point (only WorldLoad is re-authored), a mod without
-  a declared WorldLoad point, a call **from inside an `OnRegistry` callback** (it would run again on every tick), or no live
-  back-end. With no world loaded the next world load authors the point anyway.
-- **The pass runs on a worker thread of Kiln's, off the world tick.** Read your settings and the game state **before** asking,
+- `Registries.Reauthor()` runs your declared WorldLoad pass again from the next host tick, in the same world (WorldLoad is the
+  one point re-authored on request, so the call names none). Its new layers replace the layers that point made, **in one turn**:
+  the game never sees a moment without your values. Its `RegistryReauthorResult` is **not Ok**, with the `Reason` (also in
+  kiln.log), for a mod without a declared WorldLoad point, a call **from inside an `OnRegistry` callback** (it would run again on
+  every tick), or no live back-end. With no world loaded the next world load authors the point anyway.
+- **The pass runs on a worker thread of Kiln's, off the world tick** (`context.OffTick` is true there; `context.Pass` says
+  which pass it is). Read your settings and the game state **before** asking,
   in the handler that saw them change, and keep them in fields the pass reads. A tick-thread API called inside a re-authored pass
   throws `InvalidOperationException` ("... runs off it"); Kiln then runs that mod's passes on the tick from then on (slower,
   logged once). `[AnyThread]` APIs are fine (`Players.All`, `Progression.Get`: the last snapshot).
 - Requests while one runs **coalesce** into one more pass: no debounce needed, but never ask on every tick or for a change your
   edits do not depend on. If the registry moves before the turn lands (another mod's change, a drop table the game loads
   meanwhile) Kiln drops it and runs it again; after three in a row the pass runs whole on the tick. A mod's unload waits for a
-  pass running on the worker.
+  pass running on the worker, and a new world's pass waits for one still running there (the two never run side by side).
 - Re-authored layers are the newest: they win over other mods' WorldLoad edits of the same fields until those passes run
   again. Keep re-authored edits to fields other mods leave alone, or derive them from the game's values.
 - A large pass fits: a Loot Rarity Leveler sized one (every field of the ~800 random loot tables, 12,752 edits) lands in a few
@@ -199,12 +202,12 @@ public sealed class Leveler : Mod
 
 ## The edit cap per call (dev.32)
 
-One call (one `OnRegistry` callback, that is one phase of one entry point; one `Registry.Change`; one batch a native plugin
+One call (one `OnRegistry` callback, that is one phase of one entry point; one `Registries.Change`; one batch a native plugin
 sends) takes at most the registry's cap of edits **of that registry**: `RegistrySchema.EditsPerCall["randomLoot"]` is
 16,384, every other registry 4,096. Each registry counts on its own. A call over the cap is **refused whole**: nothing of it
 applies, `registry.json` has a row for each registry it names (the over-cap one with its count and the cap), kiln.log says so,
 and Kiln **never throws** for it in your code (before dev.32 an edit past 4,096 threw). Your other calls still apply. Split big
-edits over the phases (`Alter`, `Final`) or several `Registry.Change` calls. Count edits, not entries: an edit is one field of
+edits over the phases (`Alter`, `Final`) or several `Registries.Change` calls. Count edits, not entries: an edit is one field of
 one entry.
 
 ## Views: read anything under Kiln names (dev.32)
@@ -233,7 +236,7 @@ field where one covers the member, or the old path (a data pack section, a resou
 
 ## Checks
 
-- Capability rows: `kiln.registry` (the transport: `Registry.For`), `kiln.registry.live` (`Registry.Change`, `Reauthor`),
+- Capability rows: `kiln.registry` (the transport: `Registries.For`), `kiln.registry.live` (`Registries.Change`, `Reauthor`),
   `kiln.registry.view` (`RegistryViews`), and `registry.<name>` and `registry.<name>.<field>` (the field's case and dots, no `[]`).
   The analyzer (KILN121) wants a `Capabilities.Is("row")` before each of those calls, as the snippets above do.
 - `kiln/state/registry.json`: the live value and its writer chain per field, `overridden`, `composed`, `exclusive`, `yielded`,

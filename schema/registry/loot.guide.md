@@ -13,16 +13,17 @@ shape as every registry ([items](items.md#edit-it-from-a-data-pack)):
 ## Edit it from C#
 
 ```csharp
-registry.Alter(view =>
+registry.Alter(stage =>
 {
-    foreach (var entry in view.Loot.Select("game:material_t1_*")) entry.Stack.Max += 1;
-    view.Loot["game:material_t1_wood_logs"].Rarities = RegistryRarities.Epic | RegistryRarities.Legendary;
+    foreach (var entry in stage.Loot.Select("game:material_t1_*")) entry.Stack.Max += 1;
+    stage.Loot["game:material_t1_wood_logs"].Rarities = RegistryRarities.Epic | RegistryRarities.Legendary;
 });
-registry.Alter(view => view.Loot.Remove("game:material_t1_twigs"));     // GameStart only
+registry.Alter(stage => stage.Loot.Remove("game:material_t1_twigs"));     // GameStart only
 ```
 
-`view.Loot` is a `RegistryEntries<ItemLootEntry>`. `Stack` is a group (`Min`, `Max`, `Scalable`, `MaxScaled`), `Rarities` a flags
-enum (`RegistryRarities`), `FixedRarity` an enum (`ItemLootRarity`). Removal goes through `Remove(pattern)` in the collection.
+`stage.Loot` is a `RegistryEntries<ItemLootEntry>`. `Stack` is a group (`Min`, `Max`, `Scalable`, `MaxScaled`), `Rarities` a flags
+enum (`RegistryRarities`), `Rarity` the fixed one (a `RegistryRarity?`, null to roll from `Rarities`; 0.2.0-dev.31's `FixedRarity`
+still works, obsolete). Removal goes through `Remove(pattern)` in the collection.
 To roll rarities by weight instead, see [randomLoot](randomLoot.md) and [lootRules](lootRules.md).
 
 ## Views

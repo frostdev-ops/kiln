@@ -51,18 +51,22 @@ weight raises its share without making rolls more frequent.
 [RegistryEntryPoints(RegistryEntryPoint.WorldLoad)]
 public sealed class Leveler : Mod
 {
-    public override void OnLoad() => Config.Register<Settings>().Changed += _ => Kiln.Registry.Registry.Reauthor(RegistryEntryPoint.WorldLoad);
+    public override void OnLoad() => Config.Register<Settings>().Changed += _ =>
+    {
+        var r = Kiln.Registry.Registries.Reauthor();
+        if (!r.Ok) Log.Warn($"not authored again: {r.Reason}");
+    };
     public override void OnRegistry(RegistryContext context)
     {
         if (context.Phase != RegistryPhase.Alter) return;
-        var w = Kiln.Registry.Registry.For(context).LootRules.RarityWeights;   // the values below this mod's own edit
+        var w = Kiln.Registry.Registries.For(context).LootRules.RarityWeights;   // the values below this mod's own edit
         w.Legendary = w.Legendary * 4;                                          // never stacks: each pass reads below its own last edit
     }
 }
 ```
 
-`view.LootRules` is a `LootRulesEntry`; `RarityWeights` has `Common` to `Legendary` (doubles). A value that follows a setting is
-re-authored with `Registry.Reauthor(RegistryEntryPoint.WorldLoad)` ([README](README.md#explicit-changes-and-ready)): the pass reads
+`stage.LootRules` is a `LootRulesEntry`; `RarityWeights` has `Common` to `Legendary` (doubles). A value that follows a setting is
+re-authored with `Registries.Reauthor()` ([README](README.md#explicit-changes-and-ready)): the pass reads
 the game's weights again, so a settings change never doubles the last result.
 
 ## Views

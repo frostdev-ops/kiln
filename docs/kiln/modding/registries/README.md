@@ -102,7 +102,7 @@ tables of the chests placed in the world are `game:world_*`, those of enemies an
 tables by these prefixes and their values (`table.Rarity.Legendary.Mode == RandomLootMode.Set`: the elite, boss and chest
 tables with their own odds), not by a table's full id from another build. A data pack that doubles the world-wide legendary weight
 and gives every enemy and generic-container table two levels more is the [randomLoot](randomLoot.md#worked-example) page's example.
-To follow a settings change while a world runs: `Registry.Reauthor(RegistryEntryPoint.WorldLoad)`
+To follow a settings change while a world runs: `Registries.Reauthor()`
 ([below](#explicit-changes-and-ready); [RegistryEdits sample](../../../../mods/samples/RegistryEdits/RegistryEditsMod.cs)).
 
 **One view over every registry and resource type** (since 0.2.0-dev.32): [views.md](views.md). `RegistryViews` reads any

@@ -43,9 +43,10 @@ digits (`game:drops_<8 hex>`). Its `entries` are listed in walk order (the root 
 one by its index, or every one with `*`:
 
 - `"field": "entries[3].chance"`, `"entries[*].count.max"`; each is a number operation. `entries[].item` is read-only.
-- Append a stack: `"field": "entries", "list": {"append": [{"item": "game:material_t1_wood_logs", "count.min": 1, "count.max": 3, "chance": 0.25}]}`
-  (an element's fields are named by their path inside it: `count.min`, not a nested `count`); `{"clear": true}` empties the
-  table; `{"remove": [...]}` takes out the entries a condition picks, named by their values.
+- Append a stack: `"field": "entries", "list": {"append": [{"item": "game:material_t1_wood_logs", "count": {"min": 1, "max": 3}, "chance": 0.25}]}`
+  (an element's struct is a nested object, as its C# type is; the older dotted leaves, `"count.min": 1`, still read, and naming
+  one leaf both ways is refused; `kiln lint` checks every element); `{"clear": true}` empties the table; `{"remove": [...]}` takes
+  out the entries a condition picks, named by their values.
 - A table's GUID also selects it (the older `drops` data-pack section does the same).
 
 An item removed through the [items](items.md) or [loot](loot.md) registries has its slots here set to chance 0 and weight 0, never
@@ -54,19 +55,22 @@ resized: removal wins over a later chance edit of the same slot.
 ## Edit it from C#
 
 ```csharp
-registry.Alter(view =>
+registry.Alter(stage =>
 {
-    var table = view.Drops["game:lootcontainer_enemy_skeleton_elite"];
+    var table = stage.Drops["game:lootcontainer_enemy_skeleton_elite"];
     foreach (var entry in table.Entries) entry.Chance = entry.Chance * 0.5;
     table.Entries[0].Count.Max = 5;                      // one stack's most
+    var bonus = table.Entries.AppendNew();               // a new stack: what you set on it goes into the append
+    bonus.Item = new RegistryId("game:material_t1_wood_logs");
+    bonus.Count.Min = 1; bonus.Count.Max = 3; bonus.Chance = 0.25;
 });
 ```
 
-`view.Drops` is a `RegistryEntries<DropTableEntry>`; `Entries` is a list of `DropEntry` (`Index`, `Item` read-only, `Count.Min`,
+`stage.Drops` is a `RegistryEntries<DropTableEntry>`; `Entries` is a list of `DropEntry` (`Index`, `Item`, `Count.Min`,
 `Count.Max`, `Chance`, `Weight`). A table the game has not loaded yet reads the value it takes when it loads (its base and the
 writers' layers), and an edit of it waits ([README](README.md#explicit-changes-and-ready)). A stack's item is given when the stack
-is appended and read-only after, and `Entries.AppendNew()` makes a blank element: **append a stack from a data pack** (above); C#
-edits the numbers of the stacks that exist.
+is appended (`Entries.AppendNew()` in C#, as above, or a data pack's `append`) and read-only after: setting `Item` on a stack that
+exists throws `ArgumentException`, since the item is the stack's identity.
 
 ## Views
 
