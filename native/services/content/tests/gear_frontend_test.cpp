@@ -450,6 +450,34 @@ std::function<void(stage::Runner&, const std::vector<stage::BootResource>&)> wri
     };
 }
 
+// What the apply (gamedata_bootpatch.cpp) does when both ways give the same bytes, with the real write: the front-end's copy
+// (base: built without the front-end documents, every row written), the old way's (patched: built with them, the registry's own
+// rows written), the same bytes; finish hears the old way's outcomes for the fields it wrote and the front-end's for the fields
+// only front rows write (review-j2: the values the join's registry part hashes are the old way's).
+std::function<void(stage::Runner&, const std::vector<stage::BootResource>&)> apply_finish(std::vector<uint8_t> base, std::vector<uint8_t> patched) {
+    return [base, patched](stage::Runner& r, const std::vector<stage::BootResource>& boot) {
+        std::vector<stage::BootOutcome> out;
+        std::vector<std::string> notes;
+        std::vector<stage::FrontEnd> fronts;
+        for (const auto& rb : boot) {
+            std::vector<uint8_t> front = base, old = patched;
+            std::vector<stage::BootOutcome> out_front, out_old;
+            stage::BootResource rb_old = rb;
+            rb_old.front.clear();
+            for (auto& f : rb_old.fields) std::erase_if(f.rows, [](const ChainRow& c) { return c.front; });
+            std::erase_if(rb_old.fields, [](const stage::BootField& f) { return f.rows.empty(); });
+            boothook::write(rb.key, rb.type, &front, rb, &out_front, &notes);
+            if (!rb_old.fields.empty()) boothook::write(rb.key, rb.type, &old, rb_old, &out_old, &notes);
+            check(front == old, "the apply's two copies are the same bytes");
+            out.insert(out.end(), out_old.begin(), out_old.end());
+            for (const auto& o : out_front)
+                if (std::none_of(rb_old.fields.begin(), rb_old.fields.end(), [&](const stage::BootField& f) { return f.field == o.field; })) out.push_back(o);
+            for (const std::string& id : rb.front) fronts.push_back({id.substr(0, id.find('/')), id.substr(id.find('/') + 1), "registry", "", 0});
+        }
+        r.finish(out, fronts);
+    };
+}
+
 // The composition around a front-end is the resource patch's: a registry edit of the same field composes on it and wins as
 // over the resource patch alone, an exclusive one conflicts as with it; only the front rows are marked and carried.
 void composition(const std::string& dir, size_t table) {
@@ -479,6 +507,25 @@ void composition(const std::string& dir, size_t table) {
     for (const auto& f : at(on.report, "fields"))
         if (at(f, "field") == "durability.start") doubled = at(f, "result") == 400 && at(nth(at(f, "writers"), 0), "frontEnd") == true;
     check(doubled, "the registry's mul composes on the document's 200: 400, the document's row marked: " + at(on.report, "fields").dump());
+    {
+        // review-j2: a value the game's float cannot hold (1.1) under a registry mul 2. The real write gives the same bytes both
+        // ways, but the value it evaluates is the document's double times 2 one way and the float's times 2 the other; the join's
+        // registry part hashes the values written, so it is the old way's only with the old way's outcomes (the apply's)
+        const boothook::OldDoc d11 = doc_of({{"set", {{"durabilityStart", 1.1}}}});
+        const Start own = start(dir, g, {d11}, true, mul, written_finish(base));
+        const Start applied = start(dir, g, {d11}, true, mul, apply_finish(base, patched(base, d11)));
+        const Start older = start(dir, g, {d11}, false, mul, written_finish(patched(base, d11)));
+        check(!at(older.report, "bootSync").is_null() && at(own.report, "bootSync") != at(older.report, "bootSync"),
+              "the front-end's own evaluation is not the value the old way wrote (1.1 x 2 against float(1.1) x 2): a join part of its own");
+        check(at(applied.report, "bootSync") == at(older.report, "bootSync"),
+              "with the old way's outcomes, the join part of the front-end's start is the older start's: " + at(applied.report, "bootSync").dump() + " " +
+                  at(older.report, "bootSync").dump());
+        bool same_result = false;
+        for (const auto& f : at(applied.report, "fields"))
+            for (const auto& o : at(older.report, "fields"))
+                if (at(f, "field") == "durability.start" && at(o, "field") == "durability.start") same_result = at(f, "result") == at(o, "result");
+        check(same_result, "and registry.json's result of the field is the older start's");
+    }
     const std::string excl = R"({"registry": {"alter": [{"registry": "balance", "select": {"id": "game:balance"}, "field": "durability.start", "op": 300, "exclusive": true}]}})";
     const Start eon = start(dir, g, {d}, true, excl), eoff = start(dir, g, {d}, false, excl);
     check(at(eon.report, "refused") == at(eoff.report, "refused") && at(eon.report, "conflicts") == at(eoff.report, "conflicts"),

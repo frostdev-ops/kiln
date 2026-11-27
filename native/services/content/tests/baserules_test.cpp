@@ -409,6 +409,11 @@ void front_ends() {
     std::vector<size_t> rows_seen;
     std::vector<rs::BootOutcome> outcomes;
     std::vector<rs::FrontEnd> fronts;
+    // review-j2: a registry edit of the document's own field ({"mul": 2} by bigmod, above the document as in the stage's
+    // chain), the document's value as the stage's front row holds it (a double, front_value); front_off: the stage hands the
+    // document over as an older Kiln and a start with front-ends.off do (no front row, the registry's row alone)
+    bool same_field = false, front_off = false;
+    double front_value = 0;
     bh::Hooks h;
     h.run = [&](const std::vector<bh::OldDoc>& d) {
         std::vector<rs::BootResource> out;
@@ -416,6 +421,23 @@ void front_ends() {
             if (o.mod + "/" + o.key != doc) continue;
             rs::BootResource b;
             b.key = o.res, b.type = o.type;
+            if (same_field) {
+                rs::BootField f;
+                f.field = {"balance", "game:balance", "buildzoneSizesPerAltarLevel[2].y"};
+                if (!front_off) {
+                    rg::ChainRow c;
+                    c.kind = rg::WriterKind::OldPatch, c.mod = o.mod, c.who = doc, c.front = true;
+                    f.rows.push_back(c);
+                    b.front = {doc};
+                }
+                rg::ChainRow e;
+                e.kind = rg::WriterKind::Registry, e.mod = "bigmod";
+                e.op.mul = 2;
+                f.rows.push_back(e);
+                b.fields.push_back(f);
+                out.push_back(b);
+                continue;
+            }
             rs::BootField f;
             f.field = {"balance", "game:balance", "buildzoneSizesPerAltarLevel[2].y"};
             rg::ChainRow c;
@@ -443,6 +465,15 @@ void front_ends() {
         rows_seen.push_back(rb.fields.size());
         size_t n = 0;  // values changed: as the registry's write, which leaves a value the copy already holds as it is
         for (const auto& f : rb.fields) {
+            if (same_field) {
+                // as boothook::write: the rows evaluated over the value the copy holds (a double), the float written where it
+                // differs, the evaluated value as the outcome's
+                double v = t.sizes[2][1];
+                for (const rg::ChainRow& c : f.rows) v = c.front ? front_value : v * c.op.mul.value_or(1.0);
+                if (t.sizes[2][1] != static_cast<float>(v)) t.sizes[2][1] = static_cast<float>(v), ++n;
+                out->push_back({f.field, true, kc::registry::Value::number(v), ""});
+                continue;
+            }
             const bool front = std::any_of(f.rows.begin(), f.rows.end(), [](const rg::ChainRow& c) { return c.front; });
             if (front && t.sizes[2][1] != want) t.sizes[2][1] = want, ++n;
             else if (!front && t.altars[1] != 2) t.altars[1] = 2, ++n;
@@ -506,6 +537,35 @@ void front_ends() {
     go(envelope({{"gearmod", "gearRules@gear.json", {{"resource", "table"}, {"type", "keen::BalancingTable"}, {"set", {{"missingMember", 1}}}}}}));
     check(faults.size() == 1 && faults[0].mod == "gearmod" && faults[0].key == "gearRules@gear.json", "the fault, as before");
     check(fronts.size() == 1 && fronts[0].state == "resourcePatch" && has(fronts[0].why, "its resource patch was not applied"), "finish: kept, it was not applied");
+    // review-j2: a registry edit of the document's own field, relative, over a value a float cannot hold. The bytes are the
+    // same both ways (2 x float(70.1) is float(140.2)); the values the two ways evaluate are not (the front-end's 140.2 from the
+    // document's double, the old way's 2 x float(70.1) from the copy). finish hears the old way's outcome, the one an older
+    // Kiln and a start with front-ends.off give: registry.json's result and the join's registry part (kiln.registry.boot,
+    // stage.cpp finish: "the values actually written") stay as they were, so such peers still compare equal.
+    {
+        same_field = true, front_value = 70.1;
+        const json p701 = {{"resource", "table"}, {"type", "keen::BalancingTable"}, {"set", {{"buildzoneSizesPerAltarLevel[2].y", 70.1}}}};
+        front_off = true;
+        go(envelope({{"gearmod", "gearRules@gear.json", p701}}));
+        const std::vector<rs::BootOutcome> off = outcomes;
+        const Table off_served = served;
+        check(faults.empty() && fronts.empty() && off.size() == 1 && off[0].ok && served.sizes[2][1] == static_cast<float>(2.0 * static_cast<float>(70.1)),
+              "front-end off: the document's 70.1, the registry's mul 2 over it");
+        front_off = false;
+        go(envelope({{"gearmod", "gearRules@gear.json", p701}}));
+        check(faults.empty() && fronts.size() == 1 && fronts[0].state == "registry" && std::memcmp(&served, &off_served, sizeof served) == 0,
+              "front-end on: the registry's copy, the same bytes as with it off" + (fronts.empty() ? std::string() : ": " + fronts[0].why));
+        auto num = [](const kc::registry::Value& v) {
+            char b[40];
+            std::snprintf(b, sizeof b, "%.17g", v.as_double());
+            return std::string(b);
+        };
+        check(outcomes.size() == 1 && outcomes[0].ok && outcomes[0].field.field == "buildzoneSizesPerAltarLevel[2].y" &&
+                  outcomes[0].written.kind == off[0].written.kind && outcomes[0].written.as_double() == off[0].written.as_double(),
+              "finish hears the value the old way wrote, as with the front-end off (" + num(off[0].written) + "), not the front-end's own evaluation (" +
+                  (outcomes.empty() ? std::string("none") : num(outcomes[0].written)) + ")");
+        same_field = false;
+    }
     // another mod's ordinary patch is never a front-end
     go(envelope({{"other", "sizes", patch}}));
     check(faults.empty() && fronts.empty() && seen.empty() && served.sizes[2][1] == 70, "an ordinary resource patch: no front-end, as before");

@@ -1738,7 +1738,16 @@ void KILN_CALL apply(void*) {
                 // too, the registry's write leaves such a value out; so a copy is served (and kiln.base_rules names the mod)
                 // exactly where the resource patch's was, with the same bytes
                 here = std::max(here, here_front);
-                outcomes.insert(outcomes.end(), out_front.begin(), out_front.end());
+                // the outcomes (what each field became: registry.json's result and the join's registry part, kiln.registry.boot,
+                // which hashes the values written): the old way's for every field the registry's own rows write, as an older Kiln
+                // and a start with front-ends.off report them on these same bytes; the front-end's for the fields only front
+                // rows write (no registry edit: never in that part). Not the front-end's own evaluation there: it starts from
+                // the document's number (a double), the old way from the float the resource patch left, so a relative registry
+                // edit above it gives the same bytes and another value (review-j2: 1.1 x 2 against float(1.1) x 2)
+                outcomes.insert(outcomes.end(), out_old.begin(), out_old.end());
+                for (const registry::stage::BootOutcome& o : out_front)
+                    if (std::none_of(rb_old.fields.begin(), rb_old.fields.end(), [&](const registry::stage::BootField& f) { return f.field == o.field; }))
+                        outcomes.push_back(o);
             } else {
                 outcomes.insert(outcomes.end(), out_old.begin(), out_old.end());
                 LOGW("registry: %s: %s", what.c_str(), why.c_str());
