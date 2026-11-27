@@ -697,7 +697,9 @@ their mode (Set, Add, Multiply, None); a non-zero range replaces the context's r
 `0x94efe0` / `0xea7d90` then picks among the allowed rarities by those weights, and the level is
 `round_half_away((u * (max - min) + min) + (offset + level))`, at least 0, then clamped by createPide into the item's level
 range (section 10 of docs/re/items.md). So a write into the resident resources changes the next roll; loot already rolled
-keeps what it got. Every regmap row of both registries is `read: now`, `backend: live`.
+keeps what it got. Every regmap row of both registries is `read: now`, `backend: live`. That read time is static analysis
+only: a playerless lab rolls no random loot (section 11), so the dev.32 lab proved the mapping (writes, reads, reverts) but
+no lab or game has yet seen a roll follow an edit; a lab with a player is the runtime check.
 
 **Kiln's live entries.** kiln.content serves the two as store kinds 5 (`KILN_CONTENT_LOOT_RULES`: the resource the loot
 registry reads, `+content/lootreg.data`, else kiln.assets' resident copy) and 6 (`KILN_CONTENT_RANDOM_LOOT`: each table in

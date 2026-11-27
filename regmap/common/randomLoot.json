@@ -36,7 +36,7 @@
       },
       "read": "now",
       "backend": "live",
-      "evidence": "docs/re/content.md section 12: the context build (server 0x16c1d0, client 0x3c8690) applies the scene node's table, the template's label table and a second label table at each roll through 0x16ef20 / 0x3cb230 (Set/Add/Multiply/None per value; a non-zero range replaces the roll's range); the tables are read from the resource each time"
+      "evidence": "docs/re/content.md section 12: the context build (server 0x16c1d0, client 0x3c8690) applies the scene node's table, the template's label table and a second label table at each roll through 0x16ef20 / 0x3cb230 (Set/Add/Multiply/None per value; a non-zero range replaces the roll's range); the tables are read from the resource each time; static analysis only: a playerless lab rolls no random loot (section 11), so no lab or game has yet seen a roll follow an edit (a lab with a player is the runtime check)"
     },
     "level.value": {
       "paths": [
@@ -45,7 +45,7 @@
       "conv": "float",
       "read": "now",
       "backend": "live",
-      "evidence": "docs/re/content.md section 12: the context build (server 0x16c1d0, client 0x3c8690) applies the scene node's table, the template's label table and a second label table at each roll through 0x16ef20 / 0x3cb230 (Set/Add/Multiply/None per value; a non-zero range replaces the roll's range); the tables are read from the resource each time"
+      "evidence": "docs/re/content.md section 12: the context build (server 0x16c1d0, client 0x3c8690) applies the scene node's table, the template's label table and a second label table at each roll through 0x16ef20 / 0x3cb230 (Set/Add/Multiply/None per value; a non-zero range replaces the roll's range); the tables are read from the resource each time; static analysis only: a playerless lab rolls no random loot (section 11), so no lab or game has yet seen a roll follow an edit (a lab with a player is the runtime check)"
     },
     "levelOffset.mode": {
       "paths": [
@@ -60,7 +60,7 @@
       },
       "read": "now",
       "backend": "live",
-      "evidence": "docs/re/content.md section 12: the context build (server 0x16c1d0, client 0x3c8690) applies the scene node's table, the template's label table and a second label table at each roll through 0x16ef20 / 0x3cb230 (Set/Add/Multiply/None per value; a non-zero range replaces the roll's range); the tables are read from the resource each time"
+      "evidence": "docs/re/content.md section 12: the context build (server 0x16c1d0, client 0x3c8690) applies the scene node's table, the template's label table and a second label table at each roll through 0x16ef20 / 0x3cb230 (Set/Add/Multiply/None per value; a non-zero range replaces the roll's range); the tables are read from the resource each time; static analysis only: a playerless lab rolls no random loot (section 11), so no lab or game has yet seen a roll follow an edit (a lab with a player is the runtime check)"
     },
     "levelOffset.value": {
       "paths": [
@@ -69,7 +69,7 @@
       "conv": "float",
       "read": "now",
       "backend": "live",
-      "evidence": "docs/re/content.md section 12: the context build (server 0x16c1d0, client 0x3c8690) applies the scene node's table, the template's label table and a second label table at each roll through 0x16ef20 / 0x3cb230 (Set/Add/Multiply/None per value; a non-zero range replaces the roll's range); the tables are read from the resource each time"
+      "evidence": "docs/re/content.md section 12: the context build (server 0x16c1d0, client 0x3c8690) applies the scene node's table, the template's label table and a second label table at each roll through 0x16ef20 / 0x3cb230 (Set/Add/Multiply/None per value; a non-zero range replaces the roll's range); the tables are read from the resource each time; static analysis only: a playerless lab rolls no random loot (section 11), so no lab or game has yet seen a roll follow an edit (a lab with a player is the runtime check)"
     },
     "levelOffsetRange.min": {
       "paths": [
@@ -78,7 +78,7 @@
       "conv": "float",
       "read": "now",
       "backend": "live",
-      "evidence": "docs/re/content.md section 12: the context build (server 0x16c1d0, client 0x3c8690) applies the scene node's table, the template's label table and a second label table at each roll through 0x16ef20 / 0x3cb230 (Set/Add/Multiply/None per value; a non-zero range replaces the roll's range); the tables are read from the resource each time"
+      "evidence": "docs/re/content.md section 12: the context build (server 0x16c1d0, client 0x3c8690) applies the scene node's table, the template's label table and a second label table at each roll through 0x16ef20 / 0x3cb230 (Set/Add/Multiply/None per value; a non-zero range replaces the roll's range); the tables are read from the resource each time; static analysis only: a playerless lab rolls no random loot (section 11), so no lab or game has yet seen a roll follow an edit (a lab with a player is the runtime check)"
     },
     "levelOffsetRange.max": {
       "paths": [
@@ -87,7 +87,7 @@
       "conv": "float",
       "read": "now",
       "backend": "live",
-      "evidence": "docs/re/content.md section 12: the context build (server 0x16c1d0, client 0x3c8690) applies the scene node's table, the template's label table and a second label table at each roll through 0x16ef20 / 0x3cb230 (Set/Add/Multiply/None per value; a non-zero range replaces the roll's range); the tables are read from the resource each time"
+      "evidence": "docs/re/content.md section 12: the context build (server 0x16c1d0, client 0x3c8690) applies the scene node's table, the template's label table and a second label table at each roll through 0x16ef20 / 0x3cb230 (Set/Add/Multiply/None per value; a non-zero range replaces the roll's range); the tables are read from the resource each time; static analysis only: a playerless lab rolls no random loot (section 11), so no lab or game has yet seen a roll follow an edit (a lab with a player is the runtime check)"
     },
     "rarity.common.mode": {
       "paths": [
@@ -102,7 +102,7 @@
       },
       "read": "now",
       "backend": "live",
-      "evidence": "docs/re/content.md section 12: the context build (server 0x16c1d0, client 0x3c8690) applies the scene node's table, the template's label table and a second label table at each roll through 0x16ef20 / 0x3cb230 (Set/Add/Multiply/None per value; a non-zero range replaces the roll's range); the tables are read from the resource each time"
+      "evidence": "docs/re/content.md section 12: the context build (server 0x16c1d0, client 0x3c8690) applies the scene node's table, the template's label table and a second label table at each roll through 0x16ef20 / 0x3cb230 (Set/Add/Multiply/None per value; a non-zero range replaces the roll's range); the tables are read from the resource each time; static analysis only: a playerless lab rolls no random loot (section 11), so no lab or game has yet seen a roll follow an edit (a lab with a player is the runtime check)"
     },
     "rarity.common.weight": {
       "paths": [
@@ -111,7 +111,7 @@
       "conv": "float",
       "read": "now",
       "backend": "live",
-      "evidence": "docs/re/content.md section 12: the context build (server 0x16c1d0, client 0x3c8690) applies the scene node's table, the template's label table and a second label table at each roll through 0x16ef20 / 0x3cb230 (Set/Add/Multiply/None per value; a non-zero range replaces the roll's range); the tables are read from the resource each time"
+      "evidence": "docs/re/content.md section 12: the context build (server 0x16c1d0, client 0x3c8690) applies the scene node's table, the template's label table and a second label table at each roll through 0x16ef20 / 0x3cb230 (Set/Add/Multiply/None per value; a non-zero range replaces the roll's range); the tables are read from the resource each time; static analysis only: a playerless lab rolls no random loot (section 11), so no lab or game has yet seen a roll follow an edit (a lab with a player is the runtime check)"
     },
     "rarity.uncommon.mode": {
       "paths": [
@@ -126,7 +126,7 @@
       },
       "read": "now",
       "backend": "live",
-      "evidence": "docs/re/content.md section 12: the context build (server 0x16c1d0, client 0x3c8690) applies the scene node's table, the template's label table and a second label table at each roll through 0x16ef20 / 0x3cb230 (Set/Add/Multiply/None per value; a non-zero range replaces the roll's range); the tables are read from the resource each time"
+      "evidence": "docs/re/content.md section 12: the context build (server 0x16c1d0, client 0x3c8690) applies the scene node's table, the template's label table and a second label table at each roll through 0x16ef20 / 0x3cb230 (Set/Add/Multiply/None per value; a non-zero range replaces the roll's range); the tables are read from the resource each time; static analysis only: a playerless lab rolls no random loot (section 11), so no lab or game has yet seen a roll follow an edit (a lab with a player is the runtime check)"
     },
     "rarity.uncommon.weight": {
       "paths": [
@@ -135,7 +135,7 @@
       "conv": "float",
       "read": "now",
       "backend": "live",
-      "evidence": "docs/re/content.md section 12: the context build (server 0x16c1d0, client 0x3c8690) applies the scene node's table, the template's label table and a second label table at each roll through 0x16ef20 / 0x3cb230 (Set/Add/Multiply/None per value; a non-zero range replaces the roll's range); the tables are read from the resource each time"
+      "evidence": "docs/re/content.md section 12: the context build (server 0x16c1d0, client 0x3c8690) applies the scene node's table, the template's label table and a second label table at each roll through 0x16ef20 / 0x3cb230 (Set/Add/Multiply/None per value; a non-zero range replaces the roll's range); the tables are read from the resource each time; static analysis only: a playerless lab rolls no random loot (section 11), so no lab or game has yet seen a roll follow an edit (a lab with a player is the runtime check)"
     },
     "rarity.rare.mode": {
       "paths": [
@@ -150,7 +150,7 @@
       },
       "read": "now",
       "backend": "live",
-      "evidence": "docs/re/content.md section 12: the context build (server 0x16c1d0, client 0x3c8690) applies the scene node's table, the template's label table and a second label table at each roll through 0x16ef20 / 0x3cb230 (Set/Add/Multiply/None per value; a non-zero range replaces the roll's range); the tables are read from the resource each time"
+      "evidence": "docs/re/content.md section 12: the context build (server 0x16c1d0, client 0x3c8690) applies the scene node's table, the template's label table and a second label table at each roll through 0x16ef20 / 0x3cb230 (Set/Add/Multiply/None per value; a non-zero range replaces the roll's range); the tables are read from the resource each time; static analysis only: a playerless lab rolls no random loot (section 11), so no lab or game has yet seen a roll follow an edit (a lab with a player is the runtime check)"
     },
     "rarity.rare.weight": {
       "paths": [
@@ -159,7 +159,7 @@
       "conv": "float",
       "read": "now",
       "backend": "live",
-      "evidence": "docs/re/content.md section 12: the context build (server 0x16c1d0, client 0x3c8690) applies the scene node's table, the template's label table and a second label table at each roll through 0x16ef20 / 0x3cb230 (Set/Add/Multiply/None per value; a non-zero range replaces the roll's range); the tables are read from the resource each time"
+      "evidence": "docs/re/content.md section 12: the context build (server 0x16c1d0, client 0x3c8690) applies the scene node's table, the template's label table and a second label table at each roll through 0x16ef20 / 0x3cb230 (Set/Add/Multiply/None per value; a non-zero range replaces the roll's range); the tables are read from the resource each time; static analysis only: a playerless lab rolls no random loot (section 11), so no lab or game has yet seen a roll follow an edit (a lab with a player is the runtime check)"
     },
     "rarity.epic.mode": {
       "paths": [
@@ -174,7 +174,7 @@
       },
       "read": "now",
       "backend": "live",
-      "evidence": "docs/re/content.md section 12: the context build (server 0x16c1d0, client 0x3c8690) applies the scene node's table, the template's label table and a second label table at each roll through 0x16ef20 / 0x3cb230 (Set/Add/Multiply/None per value; a non-zero range replaces the roll's range); the tables are read from the resource each time"
+      "evidence": "docs/re/content.md section 12: the context build (server 0x16c1d0, client 0x3c8690) applies the scene node's table, the template's label table and a second label table at each roll through 0x16ef20 / 0x3cb230 (Set/Add/Multiply/None per value; a non-zero range replaces the roll's range); the tables are read from the resource each time; static analysis only: a playerless lab rolls no random loot (section 11), so no lab or game has yet seen a roll follow an edit (a lab with a player is the runtime check)"
     },
     "rarity.epic.weight": {
       "paths": [
@@ -183,7 +183,7 @@
       "conv": "float",
       "read": "now",
       "backend": "live",
-      "evidence": "docs/re/content.md section 12: the context build (server 0x16c1d0, client 0x3c8690) applies the scene node's table, the template's label table and a second label table at each roll through 0x16ef20 / 0x3cb230 (Set/Add/Multiply/None per value; a non-zero range replaces the roll's range); the tables are read from the resource each time"
+      "evidence": "docs/re/content.md section 12: the context build (server 0x16c1d0, client 0x3c8690) applies the scene node's table, the template's label table and a second label table at each roll through 0x16ef20 / 0x3cb230 (Set/Add/Multiply/None per value; a non-zero range replaces the roll's range); the tables are read from the resource each time; static analysis only: a playerless lab rolls no random loot (section 11), so no lab or game has yet seen a roll follow an edit (a lab with a player is the runtime check)"
     },
     "rarity.legendary.mode": {
       "paths": [
@@ -198,7 +198,7 @@
       },
       "read": "now",
       "backend": "live",
-      "evidence": "docs/re/content.md section 12: the context build (server 0x16c1d0, client 0x3c8690) applies the scene node's table, the template's label table and a second label table at each roll through 0x16ef20 / 0x3cb230 (Set/Add/Multiply/None per value; a non-zero range replaces the roll's range); the tables are read from the resource each time"
+      "evidence": "docs/re/content.md section 12: the context build (server 0x16c1d0, client 0x3c8690) applies the scene node's table, the template's label table and a second label table at each roll through 0x16ef20 / 0x3cb230 (Set/Add/Multiply/None per value; a non-zero range replaces the roll's range); the tables are read from the resource each time; static analysis only: a playerless lab rolls no random loot (section 11), so no lab or game has yet seen a roll follow an edit (a lab with a player is the runtime check)"
     },
     "rarity.legendary.weight": {
       "paths": [
@@ -207,7 +207,7 @@
       "conv": "float",
       "read": "now",
       "backend": "live",
-      "evidence": "docs/re/content.md section 12: the context build (server 0x16c1d0, client 0x3c8690) applies the scene node's table, the template's label table and a second label table at each roll through 0x16ef20 / 0x3cb230 (Set/Add/Multiply/None per value; a non-zero range replaces the roll's range); the tables are read from the resource each time"
+      "evidence": "docs/re/content.md section 12: the context build (server 0x16c1d0, client 0x3c8690) applies the scene node's table, the template's label table and a second label table at each roll through 0x16ef20 / 0x3cb230 (Set/Add/Multiply/None per value; a non-zero range replaces the roll's range); the tables are read from the resource each time; static analysis only: a playerless lab rolls no random loot (section 11), so no lab or game has yet seen a roll follow an edit (a lab with a player is the runtime check)"
     }
   }
 }

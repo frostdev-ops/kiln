@@ -15,7 +15,7 @@
       "conv": "float",
       "read": "now",
       "backend": "live",
-      "evidence": "docs/re/content.md section 12: the roll's context build (server 0x16c1d0, client 0x3c8690) reads the five weights at each roll through the getter 0x936660 / 0xe8f520 (loot registry +0x38 -> the resource, float at 4*i); nothing is cached between rolls"
+      "evidence": "docs/re/content.md section 12: the roll's context build (server 0x16c1d0, client 0x3c8690) reads the five weights at each roll through the getter 0x936660 / 0xe8f520 (loot registry +0x38 -> the resource, float at 4*i); nothing is cached between rolls; static analysis only: a playerless lab rolls no random loot (section 11), so no lab or game has yet seen a roll follow an edit (a lab with a player is the runtime check)"
     },
     "rarityWeights.uncommon": {
       "paths": [
@@ -24,7 +24,7 @@
       "conv": "float",
       "read": "now",
       "backend": "live",
-      "evidence": "docs/re/content.md section 12: the roll's context build (server 0x16c1d0, client 0x3c8690) reads the five weights at each roll through the getter 0x936660 / 0xe8f520 (loot registry +0x38 -> the resource, float at 4*i); nothing is cached between rolls"
+      "evidence": "docs/re/content.md section 12: the roll's context build (server 0x16c1d0, client 0x3c8690) reads the five weights at each roll through the getter 0x936660 / 0xe8f520 (loot registry +0x38 -> the resource, float at 4*i); nothing is cached between rolls; static analysis only: a playerless lab rolls no random loot (section 11), so no lab or game has yet seen a roll follow an edit (a lab with a player is the runtime check)"
     },
     "rarityWeights.rare": {
       "paths": [
@@ -33,7 +33,7 @@
       "conv": "float",
       "read": "now",
       "backend": "live",
-      "evidence": "docs/re/content.md section 12: the roll's context build (server 0x16c1d0, client 0x3c8690) reads the five weights at each roll through the getter 0x936660 / 0xe8f520 (loot registry +0x38 -> the resource, float at 4*i); nothing is cached between rolls"
+      "evidence": "docs/re/content.md section 12: the roll's context build (server 0x16c1d0, client 0x3c8690) reads the five weights at each roll through the getter 0x936660 / 0xe8f520 (loot registry +0x38 -> the resource, float at 4*i); nothing is cached between rolls; static analysis only: a playerless lab rolls no random loot (section 11), so no lab or game has yet seen a roll follow an edit (a lab with a player is the runtime check)"
     },
     "rarityWeights.epic": {
       "paths": [
@@ -42,7 +42,7 @@
       "conv": "float",
       "read": "now",
       "backend": "live",
-      "evidence": "docs/re/content.md section 12: the roll's context build (server 0x16c1d0, client 0x3c8690) reads the five weights at each roll through the getter 0x936660 / 0xe8f520 (loot registry +0x38 -> the resource, float at 4*i); nothing is cached between rolls"
+      "evidence": "docs/re/content.md section 12: the roll's context build (server 0x16c1d0, client 0x3c8690) reads the five weights at each roll through the getter 0x936660 / 0xe8f520 (loot registry +0x38 -> the resource, float at 4*i); nothing is cached between rolls; static analysis only: a playerless lab rolls no random loot (section 11), so no lab or game has yet seen a roll follow an edit (a lab with a player is the runtime check)"
     },
     "rarityWeights.legendary": {
       "paths": [
@@ -51,7 +51,7 @@
       "conv": "float",
       "read": "now",
       "backend": "live",
-      "evidence": "docs/re/content.md section 12: the roll's context build (server 0x16c1d0, client 0x3c8690) reads the five weights at each roll through the getter 0x936660 / 0xe8f520 (loot registry +0x38 -> the resource, float at 4*i); nothing is cached between rolls"
+      "evidence": "docs/re/content.md section 12: the roll's context build (server 0x16c1d0, client 0x3c8690) reads the five weights at each roll through the getter 0x936660 / 0xe8f520 (loot registry +0x38 -> the resource, float at 4*i); nothing is cached between rolls; static analysis only: a playerless lab rolls no random loot (section 11), so no lab or game has yet seen a roll follow an edit (a lab with a player is the runtime check)"
     }
   }
 }
