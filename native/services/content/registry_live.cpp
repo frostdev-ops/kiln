@@ -2218,7 +2218,7 @@ void registry_live_publish() {
         g.pending_application = false;
         g.pending_change = false;
     }
-    if (fn) fn(r, application);  // registry.json: the stage runner writes it, with no lock of kiln.content's held
+    if (fn) fn(std::move(r), application);  // registry.json: the stage runner's writer makes it, with no lock of kiln.content's held
 }
 
 void registry_live_table(const Entry& table) {

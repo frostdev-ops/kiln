@@ -5,7 +5,7 @@
 use crate::events::{AdminEventPayload, ADMIN};
 use kiln_manage::admin::client::{AdminClient, AdminSession, Transport};
 use kiln_manage::admin::hub::AdminHub;
-use kiln_manage::admin::web_panel::{WebPanelInfo, WebPanels};
+use kiln_manage::admin::web_panel::{Route, WebPanelInfo, WebPanels};
 use crate::state::blocking;
 use kiln_manage::Error;
 use std::sync::{Mutex, OnceLock};
@@ -33,11 +33,13 @@ pub fn close_web_panel_tunnels() {
 
 /// Opens the server's web panel in the browser (0.2.0-dev.31.12): through its own gateway on its own loopback
 /// origin, signed in with a one-time login that only a one-use bootstrap address hands over (never a command line).
+/// (0.2.0-dev.31.19) `route` "auto" (the default) opens the panel's address on the internet when its
+/// launcher-endpoint.json names one and the check passes; "local" always opens it on this computer.
 #[tauri::command]
-pub async fn admin_open_web_panel(server_id: String) -> Result<WebPanelInfo, Error> {
+pub async fn admin_open_web_panel(server_id: String, route: Option<Route>) -> Result<WebPanelInfo, Error> {
     blocking(move || {
         let server = kiln_manage::server::instance::get(&server_id)?;
-        let opened = web_panels()?.lock().unwrap_or_else(|p| p.into_inner()).open(&server)?;
+        let opened = web_panels()?.lock().unwrap_or_else(|p| p.into_inner()).open_via(&server, route.unwrap_or_default())?;
         crate::state::open_external(std::ffi::OsStr::new(&opened.url))?;
         Ok(opened.info)
     }).await

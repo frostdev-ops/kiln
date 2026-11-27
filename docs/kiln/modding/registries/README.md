@@ -499,7 +499,7 @@ as above; a write outside Kiln as a best-effort row last, with a line: "the game
 last write in this world"); no new generation, no ready event, nothing written into the game. A field that keeps changing
 is looked at less often (up to once a minute). kiln.log says so once. A look reads each slot Kiln writes live, at most
 1,024 of them a tick (a pack over every entry's stacks or drops writes tens of thousands: its look takes a few dozen ticks),
-and rebuilds nothing when nothing changed; when something did, the rebuild costs what a pack reload's report costs. A write
+and rebuilds nothing when nothing changed; when something did, the rebuild costs what a pack reload's report costs. The rebuild itself stays on the world tick; `registry.json`'s JSON and file are made on a thread of Kiln's own, never on the tick (0.2.0-dev.31.19), for this rebuild and every other report after the start: a newer report replaces one not yet written, `kiln.registry`'s report text is the newest report even before its file is written, and a report still waiting for that thread is written before the server or game exits normally (Kiln waits up to 2 s). A write
 outside Kiln that comes back to Kiln's value between two looks is not seen. A suspect list is a hint, not proof: a writer that hooks nothing is not
 seen, and a field nobody edits through the registry is not checked. Neither is an entry an old boot resource patch (an
 `OnBoot` or `resourcePatches` document) writes: the game holds Kiln's own patch there, and many of its paths (a formula's

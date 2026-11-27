@@ -14,12 +14,22 @@
 //!   and the one-time login is minted by the Kiln.Admin of that same folder (the data root is read once per open);
 //! - a server's origin belongs to its panel's certificate too: a panel with another certificate (another panel the
 //!   server's files point at) gets another address, so cookies one panel set never reach another.
+//!
+//! (0.2.0-dev.31.19) When `launcher-endpoint.json` names the panel's address on the internet (`public`, Kilnwarden 0.1.4:
+//! hosted access `https://<name>.kiln.nexus/` or an own address, only while it really works), [`Route::Auto`] opens that
+//! instead, after a check of a few seconds ([`public`]: the certificate the file names, the owner exists, the launcher's
+//! login is on). The one-time login is minted the same way and goes there through a one-use bootstrap address of its own
+//! ([`gateway::offer_once`]); no gateway is started. If the check fails, the panel opens on this computer as before, and
+//! [`WebPanelInfo::fallback`] says why. [`Route::Local`] ("Open on this computer instead") always opens it here. Remote
+//! servers work the same: the file comes over ssh, the check goes straight to the public address, the login is minted
+//! through the ssh tunnel.
 
 pub mod endpoint;
 pub mod gateway;
 pub mod ids;
 pub mod origins;
 pub mod pin;
+pub mod public;
 /// The same-user check ([`crate::admin::peer`]; the SSH tunnel uses it too).
 pub use crate::admin::peer;
 
@@ -27,17 +37,32 @@ use crate::admin::client::AdminClient;
 use crate::server::instance::ServerInstance;
 use crate::{Error, ErrorCode, Result};
 use gateway::{Gateway, Limits, Upstream};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
-/// How the gateway reaches the panel.
+/// How the browser reaches the panel.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Via {
+    /// Through the gateway, to an address of this machine.
     Local,
+    /// Through the gateway and `ssh -W`.
     Ssh,
+    /// (0.2.0-dev.31.19) Straight to the panel's address on the internet (no gateway).
+    Hosted,
+}
+
+/// (0.2.0-dev.31.19) Which address "Open web panel" opens.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Route {
+    /// The panel's address on the internet when its file names one and the check passes, else this computer's.
+    #[default]
+    Auto,
+    /// This computer's, through the gateway ("Open on this computer instead").
+    Local,
 }
 
 /// An open panel, as the window shows it.
@@ -56,6 +81,11 @@ pub struct WebPanelInfo {
     pub idle_close_s: u64,
     /// Browser connections open now.
     pub connections: usize,
+    /// (0.2.0-dev.31.19) The address on the internet this open sent the browser to (`via: hosted`); None for a gateway.
+    pub public: Option<String>,
+    /// (0.2.0-dev.31.19) The panel's file named an address on the internet, but its check failed, so this open went to
+    /// this computer instead: why. None otherwise (and for [`Route::Local`]).
+    pub fallback: Option<public::Fallback>,
 }
 
 /// What `open` did: the address to hand the browser (one use; it holds no secret), and the panel.
@@ -75,16 +105,17 @@ pub struct WebPanels {
     registry: PathBuf,
     limits: Limits,
     open: HashMap<String, Open>,
+    public_timeout: std::time::Duration,
 }
 
 impl WebPanels {
     /// `registry`: the launcher data folder's `web-panel-origins.json` ([`origins::FILE`]).
     pub fn new(registry: PathBuf) -> WebPanels {
-        WebPanels { registry, limits: Limits::default(), open: HashMap::new() }
+        Self::with_limits(registry, Limits::default())
     }
 
     pub fn with_limits(registry: PathBuf, limits: Limits) -> WebPanels {
-        WebPanels { registry, limits, open: HashMap::new() }
+        WebPanels { registry, limits, open: HashMap::new(), public_timeout: public::TIMEOUT }
     }
 
     fn info(&self, id: &str, o: &Open) -> WebPanelInfo {
@@ -97,16 +128,52 @@ impl WebPanels {
             isolated: o.gateway.isolated,
             idle_close_s: self.limits.no_connection.as_secs(),
             connections: o.gateway.connections(),
+            public: None,
+            fallback: None,
         }
     }
 
-    /// Opens (or reuses) the server's gateway, checks the panel's certificate through it, mints the one-time login
-    /// and returns the bootstrap address for the browser.
+    /// [`Self::open_via`] with [`Route::Auto`].
     pub fn open(&mut self, server: &ServerInstance) -> Result<Opened> {
+        self.open_via(server, Route::Auto)
+    }
+
+    /// Opens the server's panel: at its address on the internet when `route` allows it, the file names one and its
+    /// check passes; else through the server's gateway (opened or reused), with the panel's certificate checked through
+    /// it. Mints the one-time login and returns the bootstrap address for the browser.
+    pub fn open_via(&mut self, server: &ServerInstance, route: Route) -> Result<Opened> {
         self.sweep();
         // one data root for everything below: the panel's listener and the Kiln.Admin that mints its login
         let root = endpoint::root(server)?;
         let (panel, ep) = endpoint::find_in(server, &root)?;
+        let mut fallback = None;
+        if let (Route::Auto, Some(address)) = (route, &ep.public) {
+            match public::check(address, self.public_timeout) {
+                Ok(()) => {
+                    let secret = mint(server, &root, panel)?;
+                    let url = gateway::offer_once(format!("{}launcher#secret={secret}", address.url), self.limits.handle_ttl)?;
+                    let info = WebPanelInfo {
+                        server_id: server.id.clone(),
+                        origin: address.url.trim_end_matches('/').to_string(),
+                        fingerprint: Some(address.sha256.clone()),
+                        via: Via::Hosted,
+                        isolated: true,
+                        idle_close_s: 0,
+                        connections: 0,
+                        public: Some(address.url.clone()),
+                        fallback: None,
+                    };
+                    return Ok(Opened { url, info });
+                }
+                Err(why) => fallback = Some(why),
+            }
+        }
+        let mut opened = self.open_local(server, &root, panel, &ep)?;
+        opened.info.fallback = fallback;
+        Ok(opened)
+    }
+
+    fn open_local(&mut self, server: &ServerInstance, root: &crate::admin::datadir::DataRoot, panel: ids::PanelMod, ep: &endpoint::Endpoint) -> Result<Opened> {
         let target = SocketAddr::new(ep.host, ep.port);
         let upstream = match &server.remote {
             Some(spec) => Upstream::Ssh(spec.clone(), target),
@@ -137,18 +204,15 @@ impl WebPanels {
             self.close(&server.id);
             return Err(e);
         }
-        let admin = AdminClient::connect_at(server, &root)?;
-        let ticket = admin
-            .call("login_mint", panel.login_mint_args())
-            .map_err(|_| Error::new(ErrorCode::AdminUnavailable, "Kiln.Admin could not issue a one-time web panel login."))?;
-        let secret = ticket["secret"]
-            .as_str()
-            .filter(|s| s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit()))
-            .ok_or_else(|| Error::new(ErrorCode::Parse, "Kiln.Admin returned an invalid one-time login."))?;
-        drop(admin);
+        let secret = mint(server, root, panel)?;
         let o = self.open.get(&server.id).expect("open");
         let url = o.gateway.offer(format!("https://{addr}/launcher#secret={secret}"), self.limits.handle_ttl)?;
         Ok(Opened { url, info: self.info(&server.id, o) })
+    }
+
+    /// (0.2.0-dev.31.19) How long the check of a panel's address on the internet may take (tests shorten it).
+    pub fn set_public_timeout(&mut self, t: std::time::Duration) {
+        self.public_timeout = t;
     }
 
     /// Closes the server's gateway; whether one was open.
@@ -187,6 +251,21 @@ impl WebPanels {
     }
 }
 
+/// The one-time owner login for `panel`, minted by the Kiln.Admin of the data root its file came from.
+fn mint(server: &ServerInstance, root: &crate::admin::datadir::DataRoot, panel: ids::PanelMod) -> Result<String> {
+    let admin = AdminClient::connect_at(server, root)?;
+    let ticket = admin
+        .call("login_mint", panel.login_mint_args())
+        .map_err(|_| Error::new(ErrorCode::AdminUnavailable, "Kiln.Admin could not issue a one-time web panel login."))?;
+    ticket["secret"]
+        .as_str()
+        .filter(|s| s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit()))
+        .map(str::to_string)
+        .ok_or_else(|| Error::new(ErrorCode::Parse, "Kiln.Admin returned an invalid one-time login."))
+}
+
+#[cfg(test)]
+mod public_tests;
 #[cfg(test)]
 mod review_tests;
 #[cfg(test)]

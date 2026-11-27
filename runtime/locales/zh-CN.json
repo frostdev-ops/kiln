@@ -396,6 +396,10 @@
       "waits": "等待条件",
       "settings": "开关与设置"
     },
+    "news": {
+      "label": "此模组的消息",
+      "keys_after_menu": "关闭此菜单后（{key} 或 Esc），此模组的按键才会在游戏中生效，与 ShroudForge 自己的窗口相同。"
+    },
     "waits": {
       "restart": "下次启动游戏时，ShroudForge 才会读取此模组的新设置。",
       "dependency": "等待上方列出的依赖模组。依赖就绪后，ShroudForge 会启动此模组。",

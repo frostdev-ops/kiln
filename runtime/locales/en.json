@@ -402,6 +402,10 @@
       "waits": "WHAT IT WAITS FOR",
       "settings": "SWITCH AND SETTINGS"
     },
+    "news": {
+      "label": "NEWS FROM THIS MOD",
+      "keys_after_menu": "Its keys work in the game once this menu is closed ({key} or Esc), as with ShroudForge's own window."
+    },
     "waits": {
       "restart": "The next game start: ShroudForge loads this mod's changed configuration only when the game starts again.",
       "dependency": "A mod it needs: ShroudForge starts it once that mod runs (the reason above names it).",

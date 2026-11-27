@@ -35,6 +35,8 @@ export const launcherAdminHost: AdminHost = {
     return `${base.endsWith("/") ? base : `${base}/`}admin/`;
   },
   useArtStatus: () => useAssetsStatus().data?.admin,
+  /** the launcher's own words for a map without art (its Game art prepares it) */
+  useMapNoArt: () => undefined,
   crashReportsFromDisk: (serverId) => logsCrashReports({ server: serverId }),
   restartManagedServer: (serverId) => serverRestart(serverId),
 };

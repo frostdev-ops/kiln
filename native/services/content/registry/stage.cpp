@@ -189,6 +189,10 @@ bool field_ref_of(const std::string& text, FieldRef* out) {
     return !out->registry.empty() && !out->id.empty() && !out->field.empty();
 }
 std::string short_hash(const std::string& h) { return h.substr(0, 12); }
+// registry.json's text (the start's report, a live one, report_json's): a byte that is not UTF-8 (a label a plugin gave a code
+// writer) is written as U+FFFD; nlohmann's default throws, which would leave the file stale on the report writer's thread and
+// throw across the kiln.registry C ABI from report_json (review of Q1).
+std::string report_dump(const json& doc, int indent = -1) { return doc.dump(indent, ' ', false, json::error_handler_t::replace); }
 
 }  // namespace
 
@@ -384,6 +388,43 @@ struct Runner::Impl {
     Counts counts;
     std::string report;
     ReportMeta meta;
+    // Live reports are made off the world tick (owner 11-26, registry-followups review Q1): a publish keeps its result and
+    // meta as one job; env.post_report's thread makes its JSON and state/registry.json (a newer job replaces one not yet
+    // written), and report_json() makes the text itself when asked before that thread got to it.
+    struct ReportJob {
+        uint64_t seq = 0;
+        std::shared_ptr<const Result> result;
+        ReportMeta meta;
+    };
+    std::shared_ptr<const ReportJob> report_job;  // the newest live report; null: the start's report is the newest
+    uint64_t report_seq = 0;                      // the newest report (the start's or a live one)
+    uint64_t report_built = 0;                    // the report whose text `report` holds
+    std::mutex write_mu;                          // one writer of state/registry.json at a time (taken before mu, never after)
+    uint64_t report_written = 0;                  // under write_mu: the newest report in the file
+    // The JSON of a live report: outside mu (the schema does not change after the start; the job is its own copy).
+    json report_doc(const ReportJob& job) const { return ::kc::registry::report_json(schema, *job.result, job.meta); }
+    // Writes the newest live report to state/registry.json (env.post_report's thread, or the publishing one without it).
+    void write_live_report() {
+        std::lock_guard w(write_mu);
+        std::shared_ptr<const ReportJob> job;
+        bool built = false;
+        {
+            std::lock_guard l(mu);
+            job = report_job;
+            built = job && job->seq <= report_built;  // report_json made its text already
+        }
+        if (!job || job->seq <= report_written) return;  // an earlier run wrote it, or the start wrote a newer one
+        const json doc = report_doc(*job);
+        // The text outside mu (review of Q1): the tick takes mu each step (status, reads, the next publish), and a large
+        // report's dump takes tens of milliseconds (51 ms at 10,000 fields on the host bench).
+        if (!built) {
+            std::string text = report_dump(doc);
+            std::lock_guard l(mu);
+            if (job->seq > report_built) report = std::move(text), report_built = job->seq;
+        }
+        if (env.write_report && !env.write_report(report_dump(doc, 1))) log(1, "registry: state/registry.json could not be written");
+        report_written = job->seq;
+    }
     std::vector<BootResource> boot;
     std::map<std::string, uint64_t> edits_by_mod;
     // plans (registry-rollback): plans/index.json as this start read it (the last good plan, the plan the last world ran on),
@@ -1528,6 +1569,7 @@ void Runner::finish(const std::vector<BootOutcome>& outcomes) {
     LiveHandoff live;
     uint64_t gen = 0;
     std::string plan_rel, plan_text, report_text;  // written after the runner's lock is released (review finding 10)
+    uint64_t start_seq = 0;                        // this start's report (a live report written later is newer)
     {
         std::lock_guard lk(d.mu);
         if (phase_.load() == Phase::Start || phase_.load() == Phase::WorldLoad) return;
@@ -1699,8 +1741,10 @@ void Runner::finish(const std::vector<BootOutcome>& outcomes) {
         }
         d.meta.saves = d.saves_json(d.result);
         const json doc = ::kc::registry::report_json(d.schema, d.result, d.meta);
-        d.report = doc.dump();
-        report_text = doc.dump(1);
+        d.report = report_dump(doc);
+        report_text = report_dump(doc, 1);
+        d.report_job.reset();
+        start_seq = d.report_built = ++d.report_seq;
         // refusals first (warnings, never crowded out by conflict lines), then the conflict lines, then one total
         const std::vector<std::string> all = report_log(d.result);  // refusals first (warnings), then conflicts, then the total
         for (size_t i = 0; i < all.size(); ++i) {
@@ -1720,10 +1764,10 @@ void Runner::finish(const std::vector<BootOutcome>& outcomes) {
             std::lock_guard l2(d_->mu);
             refuse_unmapped(d_->rm, d_->schema, b, refused, d_->env.entry_support);
         };
-        auto publish = [this](const Result& r, bool application, bool world_event, bool world) {
+        auto publish = [this](Result r, bool application, bool world_event, bool world) {
             std::vector<uint64_t> handles;
             uint64_t g2 = 0;
-            std::string text, index_text;
+            std::string index_text;
             {
                 std::lock_guard l2(d_->mu);
                 // registry-rollback: a world started on this plan; without a refused edit it is the last good plan, and the good
@@ -1766,22 +1810,32 @@ void Runner::finish(const std::vector<BootOutcome>& outcomes) {
                 }
                 d_->meta.written = d_->env.now ? d_->env.now() : "";
                 d_->meta.saves = d_->saves_json(d_->result);
-                const json doc2 = ::kc::registry::report_json(d_->schema, d_->result, d_->meta);
-                d_->report = doc2.dump();
-                text = doc2.dump(1);
+                // the report's JSON and file: env.post_report's thread (the result moves into the job, no second copy)
+                auto job = std::make_shared<Impl::ReportJob>();
+                job->seq = ++d_->report_seq;
+                job->meta = d_->meta;
+                job->result = std::make_shared<const Result>(std::move(r));
+                d_->report_job = std::move(job);
             }
             // Outside the runner lock: transaction snapshots update the generation/file, never the ready event.
             if (!index_text.empty() && !d_->env.write_data("plans/index.json", index_text)) d_->log(1, "registry: kiln/data/content/registry/plans/index.json could not be written");
-            if (d_->env.write_report) d_->env.write_report(text);
+            if (d_->env.post_report) d_->env.post_report([d = d_.get()] { d->write_live_report(); });
+            else d_->write_live_report();
             notify_ready(handles, Phase::WorldLoad, g2);
         };
-        live.report = [publish](const Result& r, bool application) { publish(r, application, application, application); };
-        live.changed = [publish](const Result& r, bool world) { publish(r, true, false, world); };
+        live.report = [publish](Result r, bool application) { publish(std::move(r), application, application, application); };
+        live.changed = [publish](Result r, bool world) { publish(std::move(r), true, false, world); };
         if (d.env.prepare_live && !d.full_live) live.prepare = [this](LiveData* data, std::string* why) { return prepare_live(data, why); };
     }
     const bool plan_written = !plan_rel.empty() && d.env.write_data(plan_rel, plan_text);
     if (!plan_rel.empty() && !plan_written) d.log(1, "registry: the plan could not be written");
-    if (d.env.write_report && !d.env.write_report(report_text)) d.log(1, "registry: state/registry.json could not be written");
+    if (start_seq) {
+        std::lock_guard w(d.write_mu);
+        if (start_seq > d.report_written) {
+            if (d.env.write_report && !d.env.write_report(report_text)) d.log(1, "registry: state/registry.json could not be written");
+            d.report_written = start_seq;
+        }
+    }
     // The installer copies borrowed handoff maps outside this lock (store -> runner is the lock order).
     // Fail closed for polling readers until that copy completes; preparation must not mutate those maps concurrently.
     { std::lock_guard lock(d.mu); d.installing_live = true; }
@@ -2016,10 +2070,18 @@ KilnResult Runner::select(uint32_t view, const std::string& registry, const std:
 }
 
 KilnResult Runner::report_json(std::string* out) {
+    std::shared_ptr<const Impl::ReportJob> job;
+    {
+        std::lock_guard lk(d_->mu);
+        const Phase ph = phase_.load();
+        if (ph != Phase::Start && ph != Phase::WorldLoad) return KILN_ERR_UNAVAILABLE;
+        if (!d_->report_job || d_->report_job->seq <= d_->report_built) return *out = d_->report, KILN_OK;
+        job = d_->report_job;  // a live report the writer has not made yet: made here, outside the lock
+    }
+    std::string text = report_dump(d_->report_doc(*job));
     std::lock_guard lk(d_->mu);
-    const Phase ph = phase_.load();
-    if (ph != Phase::Start && ph != Phase::WorldLoad) return KILN_ERR_UNAVAILABLE;
-    *out = d_->report;
+    if (job->seq > d_->report_built) d_->report = std::move(text), d_->report_built = job->seq;
+    *out = d_->report;  // this job's text, or a newer one made meanwhile
     return KILN_OK;
 }
 

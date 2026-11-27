@@ -3591,6 +3591,7 @@
       "sfStepSave": "結果を保存中"
     },
     "appShell": {
+      "thanksgiving": "ハッピー サンクスギビング",
       "headStart": "{progress} · {step}",
       "pct": "{pct}%",
       "labelTime": "{label} {time}",

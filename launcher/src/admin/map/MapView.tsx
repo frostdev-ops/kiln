@@ -149,6 +149,8 @@ export function MapView({ height }: { height: number }) {
   // the launcher makes the map art from the game on its own (components/GameArt.tsx, the host's useArtStatus): probe
   // again when it has
   const artStatus = adminHost().useArtStatus();
+  // a host's own words while there is no map art (Kilnwarden makes none); undefined: the launcher's
+  const noArt = adminHost().useMapNoArt(artStatus);
   const probe = `${artStatus?.extracted ?? ""}|${artStatus?.map ?? ""}`;
   const [D, setD] = useState<MarkerData | null>(null);
   const [F, setF] = useState<FindData | null>(null);
@@ -458,7 +460,7 @@ export function MapView({ height }: { height: number }) {
           {([["layers", t("admin.map.tabMarkers")], ["find", t("admin.map.tabFind")], ["live", t("admin.map.tabLive")]] as const).map(([k, l]) => <button key={k} role="tab" className={ui.tab === k ? "on" : ""} onClick={() => setUi({ tab: k })}>{l}</button>)}
         </div>
         <div className="ka-map-panel" onClick={() => setResultsOpen(false)}>
-          {ui.tab === "layers" ? <LayersPanel D={D} ui={ui} setUi={setUi} assets={assets} lang={markerLang} onLang={changeLang} /> : null}
+          {ui.tab === "layers" ? <LayersPanel D={D} ui={ui} setUi={setUi} assets={assets} noArt={noArt?.markers ?? noArt?.title ?? undefined} lang={markerLang} onLang={changeLang} /> : null}
           {ui.tab === "find" ? <FindPanel F={F} missing={findMissing} ui={ui} findQ={findQ} setFindQ={setFindQ} toggle={toggleFinder} addAll={addFinders} dropsBy={eng.current?.dropsBy ?? {}} clear={() => setUi({ finders: [] })} setUi={setUi} /> : null}
           {ui.tab === "live" ? (
             <LivePanel players={players} connected={st.ready} reason={st.error?.message} waypoints={hist.waypoints} graves={hist.graves} zones={zones.data ?? []} ui={ui} setUi={setUi}
@@ -470,9 +472,14 @@ export function MapView({ height }: { height: number }) {
       </aside>
       <div className="ka-map-area">
         <div className="ka-map" ref={box} />
-        {assets === false ? (
-          <div style={{ position: "absolute", left: 56, right: 56, top: 12, zIndex: 1001 }}>
-            <Banner tone="info" title={artStatus?.canExtract === false ? t("admin.map.artNeedsClient") : t("admin.map.artPreparing")} />
+        {assets === false && noArt?.title !== null ? (
+          <div className="ka-map-noart" style={{ position: "absolute", left: 56, right: 56, top: 12, zIndex: 1001 }}>
+            {noArt ? (
+              <Banner tone="info" title={noArt.title}
+                actions={noArt.action ? <Button size="s" loading={noArt.action.busy} onClick={noArt.action.onClick}>{noArt.action.label}</Button> : undefined}>
+                {noArt.body}
+              </Banner>
+            ) : <Banner tone="info" title={artStatus?.canExtract === false ? t("admin.map.artNeedsClient") : t("admin.map.artPreparing")} />}
           </div>
         ) : null}
         <button className="ka-map-sidetoggle" title={t("admin.map.toggleSide")} onClick={() => setUi({ side: !ui.side })}>☰</button>
@@ -560,9 +567,12 @@ function RadiusForm({ initial, onSave, onCancel, onRadius }: { initial: number; 
   );
 }
 
-function LayersPanel({ D, ui, setUi, assets, lang, onLang }: { D: MarkerData | null; ui: MapUi; setUi: (p: Partial<MapUi>) => void; assets: boolean | null; lang: string | null; onLang: (code: string) => void }) {
+function LayersPanel({ D, ui, setUi, assets, noArt, lang, onLang }: {
+  D: MarkerData | null; ui: MapUi; setUi: (p: Partial<MapUi>) => void; assets: boolean | null; noArt?: ReactNode; lang: string | null; onLang: (code: string) => void;
+}) {
   const t = useT();
-  if (assets === false) return <p className="ka-map-muted">{t("admin.map.noMapData")}</p>;
+  // without map art: the host's line (AdminHost.useMapNoArt), else the launcher's
+  if (assets === false) return <p className="ka-map-muted">{noArt ?? t("admin.map.noMapData")}</p>;
   if (!D || !ui.vis) return <p className="ka-map-muted">{t("admin.map.loadingMarkers")}</p>;
   const vis = ui.vis;
   const groups: { name: string; cats: MarkerData["cats"] }[] = [];

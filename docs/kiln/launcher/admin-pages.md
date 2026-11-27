@@ -83,7 +83,15 @@ reads them through one helper, `assetsRoot()` (`src/admin/catalog.ts`):
 
 Dev uses the vite path because WebKitGTK refuses custom-scheme images and CSS from the `http://localhost:1420` page
 under `tauri dev`. Without the assets the map shows a banner (with the import button in the launcher) and draws the
-live overlays on the plain world plane; Spawn falls back to the enemy types the server has seen.
+live overlays on the plain world plane; Spawn falls back to the enemy types the server has seen. A host words that banner
+and the Markers tab's line itself through `useMapNoArt` (the host seam, below).
+
+The Map page fills the height its parent gives it when that parent is a flex column (the launcher's server page,
+Kilnwarden's frame), and the map fills the page whatever the side panel holds: Markers, Find & filter and Live scroll
+inside the map's height, and the search results end 12 px above the map's bottom edge and scroll there. In a parent of
+no set height the map is the window's height under the page, less 18 px. `tests/admin-map-layout.spec.ts` checks the
+launcher's flex column at 1920×1080, 1360×860, 1280×800 (the Deck) and 1024×640, and the parent of no set height (the
+web harness) at 1280×800.
 
 ## Development and testing
 - Browser mock (no backend): `bun x vite` (1420) or `KILN_ADMIN_MOCK=1 bun x vite --config vite.admin.config.ts`
@@ -129,7 +137,13 @@ The protocol on the socket: [admin-protocol.md](admin-protocol.md) section 12.
 
 The host seam (`configureAdmin`'s `host`, all optional): `assetsRoot()` (where the map art is: the launcher's
 `kiln-asset` protocol in a release build; default `/assets-local/`), `useArtStatus()` (a hook: the launcher's Game
-art state, so the map probes again), `crashReportsFromDisk(serverId)` (the launcher reads a stopped server's crash
+art state, so the map probes again), `useMapNoArt(art)` (a hook, called on every render of the map with
+`useArtStatus()`'s state: what the Map page says while it has no map art, `{title, body?, action?: {label, onClick,
+busy?}, markers?}` (`AdminMapNoArt`): `title` (null: no banner over the map, the host has its own notice), `body` (text
+or the host's elements; taller than the map, the banner scrolls inside it) and `action` replace the banner's "Preparing
+map art…" / "Map art needs the Enshrouded client" (the banner's box has the class `ka-map-noart`), `markers` (default:
+the title; with neither, the launcher's line) the Markers tab's "No map data yet: the launcher prepares it…";
+undefined: the launcher's words; `tests/admin-map-noart.spec.ts`), `crashReportsFromDisk(serverId)` (the launcher reads a stopped server's crash
 reports), `restartManagedServer(serverId)` (the launcher restarts a server it manages: its Tauri command
 `server_restart`). Without them the pages leave those parts out: no folder crash list, no "Restart now" for a staged
 restore. Kiln.Admin's op `server_restart` is something else, a KAP request (`kapOps(call).serverRestart`), and the
@@ -142,6 +156,14 @@ hub over a fake transport), `admin-tauri-transport.test.ts` (the launcher's tran
 `admin-ws-transport.test.ts` (a fake KAP-over-WebSocket server); `tests/admin-ui-web.spec.ts` runs the pages in a plain
 page (`src/admin/harness/index.html?kap=<ws url>`, served by the launcher's dev server, not part of a build) against
 the browser mock's world behind a fake socket, with a Tauri stand-in that must never be called.
+
+Dialogs over the map: Leaflet's panes, its canvas and controls and the map's own overlays use z-indexes of 400 to 1200.
+`.ka-map-root` is a stacking context of its own (`isolation: isolate` in `map/map.css`), so they stay below what a host
+puts on the body: the design system's dialogs (`.k-modal-backdrop`, z-index 50: `ConfirmHost`'s confirmations, a host's
+own dialogs) and toasts (60). In the launcher the sheet (`.k-sheet`, z-index 3) already held them; a host with nothing
+around the pages had dialogs over the map that took no clicks (Kilnwarden 0.1.3, where Leaflet's canvas took them).
+Check: `tests/admin-map-dialogs.spec.ts` opens the map's Delete waypoint confirmation over the map, in the launcher and
+in the harness, and clicks across it.
 
 ### A strict Content-Security-Policy (0.2.0-dev.31.13)
 The pages run under Kilnwarden's header (`default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self';

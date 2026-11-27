@@ -393,50 +393,91 @@ fn boot_loop(listener: TcpListener, sh: Arc<Shared>) {
             std::thread::sleep(Duration::from_millis(25));
             continue;
         };
-        let _ = s.set_nonblocking(false);
-        let _ = s.set_read_timeout(Some(Duration::from_secs(5)));
-        let _ = s.set_write_timeout(Some(Duration::from_secs(5)));
         let sh = sh.clone();
         std::thread::spawn(move || {
-            let mut req = Vec::new();
-            let mut b = [0u8; 2048];
-            while !req.windows(4).any(|w| w == b"\r\n\r\n") && req.len() < 8192 {
-                match (&s).read(&mut b) {
-                    Ok(0) | Err(_) => return,
-                    Ok(n) => req.extend_from_slice(&b[..n]),
-                }
+            let served = serve_boot(s, peer_addr, local, |h| {
+                let mut hs = sh.handles.lock().unwrap_or_else(|p| p.into_inner());
+                hs.remove(h).filter(|(_, until)| *until > Instant::now()).map(|(t, _)| t)
+            });
+            if served {
+                sh.touch();
             }
-            let line = String::from_utf8_lossy(&req[..req.iter().position(|&c| c == b'\r').unwrap_or(0)]).to_string();
-            let mut parts = line.split(' ');
-            let (method, path) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""));
-            let handle = path.strip_prefix("/k/").filter(|h| h.len() == 64 && h.bytes().all(|c| c.is_ascii_hexdigit()));
-            // Linux: only a program of this user may take a page (another user could read the address from a
-            // command line); elsewhere the address is as private as the browser's own command line
-            let mine = local.is_some_and(|l| peer::admits(l, peer_addr));
-            let target = match (method, handle) {
-                ("GET", Some(h)) if mine => {
-                    let mut hs = sh.handles.lock().unwrap_or_else(|p| p.into_inner());
-                    hs.remove(h).filter(|(_, until)| *until > Instant::now()).map(|(t, _)| t)
-                }
-                _ => None,
-            };
-            match target {
-                Some(t) => {
-                    let (html, csp) = bootstrap_page(&t);
-                    respond(&s, "200 OK", "text/html; charset=utf-8", Some(&csp), &html);
-                    sh.touch();
-                }
-                None => respond(
-                    &s,
-                    "404 Not Found",
-                    "text/plain; charset=utf-8",
-                    None,
-                    "This link was used already or has expired. Use \"Open web panel\" in the Kiln Launcher again.\n",
-                ),
-            }
-            let _ = s.shutdown(Shutdown::Both);
         });
     }
+}
+
+/// One request to a bootstrap listener on `local`: the page for `GET /k/<handle>` when `take` gives the handle's target
+/// up (it is then gone), else the 404. Whether the page was served.
+fn serve_boot(s: TcpStream, peer_addr: SocketAddr, local: Option<SocketAddr>, take: impl FnOnce(&str) -> Option<String>) -> bool {
+    let _ = s.set_nonblocking(false);
+    let _ = s.set_read_timeout(Some(Duration::from_secs(5)));
+    let _ = s.set_write_timeout(Some(Duration::from_secs(5)));
+    let mut req = Vec::new();
+    let mut b = [0u8; 2048];
+    while !req.windows(4).any(|w| w == b"\r\n\r\n") && req.len() < 8192 {
+        match (&s).read(&mut b) {
+            Ok(0) | Err(_) => return false,
+            Ok(n) => req.extend_from_slice(&b[..n]),
+        }
+    }
+    let line = String::from_utf8_lossy(&req[..req.iter().position(|&c| c == b'\r').unwrap_or(0)]).to_string();
+    let mut parts = line.split(' ');
+    let (method, path) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""));
+    let handle = path.strip_prefix("/k/").filter(|h| h.len() == 64 && h.bytes().all(|c| c.is_ascii_hexdigit()));
+    // Linux: only a program of this user may take a page (another user could read the address from a
+    // command line); elsewhere the address is as private as the browser's own command line
+    let mine = local.is_some_and(|l| peer::admits(l, peer_addr));
+    let target = match (method, handle) {
+        ("GET", Some(h)) if mine => take(h),
+        _ => None,
+    };
+    let served = target.is_some();
+    match target {
+        Some(t) => {
+            let (html, csp) = bootstrap_page(&t);
+            respond(&s, "200 OK", "text/html; charset=utf-8", Some(&csp), &html);
+        }
+        None => respond(
+            &s,
+            "404 Not Found",
+            "text/plain; charset=utf-8",
+            None,
+            "This link was used already or has expired. Use \"Open web panel\" in the Kiln Launcher again.\n",
+        ),
+    }
+    let _ = s.shutdown(Shutdown::Both);
+    served
+}
+
+/// (0.2.0-dev.31.19) A one-use bootstrap address of its own, for a panel the browser reaches without a gateway (its
+/// address on the internet, [`super::public`]): the same page and rules as a gateway's (one `GET` of
+/// `http://127.0.0.1:<port>/k/<handle>`, from this user's programs only on Linux, for `ttl`), on a listener that closes
+/// once the page is taken or `ttl` has passed. The one-time login in `target` stays off every command line.
+pub fn offer_once(target: String, ttl: Duration) -> Result<String> {
+    let handle = crate::hash::hex(&crate::util::random_bytes::<32>()?);
+    let listener = TcpListener::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))?;
+    let addr = listener.local_addr()?;
+    listener.set_nonblocking(true)?;
+    let until = Instant::now() + ttl;
+    let slot = Arc::new(Mutex::new(Some((handle.clone(), target))));
+    std::thread::Builder::new().name(format!("web-panel-boot-{addr}")).spawn(move || {
+        let open = |slot: &Mutex<Option<(String, String)>>| slot.lock().unwrap_or_else(|p| p.into_inner()).is_some();
+        while Instant::now() < until && open(&slot) {
+            let Ok((s, peer_addr)) = listener.accept() else {
+                std::thread::sleep(Duration::from_millis(25));
+                continue;
+            };
+            let slot = slot.clone();
+            std::thread::spawn(move || {
+                serve_boot(s, peer_addr, Some(addr), |h| {
+                    let mut g = slot.lock().unwrap_or_else(|p| p.into_inner());
+                    if Instant::now() < until && g.as_ref().is_some_and(|(k, _)| k == h) { g.take().map(|(_, t)| t) } else { None }
+                })
+            });
+        }
+        // the listener closes here: the address answers nothing any more
+    })?;
+    Ok(format!("http://{addr}/k/{handle}"))
 }
 
 /// The error for a panel on another machine's address.
