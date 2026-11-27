@@ -678,3 +678,4 @@
 [KILNX031]override Kiln.Registry.RegistryReauthorResult.ToString() -> string!
 [KILNX031]static Kiln.Registry.RegistryReauthorResult.operator !=(Kiln.Registry.RegistryReauthorResult? left, Kiln.Registry.RegistryReauthorResult? right) -> bool
 [KILNX031]static Kiln.Registry.RegistryReauthorResult.operator ==(Kiln.Registry.RegistryReauthorResult? left, Kiln.Registry.RegistryReauthorResult? right) -> bool
+[KILNX031]Kiln.Registry.RegistryEntry.TryGet<T>(string! field, out T value) -> bool

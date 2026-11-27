@@ -44,13 +44,36 @@ public sealed class RegistryEntry : IRegistryEntry
 
     /// <summary>The field's value converted to <typeparamref name="T"/> (<see cref="int"/>, <see cref="long"/>,
     /// <see cref="float"/>, <see cref="double"/>, <see cref="bool"/>, <see cref="string"/>, <see cref="string"/>[],
-    /// <see cref="RegistryId"/>, <see cref="TimeSpan"/>); <see cref="InvalidCastException"/> when it does not convert.</summary>
+    /// <see cref="RegistryId"/>, <see cref="TimeSpan"/>); <see cref="InvalidCastException"/> when it does not convert. When the
+    /// entry has no value of the field (a creature without the component it lives in), a nullable <typeparamref name="T"/>
+    /// (<c>int?</c>, <see cref="RegistryId"/>?, <see cref="string"/>) reads null and any other throws
+    /// <see cref="InvalidOperationException"/>, never a silent 0 or false (since 0.2.0-dev.32); <see cref="TryGet{T}"/> asks.</summary>
     /// <param name="field">A Kiln field path.</param>
     public T Get<T>(string field)
     {
         var value = Get(field);
+        if (value is null)
+            return default(T) is null ? default! : throw new InvalidOperationException($"{Registry}[{Id.Value}] has no value of {field}: read it as a nullable type or with TryGet");
+        return As<T>(value, field);
+    }
+
+    /// <summary>The field's value converted to <typeparamref name="T"/>, as <see cref="Get{T}(string)"/>; false when the entry has
+    /// no value of it (since 0.2.0-dev.32).</summary>
+    /// <param name="field">A Kiln field path.</param>
+    /// <param name="value">The value; default when there is none.</param>
+    /// <exception cref="ArgumentException">The registry has no such field, or a list's element needs an index.</exception>
+    /// <exception cref="InvalidCastException">The value does not convert to <typeparamref name="T"/>.</exception>
+    public bool TryGet<T>(string field, [MaybeNullWhen(false)] out T value)
+    {
+        var v = Get(field);
+        if (v is null) { value = default; return false; }
+        value = As<T>(v, field);
+        return true;
+    }
+
+    private T As<T>(object value, string field)
+    {
         if (value is T t) return t;
-        if (value is null) return default!;
         var target = Nullable.GetUnderlyingType(typeof(T)) ?? typeof(T);
         if (value is IConvertible && (target.IsPrimitive || target == typeof(decimal)))
             return (T)Convert.ChangeType(value, target, CultureInfo.InvariantCulture);

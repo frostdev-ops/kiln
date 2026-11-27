@@ -105,4 +105,19 @@ public sealed class ApiShapeEntryTests
         context.Close();
     }
 
+    // docs lane A's A14: a value the entry does not have is never a silent 0: Get<int> throws, a nullable reads null, TryGet asks
+    [Fact]
+    public void AMissingValueIsNeverASilentDefault()
+    {
+        var context = Frame();
+        using var scope = context.Enter();
+        var wolf = Registries.For(context).Entries("creatures")["game:wolf"];
+        Assert.Equal(7, wolf.Get<int>("level"));
+        Assert.Throws<InvalidOperationException>(() => wolf.Get<double>("scale"));
+        Assert.Null(wolf.Get<double?>("scale"));
+        Assert.False(wolf.TryGet<double>("scale", out _));
+        Assert.True(wolf.TryGet<int>("level", out var level));
+        Assert.Equal(7, level);
+        context.Close();
+    }
 }
