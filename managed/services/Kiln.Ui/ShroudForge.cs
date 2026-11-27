@@ -536,7 +536,7 @@ internal static class ShroudForgePackages
         {
             var text = sv.GetValue<string>();
             if (s.Control == "keybind" && !ValidShortcut(text))
-                return KilnText.T("shroudforge.check.shortcut", ("setting", s.Label));
+                return KilnText.T("shroudforge.check.shortcut", ("setting", s.Label), ("text", ShroudForgeUi.Clip(text, 60)));
             var n = text.EnumerateRunes().Count();
             if ((s.MinLength is { } lo && n < lo) || (s.MaxLength is { } hi && n > hi))
                 return s.MaxLength is { } max

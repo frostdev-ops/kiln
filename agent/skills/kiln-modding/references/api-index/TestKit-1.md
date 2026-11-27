@@ -122,6 +122,7 @@ enum: Apply, Update, End
 - `Order { get; init; } -> CraftSourceOrder` — Its position relative to station outputs.
 - `Owner { get; init; } -> ulong` — The registering native owner.
 - `Player { get; init; } -> EntityId` — The only player it supplies.
+- `Respec { get; init; } -> bool` `0.2.25` — Registered with `CraftSourceOptions.Respec`: the skill respec may count and pay its respec item from it.
 
 ## TestKit.FakeCrosshair `0.2.22` — Values the kit's crosshair fake gives every sample.
 - `const Session = 1 -> uint` — The client session of every sample (`CrosshairHit.ClientSession`).

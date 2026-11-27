@@ -251,7 +251,7 @@ state/registry.json names it:
 ```
 An export whose base origin is empty, `none` or `unknown`, or whose writer is empty or `unknown`, is refused (writer `none`
 is the game's own data, as shipped; any other writer, `kiln-eml`, `shroudforge-hosted`, `shroudforge-installed` or `external`,
-is named in a note of the diff, and two exports with different writers get one more). Since the next release the writer is
+is named in a note of the diff, and two exports with different writers get one more). Since 0.2.0-dev.31.18 the writer is
 this start's real archive writer (state/registry.json `base.writer` and `base.archive`, registries README "Who else wrote a
 field"); before, every start but a kiln-mode one said `none`, also where kiln-eml or hosted ShroudForge had patched the
 archive. kilnctl compares the same way: a lab with EML or ShroudForge packages now gives a note instead of passing as the

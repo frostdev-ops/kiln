@@ -400,6 +400,10 @@
       "waits": "O QUE ELE ESPERA",
       "settings": "CHAVE E CONFIGURAÇÕES"
     },
+    "news": {
+      "label": "NOVIDADES DESTE MOD",
+      "keys_after_menu": "As teclas dele funcionam no jogo quando este menu está fechado ({key} ou Esc), como na janela do próprio ShroudForge."
+    },
     "waits": {
       "restart": "O próximo início do jogo: o ShroudForge só carrega a configuração alterada deste mod quando o jogo inicia de novo.",
       "dependency": "Um mod de que ele precisa: o ShroudForge o inicia quando esse mod rodar (o motivo acima diz qual é).",
@@ -435,7 +439,11 @@
     "value_on": "ativado",
     "value_off": "desativado",
     "shortcut": "Atalho: {key}",
-    "shortcut_help": "Edite o atalho SDL abaixo (não é captura de tecla): Ctrl+SDL:66 é Ctrl+F9; Mouse:4 é o botão 4 do mouse. Vazio desativa. O SF verifica se o teclado está disponível.",
+    "shortcut_off": "nenhum (desligado)",
+    "shortcut_help": "Clique na caixa e pressione a tecla ou o botão do mouse que quiser, com Ctrl, Shift ou Alt se quiser (o Kiln salva o lugar da tecla no teclado, que o ShroudForge lê em qualquer layout). Clique de novo para parar de esperar; Escape cancela e fecha o menu; Backspace, Delete ou Desatribuir deixam sem tecla. Você também pode digitar abaixo: Ctrl+G, F5, Mouse4 ou a forma do próprio ShroudForge, como Ctrl+SDL:10.",
+    "capture_wheel": "{setting}: um atalho do ShroudForge não pode ser um giro da roda do mouse. Pressione uma tecla ou o botão do meio ou um lateral do mouse.",
+    "capture_pad": "{setting}: um atalho do ShroudForge não pode ser um botão do controle: os atalhos do ShroudForge leem só o teclado e o mouse. Pressione uma tecla ou um botão do mouse, ou clique de novo na caixa para parar.",
+    "capture_unknown": "{setting}: o Kiln não sabe que tecla é esta ({key}), então não pode salvá-la. Pressione outra tecla ou digite abaixo a forma do ShroudForge (SDL: e o número da tecla).",
     "field_nul": "Este valor tem um caractere NUL, que um campo de texto não consegue mostrar nem guardar: mude-o no extended.mod.json do mod.",
     "field_long": "Longo demais para editar aqui ({length} caracteres): mude-o no extended.mod.json do mod.",
     "not_a_number": "{setting}: \"{text}\" não é um número",
@@ -464,7 +472,7 @@
       "finite": "{setting} aceita um número finito",
       "null_first": "{setting}: \"{choice}\" não pode vir primeiro nesta lista (não tem valor, e o ShroudForge recusaria o mod)",
       "no_value_choice": "uma escolha sem valor",
-      "shortcut": "{setting}: use um atalho SDL como Ctrl+SDL:66 ou Mouse:4 (vazio desativa; ordem dos modificadores Ctrl, Alt, Shift, Meta)",
+      "shortcut": "{setting}: o Kiln não consegue ler \"{text}\" como uma tecla. Clique na caixa do atalho e pressione a tecla que quiser, ou digite uma como Ctrl+G, F5 ou Mouse4. A forma do próprio ShroudForge (Ctrl+SDL:10, Mouse:4) também funciona; vazio desativa o atalho.",
       "length": "{setting} precisa ter de {min} a {max} caracteres",
       "length_min": "{setting} precisa ter {min} caracteres ou mais",
       "range": "{setting} precisa estar entre {min} e {max}",

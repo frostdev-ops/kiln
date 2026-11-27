@@ -396,6 +396,10 @@
       "waits": "等待条件",
       "settings": "开关与设置"
     },
+    "news": {
+      "label": "此模组的消息",
+      "keys_after_menu": "关闭此菜单后（{key} 或 Esc），此模组的按键才会在游戏中生效，与 ShroudForge 自己的窗口相同。"
+    },
     "waits": {
       "restart": "下次启动游戏时，ShroudForge 才会读取此模组的新设置。",
       "dependency": "等待上方列出的依赖模组。依赖就绪后，ShroudForge 会启动此模组。",
@@ -430,7 +434,11 @@
     "value_on": "开",
     "value_off": "关",
     "shortcut": "快捷键：{key}",
-    "shortcut_help": "在下方输入 SDL 快捷键，如 Ctrl+SDL:66（Ctrl+F9）或 Mouse:4（鼠标第 4 键）。留空可禁用。ShroudForge 会检查键盘是否可用。",
+    "shortcut_off": "无（关闭）",
+    "shortcut_help": "点击该框，然后按下想要的键或鼠标按键，可配合 Ctrl、Shift 或 Alt（Kiln 保存的是该键在键盘上的位置，ShroudForge 在任何键盘布局下都能读取）。再次点击可停止等待；Escape 会停止并关闭菜单；Backspace、Delete 或“解绑”会让它没有按键。也可以在下方输入：Ctrl+G、F5、Mouse4，或 ShroudForge 自己的写法，如 Ctrl+SDL:10。",
+    "capture_wheel": "{setting}：ShroudForge 快捷键不能是鼠标滚轮的转动。请按一个键，或鼠标中键或侧键。",
+    "capture_pad": "{setting}：ShroudForge 快捷键不能是手柄按键：ShroudForge 的快捷键只读取键盘和鼠标。请按一个键或鼠标按键，或再次点击该框以停止。",
+    "capture_unknown": "{setting}：Kiln 不知道这是哪个键（{key}），因此无法保存。请按另一个键，或在下方输入 ShroudForge 的写法（SDL: 加上按键编号）。",
     "field_nul": "此值含有空字符（NUL），文本框无法显示或保留它。请在模组的 extended.mod.json 中修改。",
     "field_long": "文本过长（{length} 个字符），请在模组的 extended.mod.json 中修改。",
     "not_a_number": "{setting}：请输入数字，“{text}”无效",
@@ -459,7 +467,7 @@
       "finite": "{setting} 必须为有限数值",
       "null_first": "{setting}：“{choice}”没有值，放在列表首位会导致 ShroudForge 拒绝加载模组",
       "no_value_choice": "无值的选项",
-      "shortcut": "{setting}：请输入 SDL 快捷键，例如 Ctrl+SDL:66 或 Mouse:4。留空即可禁用，修饰键顺序为 Ctrl、Alt、Shift、Meta",
+      "shortcut": "{setting}：Kiln 无法把“{text}”识别为按键。请点击快捷键框并按下想要的键，或输入 Ctrl+G、F5、Mouse4 这样的按键。ShroudForge 自己的写法（Ctrl+SDL:10、Mouse:4）也可以；留空即关闭快捷键。",
       "length": "{setting} 的长度应为 {min} 至 {max} 个字符",
       "length_min": "{setting} 至少需要 {min} 个字符，不限上限",
       "range": "{setting} 必须介于 {min} 和 {max} 之间",

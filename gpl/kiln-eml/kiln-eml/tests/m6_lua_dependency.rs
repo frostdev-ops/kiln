@@ -2,12 +2,41 @@
 //! Strict shared-v2 dependency observations. Provenance belongs outside the transcript.
 use serde_json::{Value, json};
 
+/// A Python 3.8+ to run the comparator: the first of `python3`, `python` and (Windows) `py -3` that runs. On Windows
+/// `python3` is often only the Store's alias, which exits 9009 ("Python was not found"), while `python` is the real one.
+fn python() -> &'static [&'static str] {
+    static PYTHON: std::sync::OnceLock<&'static [&'static str]> = std::sync::OnceLock::new();
+    PYTHON.get_or_init(|| {
+        let candidates: &[&'static [&'static str]] = &[&["python3"], &["python"], &["py", "-3"]];
+        candidates
+            .iter()
+            .copied()
+            .find(|python| {
+                std::process::Command::new(python[0])
+                    .args(&python[1..])
+                    .args(["-I", "-c", "import sys; sys.exit(0 if sys.version_info >= (3, 8) else 3)"])
+                    .stdin(std::process::Stdio::null())
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .status()
+                    .is_ok_and(|status| status.success())
+            })
+            .unwrap_or_else(|| {
+                panic!("the shared-v2 comparator needs Python 3.8 or newer: none of python3, python or py -3 runs it")
+            })
+    })
+}
+
+/// The comparator's verdict: Ok for identical transcripts, Err(its message) when it refuses them (exit 1). Anything else
+/// (no interpreter, a crash, the Store alias) fails the test: a refusal must be the comparator's own.
 fn compare(old: &Value, candidate: &Value) -> Result<(), String> {
     use std::{
         io::Write,
         process::{Command, Stdio},
     };
-    let mut process = Command::new("python3")
+    let python = python();
+    let mut process = Command::new(python[0])
+        .args(&python[1..])
         .arg("-I")
         .arg(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -17,27 +46,29 @@ fn compare(old: &Value, candidate: &Value) -> Result<(), String> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|error| error.to_string())?;
+        .unwrap_or_else(|error| panic!("{python:?}: {error}"));
     serde_json::to_writer(
         process.stdin.as_mut().unwrap(),
         &json!({"old":old,"candidate":candidate}),
     )
-    .map_err(|error| error.to_string())?;
-    process
-        .stdin
-        .take()
-        .unwrap()
-        .flush()
-        .map_err(|error| error.to_string())?;
-    let output = process
-        .wait_with_output()
-        .map_err(|error| error.to_string())?;
-    if output.status.success() {
-        Ok(())
-    } else {
-        Err(String::from_utf8_lossy(&output.stderr).into_owned())
+    .unwrap();
+    process.stdin.take().unwrap().flush().unwrap();
+    let output = process.wait_with_output().unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    match output.status.code() {
+        Some(0) => Ok(()),
+        Some(1) if !stderr.trim().is_empty() => Err(stderr),
+        _ => panic!("the comparator did not run ({python:?}: {}): {stderr}", output.status),
     }
 }
+
+/// A refusal for this reason (the comparator's own message).
+fn refused(result: Result<(), String>, reason: &str) -> bool {
+    result.is_err_and(|message| message.contains(reason))
+}
+
+/// compare.py's refusal of two transcripts that differ.
+const MISMATCH: &str = "Lua-visible differential mismatch";
 
 fn transcript(record: Value) -> Value {
     json!({"version":2,"records":[record]})
@@ -49,12 +80,12 @@ fn comparator_rejects_same_error_userdata_with_different_message() {
         "error":{"t":"userdata","name":"?"},"message":"first failure"}));
     let mut candidate = old.clone();
     candidate["records"][0]["message"] = "second failure".into();
-    assert!(compare(&old, &candidate).is_err());
+    assert!(refused(compare(&old, &candidate), MISMATCH));
     candidate["records"][0]
         .as_object_mut()
         .unwrap()
         .remove("message");
-    assert!(compare(&old, &candidate).is_err());
+    assert!(refused(compare(&old, &candidate), MISMATCH));
 }
 
 #[test]
@@ -81,9 +112,9 @@ fn comparator_rejects_nil_arity_type_alias_binary_and_float_changes() {
         mutations.push(changed);
     }
     for changed in mutations {
-        assert!(compare(&old, &changed).is_err(), "{changed}");
+        assert!(refused(compare(&old, &changed), MISMATCH), "{changed}");
     }
-    assert!(compare(&old, &old).is_ok());
+    assert_eq!(compare(&old, &old), Ok(()));
 }
 
 #[test]
@@ -186,10 +217,13 @@ fn production_lock_has_one_exact_lua_universe_and_core_without_runtime_plugin() 
 
 #[test]
 fn comparator_refuses_v1_and_fixture_failures() {
-    for value in [
-        json!({"version":1,"records":[]}),
-        json!({"version":2,"records":[],"fixture_error":{"t":"string","v":"failed"}}),
+    for (value, reason) in [
+        (json!({"version":1,"records":[]}), "shared-v2 transcript required"),
+        (
+            json!({"version":2,"records":[],"fixture_error":{"t":"string","v":"failed"}}),
+            "fixture failed; not parity",
+        ),
     ] {
-        assert!(compare(&value, &value).is_err());
+        assert!(refused(compare(&value, &value), reason), "{value}");
     }
 }

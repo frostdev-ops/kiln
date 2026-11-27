@@ -288,6 +288,8 @@
       "inactive": "ShroudForge führt sie gerade nicht aus; eine Änderung ihres Schalters dauert ein, zwei Sekunden, oder sie startet beim nächsten Spielstart.",
       "effect": "ShroudForge-Lua ist aktiv; gemeldete Wirkung: {effect}. {detail}",
       "effect_failed_help": "Die Mod meldet, dass ihre Änderung nicht angewendet wurde. ShroudForges Protokoll enthält die Details.",
+      "effect_last_failed": "ShroudForge führt das Lua aus; die Mod meldet, dass ihre letzte Änderung nicht angewendet wurde: {detail}",
+      "effect_last_failed_help": "Die Mod ist weiter geladen und läuft. kiln.log sagt, warum die Änderung nicht angewendet wurde: eine Zeile \"ShroudForge voxel write\" bei einer Änderung der Blöcke der Welt, die [sf]-Zeilen bei allem anderen.",
       "active": "ShroudForge führt ihr Lua aus; die Mod meldet kein Ergebnis zur Wirkung."
     },
     "enshwick": {
@@ -400,6 +402,10 @@
       "waits": "WORAUF SIE WARTET",
       "settings": "SCHALTER UND EINSTELLUNGEN"
     },
+    "news": {
+      "label": "NEUIGKEITEN DIESER MOD",
+      "keys_after_menu": "Die Tasten dieser Mod wirken im Spiel, sobald dieses Menü geschlossen ist ({key} oder Esc), wie bei ShroudForges eigenem Fenster."
+    },
     "waits": {
       "restart": "Den nächsten Spielstart: ShroudForge lädt die geänderte Konfiguration dieser Mod erst, wenn das Spiel neu startet.",
       "dependency": "Eine Mod, die sie braucht: ShroudForge startet sie, sobald diese Mod läuft (der Grund oben nennt sie).",
@@ -435,7 +441,11 @@
     "value_on": "an",
     "value_off": "aus",
     "shortcut": "Tastenkürzel: {key}",
-    "shortcut_help": "Bearbeite unten die SDL-Belegung (keine Tastenaufnahme): Ctrl+SDL:66 ist Ctrl+F9; Mouse:4 ist Maustaste 4. Leer schaltet es aus. SF prüft, ob die Tastatur verfügbar ist.",
+    "shortcut_off": "keine (aus)",
+    "shortcut_help": "Klicke auf das Feld und drücke dann die gewünschte Taste oder Maustaste, wenn du willst mit Ctrl, Shift oder Alt (Kiln speichert die Stelle der Taste auf der Tastatur, die ShroudForge auf jedem Layout liest). Klicke erneut, um nicht mehr zu warten; Escape bricht ab und schließt das Menü; Backspace, Entf oder Lösen lassen es ohne Taste. Du kannst es auch unten eintippen: Ctrl+G, F5, Mouse4 oder ShroudForges eigene Schreibweise wie Ctrl+SDL:10.",
+    "capture_wheel": "{setting}: Ein ShroudForge-Kürzel kann keine Drehung des Mausrads sein. Drücke eine Taste oder die mittlere oder eine Seitentaste der Maus.",
+    "capture_pad": "{setting}: Ein ShroudForge-Kürzel kann keine Controller-Taste sein: ShroudForges Kürzel lesen nur Tastatur und Maus. Drücke eine Taste oder Maustaste, oder klicke erneut auf das Feld, um abzubrechen.",
+    "capture_unknown": "{setting}: Kiln weiß nicht, welche Taste das ist ({key}), und kann sie nicht speichern. Drücke eine andere Taste oder tippe unten ShroudForges Schreibweise dafür ein (SDL: und die Nummer der Taste).",
     "field_nul": "Dieser Wert enthält ein NUL-Zeichen, das ein Textfeld weder anzeigen noch behalten kann: Ändere ihn in der extended.mod.json der Mod.",
     "field_long": "Zu lang, um ihn hier zu bearbeiten ({length} Zeichen): Ändere ihn in der extended.mod.json der Mod.",
     "not_a_number": "{setting}: \"{text}\" ist keine Zahl",
@@ -464,7 +474,7 @@
       "finite": "{setting} braucht eine endliche Zahl",
       "null_first": "{setting}: \"{choice}\" darf nicht an erster Stelle dieser Liste stehen (sie hat keinen Wert, und ShroudForge würde die Mod ablehnen)",
       "no_value_choice": "eine Auswahl ohne Wert",
-      "shortcut": "{setting}: Nutze ein SDL-Tastenkürzel wie Ctrl+SDL:66 oder Mouse:4 (leer schaltet es aus; Reihenfolge der Zusatztasten Ctrl, Alt, Shift, Meta)",
+      "shortcut": "{setting}: Kiln kann \"{text}\" nicht als Taste lesen. Klicke auf das Kürzelfeld und drücke die gewünschte Taste, oder tippe eine wie Ctrl+G, F5 oder Mouse4. ShroudForges eigene Schreibweise (Ctrl+SDL:10, Mouse:4) geht auch; leer schaltet das Kürzel aus.",
       "length": "{setting} muss {min} bis {max} Zeichen lang sein",
       "length_min": "{setting} muss mindestens {min} Zeichen lang sein",
       "range": "{setting} muss zwischen {min} und {max} liegen",

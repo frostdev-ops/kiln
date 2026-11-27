@@ -1,9 +1,9 @@
-# Native ABI rows (mod API 0.2.24): part 3 of 3
+# Native ABI rows (mod API 0.2.25): part 3 of 3
 
 One line per row: header, `Table.row`, @offset, mod API, comment (native.md says more).
 
 ## services/kiln_stations.h — service `kiln.stations`
-### KilnStationsApi — 320 bytes
+### KilnStationsApi — 328 bytes
 - kiln_stations.h `KilnStationsApi.status` @8 `0.2.6`
 - kiln_stations.h `KilnStationsApi.base_count` @16 `0.2.6` — The game's bases. base_at: index 0..count-1. base_of: the base the entity stands in (KILN_ERR_NOT_FOUND...
 - kiln_stations.h `KilnStationsApi.base_at` @24 `0.2.6`
@@ -43,6 +43,7 @@ One line per row: header, `Table.row`, @offset, mod API, comment (native.md says
 - kiln_stations.h `KilnStationsApi.lock_asks` @296 `0.2.21` — A Kiln client: the lock items its lock checks (the press and the locked prompt) met while the snapshot was...
 - kiln_stations.h `KilnStationsApi.set_build_stock` @304 `0.2.21` — block placements from linked sources, since 0.2.0-dev.31.12 (GitHub #132; capability...
 - kiln_stations.h `KilnStationsApi.fill_flags` @312 `0.2.23` — since 0.2.0-dev.31.16 (GitHub #132; header.size tells whether this is here) ---- The KILN_STATION_FILL_*...
+- kiln_stations.h `KilnStationsApi.set_respec_stock` @320 `0.2.25` — the skill tree's respec from linked sources, since 0.2.0-dev.31.18 (GitHub #150; capability...
 
 ## services/kiln_stations_client.h — service `kiln.stations.client`
 ### KilnStationsClientApi — 32 bytes

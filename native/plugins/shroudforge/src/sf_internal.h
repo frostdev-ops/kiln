@@ -37,6 +37,8 @@ void stop_helper_processes();
 // KfcRuntimeSetHost, or null when kiln.hooks v2 is not available to this plugin.
 struct KfcHost;
 const KfcHost* host_table(const KilnApi* api, KilnOwner owner);
+// The table's voxel writer (host_voxels.cpp): ShroudForge's runtime.world.voxel.write through kiln.build.
+void host_voxels_attach(const KilnApi* api, KilnOwner owner, KfcHost* table);
 
 // Where ShroudForge's mod shortcuts get their key state this start (key_feed.cpp): source "kiln" (Kiln's host key
 // feed passes records), "waiting" (the feed has begun, kiln.ui comes at Kiln's plugin step; nothing is passed yet),

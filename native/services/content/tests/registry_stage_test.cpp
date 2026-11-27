@@ -1599,6 +1599,32 @@ void limits_go_to_the_hooks(const std::string& dir) {
     model::set_hook_values(nullptr);
 }
 
+// review of the per-field note (31.18 wrote one info line per entry without a value: 34,207 at a start with registry content):
+// kiln.log at info has one note per field; the entries behind it are in kiln.log at debug level (-1: "log_level": "debug"),
+// one line each, so a mod author can still find why one entry has no value
+void per_entry_detail_at_debug(const std::string& dir) {
+    TreeView view = world();  // its items have no armorSetup: items.armor.blunt has no value in either
+    Files files;
+    stage::Runner r(env_of(&view, &files, dir, [](const Schema& schema) {
+        const std::string a = R"({"registry": {"alter": [{"registry": "items", "select": {"id": "game:plank"}, "field": "armor.blunt", "op": 5}]}})";
+        return stage::read_sections("bigmod", "2.0.0", {{"content/a.json", a}}, schema);
+    }));
+    r.run({});
+    r.finish({});
+    size_t notes = 0, wood = 0, plank = 0;
+    std::string said;
+    for (const std::string& l : files.log) {
+        if (l.find("items.armor.blunt") == std::string::npos) continue;
+        said += l + "\n";
+        if (l.rfind("0 registry: items.armor.blunt has no value in 2 of 2 entries on this build (the first: ", 0) == 0) ++notes;
+        if (l.rfind("-1 registry: items.armor.blunt of game:material_t1_wood_logs: ", 0) == 0) ++wood;
+        if (l.rfind("-1 registry: items.armor.blunt of game:plank: ", 0) == 0) ++plank;
+    }
+    check(notes == 1, "one info note for the field, with the count: " + said);
+    check(wood == 1 && plank == 1, "each entry without a value at debug level, once: " + said);
+    check(said.find("(each is in kiln.log with \"log_level\": \"debug\")") != std::string::npos, "the note says where the entries are: " + said);
+}
+
 int main(int argc, char** argv) {
     const std::string dir = argc > 1 ? argv[1] : "regmap";
     int failed = 0;
@@ -1622,7 +1648,8 @@ int main(int argc, char** argv) {
         {"archive_journal_writers", [&] { archive_journal_writers(dir); }},
         {"archive_journal_shared_resources", [&] { archive_journal_shared_resources(dir); }},
         {"old_writes_marks", [&] { old_writes_marks(dir); }},
-        {"old_writes_element_of_its_resource", [&] { old_writes_element_of_its_resource(dir); }}};
+        {"old_writes_element_of_its_resource", [&] { old_writes_element_of_its_resource(dir); }},
+        {"per_entry_detail_at_debug", [&] { per_entry_detail_at_debug(dir); }}};
     for (const auto& [name, fn] : groups) {
         try {
             fn();

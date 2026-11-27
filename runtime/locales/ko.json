@@ -396,6 +396,10 @@
       "waits": "기다리는 것",
       "settings": "스위치와 설정"
     },
+    "news": {
+      "label": "이 모드의 소식",
+      "keys_after_menu": "이 모드의 키는 이 메뉴를 닫으면({key} 또는 Esc) 게임에서 작동합니다. ShroudForge 자체 창과 같습니다."
+    },
     "waits": {
       "restart": "다음 게임 실행: ShroudForge는 게임이 다시 시작될 때만 이 모드의 바뀐 구성을 불러옵니다.",
       "dependency": "필요한 모드: 그 모드가 실행되면 ShroudForge가 이 모드를 시작합니다 (위의 이유에 이름이 나옴).",
@@ -430,7 +434,11 @@
     "value_on": "켜짐",
     "value_off": "꺼짐",
     "shortcut": "단축키: {key}",
-    "shortcut_help": "아래에서 SDL 바인딩을 편집하세요 (키 입력 감지 아님): Ctrl+SDL:66은 Ctrl+F9, Mouse:4는 마우스 버튼 4입니다. 비우면 꺼집니다. SF가 키보드 사용 가능 여부를 확인합니다.",
+    "shortcut_off": "없음 (꺼짐)",
+    "shortcut_help": "칸을 클릭한 다음 원하는 키나 마우스 버튼을 누르세요. Ctrl, Shift, Alt와 함께 눌러도 됩니다 (Kiln은 키보드에서 키의 위치를 저장하고, ShroudForge는 어떤 배열에서도 그것을 읽습니다). 다시 클릭하면 기다리기를 멈추고, Escape는 멈추고 메뉴를 닫습니다. Backspace, Delete 또는 지정 해제를 누르면 키가 없어집니다. 아래에 직접 입력할 수도 있습니다: Ctrl+G, F5, Mouse4, 또는 Ctrl+SDL:10 같은 ShroudForge 고유 형식.",
+    "capture_wheel": "{setting}: 마우스 휠 회전은 ShroudForge 단축키가 될 수 없습니다. 키나 마우스 가운데 버튼 또는 옆 버튼을 누르세요.",
+    "capture_pad": "{setting}: 컨트롤러 버튼은 ShroudForge 단축키가 될 수 없습니다. ShroudForge 단축키는 키보드와 마우스만 읽습니다. 키나 마우스 버튼을 누르거나, 칸을 다시 클릭해 멈추세요.",
+    "capture_unknown": "{setting}: Kiln이 이 키({key})가 무엇인지 몰라 저장할 수 없습니다. 다른 키를 누르거나, 아래에 ShroudForge 형식(SDL:과 키 번호)을 입력하세요.",
     "field_nul": "이 값에는 텍스트 칸이 표시하거나 유지할 수 없는 NUL 문자가 있습니다. 모드의 extended.mod.json에서 바꾸세요.",
     "field_long": "여기서 편집하기에는 너무 깁니다 ({length}자). 모드의 extended.mod.json에서 바꾸세요.",
     "not_a_number": "{setting}: \"{text}\"은(는) 숫자가 아닙니다",
@@ -459,7 +467,7 @@
       "finite": "{setting}은(는) 유한한 숫자를 받습니다",
       "null_first": "{setting}: \"{choice}\"은(는) 이 목록의 맨 앞에 올 수 없습니다 (값이 없어 ShroudForge가 모드를 거부함)",
       "no_value_choice": "값이 없는 선택지",
-      "shortcut": "{setting}: Ctrl+SDL:66이나 Mouse:4 같은 SDL 단축키를 쓰세요 (비우면 꺼짐, 수정 키 순서 Ctrl, Alt, Shift, Meta)",
+      "shortcut": "{setting}: \"{text}\"을(를) 키로 읽을 수 없습니다. 단축키 칸을 클릭하고 원하는 키를 누르거나 Ctrl+G, F5, Mouse4처럼 입력하세요. ShroudForge 고유 형식(Ctrl+SDL:10, Mouse:4)도 됩니다. 비우면 단축키가 꺼집니다.",
       "length": "{setting}은(는) {min}~{max}자여야 합니다",
       "length_min": "{setting}은(는) {min}자 이상이어야 합니다",
       "range": "{setting}은(는) {min}~{max} 사이여야 합니다",

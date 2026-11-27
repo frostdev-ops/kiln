@@ -288,6 +288,8 @@
       "inactive": "ShroudForge does not run it right now; a change of its switch takes a second or two, or it starts with the next game start.",
       "effect": "ShroudForge Lua is active; reported effect: {effect}. {detail}",
       "effect_failed_help": "The mod reports that its change did not apply. ShroudForge's log has the details.",
+      "effect_last_failed": "ShroudForge runs its Lua; the mod reports that its last change did not apply: {detail}",
+      "effect_last_failed_help": "The mod is still loaded and running. kiln.log says why the change did not apply: a \"ShroudForge voxel write\" line for a change of the world's blocks, the [sf] lines for anything else.",
       "active": "ShroudForge runs its Lua; the mod reports no effect result."
     },
     "enshwick": {
@@ -400,6 +402,10 @@
       "waits": "WHAT IT WAITS FOR",
       "settings": "SWITCH AND SETTINGS"
     },
+    "news": {
+      "label": "NEWS FROM THIS MOD",
+      "keys_after_menu": "Its keys work in the game once this menu is closed ({key} or Esc), as with ShroudForge's own window."
+    },
     "waits": {
       "restart": "The next game start: ShroudForge loads this mod's changed configuration only when the game starts again.",
       "dependency": "A mod it needs: ShroudForge starts it once that mod runs (the reason above names it).",
@@ -435,7 +441,11 @@
     "value_on": "on",
     "value_off": "off",
     "shortcut": "Shortcut: {key}",
-    "shortcut_help": "Edit the SDL binding below (not key capture): Ctrl+SDL:66 is Ctrl+F9; Mouse:4 is mouse button 4. Empty disables it. SF checks keyboard availability.",
+    "shortcut_off": "none (off)",
+    "shortcut_help": "Click the box, then press the key or mouse button you want, with Ctrl, Shift or Alt if you like (Kiln saves the key's place on the keyboard, which ShroudForge reads on any layout). Click it again to stop waiting; Escape stops and closes the menu; Backspace, Delete or Unbind leave it without a key. You can also type it below: Ctrl+G, F5, Mouse4, or ShroudForge's own form such as Ctrl+SDL:10.",
+    "capture_wheel": "{setting}: a ShroudForge shortcut cannot be a turn of the mouse wheel. Press a key or the middle or a side mouse button.",
+    "capture_pad": "{setting}: a ShroudForge shortcut cannot be a controller button: ShroudForge's shortcuts read only the keyboard and the mouse. Press a key or a mouse button, or click the box again to stop.",
+    "capture_unknown": "{setting}: Kiln does not know which key this is ({key}), so it cannot save it. Press another key, or type ShroudForge's form for it below (SDL: and the key's number).",
     "field_nul": "This value holds a NUL character, which a text field cannot show or keep: change it in the mod's extended.mod.json.",
     "field_long": "Too long to edit here ({length} characters): change it in the mod's extended.mod.json.",
     "not_a_number": "{setting}: \"{text}\" is not a number",
@@ -464,7 +474,7 @@
       "finite": "{setting} takes a finite number",
       "null_first": "{setting}: \"{choice}\" cannot come first in this list (it has no value, and ShroudForge would refuse the mod)",
       "no_value_choice": "a choice without a value",
-      "shortcut": "{setting}: use an SDL shortcut such as Ctrl+SDL:66 or Mouse:4 (empty disables it; modifier order Ctrl, Alt, Shift, Meta)",
+      "shortcut": "{setting}: Kiln cannot read \"{text}\" as a key. Click the shortcut box and press the key you want, or type one such as Ctrl+G, F5 or Mouse4. ShroudForge's own form (Ctrl+SDL:10, Mouse:4) works too; empty switches the shortcut off.",
       "length": "{setting} must be {min} to {max} characters long",
       "length_min": "{setting} must be {min} to any number of characters long",
       "range": "{setting} must be between {min} and {max}",

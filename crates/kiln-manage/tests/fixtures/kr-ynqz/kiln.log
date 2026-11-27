@@ -1,0 +1,32 @@
+[I 17:25:09.185] [kiln] Kiln 0.2.0-dev.31.11+20261125.adc5ad4 starting (pid 18264)
+[I 17:25:09.185] [kiln] proxy: chain 1 (profile) D:\Steam\SteamApps\common\Enshrouded\xinput9_1_0.dll: loaded
+[I 17:25:09.185] [kiln] config: policy=verified-only clr=1 plugins=1 native.policy=always
+[I 17:25:09.190] [kiln] profile: other engines' mods (their plugins load them): eml 8, shroudforge 7, greeneye 1, shroudtopia 1
+[I 17:25:09.190] [kiln] profile: active 'my-mods' (Main) generation 3 from D:\Steam\steamapps\common\Enshrouded\kiln\profile.json: 5 kiln, 2 native, 0 plugin, 1 emf mod(s), 0 missing, drop-ins all
+[I 17:25:09.190] [kiln] profile: configs in <home>\AppData\Local\Kiln\profiles\my-mods\config, mod data in D:\Steam\steamapps\common\Enshrouded\kiln\data
+[I 17:25:09.190] [kiln] compat: 3 compatibility rule(s)
+[I 17:25:09.223] [kiln] game image: base=00007FF7AFB20000 size=0x2a3f000 .text=0x13cd7c0 bytes sha256=5d9ef2f140b8ed49e30dbee655841b89d08baec20f799a1817e171a18a850c77 codeview=3DDA78E3796049C0B30CD1604A0E7846-210 (hashed in 33 ms)
+[I 17:25:09.223] [kiln] side: client (pdb enshrouded.pdb)
+[I 17:25:09.223] [kiln] gate: 1 of 1 capabilities held until their game test
+[I 17:25:09.223] [kiln] gate: kiln-sfi.sf18 stays held by the release policy (kiln.json "preview" does not lift it)
+[I 17:25:09.233] [kiln] launch 06bbe4dc74f8f271: ShroudForge backend hosted (no kiln.json setting: hosted, the default)
+[I 17:25:09.234] [kiln] native: 2 mod(s) found (policy always): 2 early, 0 boot, 0 world to load
+[I 17:25:09.716] [kiln] native mod advancedterrainedit-1.5.2-206-1.5.2-2026-11-23t16-18z-mdxnsv1by 0.0.0 loaded (early, 1 DLL(s), 476.6 ms)
+[I 17:25:10.082] [kiln] native mod cross-base-storage 1.1.0 loaded (early, 1 DLL(s), 362.6 ms)
+[I 17:25:10.082] [kiln] native: phase early: 2 mod(s) handled
+[I 17:25:10.084] [kiln] hooks: serving early plugins (v2 registry, before sigdb and the services)
+[I 17:25:10.152] [early:kiln-eml.dll] [eml] kiln-eml 0.1.0 (EML 0.2.0) starting
+[I 17:25:10.152] [kiln] service kiln.eml v2 published by early:kiln-eml.dll
+[I 17:25:10.152] [kiln] service kiln.eml.archive v1 published by early:kiln-eml.dll
+[I 17:25:10.152] [kiln] service kiln.eml.values v1 published by early:kiln-eml.dll
+[I 17:25:10.154] [kiln] early plugin kiln-eml.dll: kiln-eml 0.1.0
+[I 17:25:10.154] [kiln] early plugin kiln-enshwick.dll: kiln-enshwick 1.0.0
+[I 17:25:10.154] [early:kiln-sfi.dll] backend hosted: kiln-shroudforge has this start (no kiln.json setting: hosted, the default)
+[I 17:25:10.154] [kiln] early plugin kiln-sfi.dll: kiln-sfi 0.1.0
+[I 17:25:10.155] [early:kiln-shroudforge.dll] ShroudForge backend for this start (kiln.launch): hosted: no kiln.json setting: hosted, the default
+[I 17:25:10.156] [early:kiln-shroudforge.dll] Hosting ShroudForge: the EML package endless-chests needs ShroudForge's runtime
+[I 17:25:10.184] [early:kiln-shroudforge.dll] ShroudForge runtime: bundled 1.8.1 kiln.465aad9 from D:\Steam\steamapps\common\Enshrouded\kiln\plugins\shroudforge
+[I 17:25:10.220] [early:kiln-shroudforge.dll] copied 13 bundled game profile(s) to D:\Steam\steamapps\common\Enshrouded\shroudforge/runtime\profiles
+[I 17:25:10.259] [early:kiln-eml.dll] kiln-eml: 8 of the profile's 8 EML mod(s) run under ShroudForge (hosted by Kiln)
+[I 17:25:10.273] [early:kiln-eml.dll] kiln-eml: 8 of 8 EML packages in D:\Steam\steamapps\common\Enshrouded\mods run under ShroudForge: emf_beastmaster_bear, emf_beastmaster_beasts, emf_beastmaster_wilds, endless-chests, less_dense_shroud_fog, loot-multipliers, mineral-refill-box, more-gliders
+[I 17:25:10.286] [early:kiln-shroudforge.dll] shroudforge.exe is not installed: use Kiln's Mods > ShroudForge for switches and settings (no World Editor window)

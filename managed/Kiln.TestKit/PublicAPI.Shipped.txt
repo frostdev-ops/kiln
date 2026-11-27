@@ -196,6 +196,8 @@ Kiln.TestKit.FakeCraftSourceRegistration.Owner.get -> ulong
 Kiln.TestKit.FakeCraftSourceRegistration.Owner.init -> void
 Kiln.TestKit.FakeCraftSourceRegistration.Player.get -> Kiln.EntityId
 Kiln.TestKit.FakeCraftSourceRegistration.Player.init -> void
+Kiln.TestKit.FakeCraftSourceRegistration.Respec.get -> bool
+Kiln.TestKit.FakeCraftSourceRegistration.Respec.init -> void
 Kiln.TestKit.FakeCrosshair
 Kiln.TestKit.FakeEcall
 Kiln.TestKit.FakeEcall.Deconstruct(out string! Native, out uint Site) -> void
@@ -827,6 +829,7 @@ Kiln.TestKit.HarnessCrafting.BuildStock(Kiln.EntityId player) -> System.Collecti
 Kiln.TestKit.HarnessCrafting.Dyes(Kiln.EntityId player) -> System.Collections.Generic.IReadOnlyDictionary<Kiln.ItemId, long>!
 Kiln.TestKit.HarnessCrafting.FillStock(Kiln.EntityId player) -> System.Collections.Generic.IReadOnlyDictionary<Kiln.ItemId, long>!
 Kiln.TestKit.HarnessCrafting.LockStock(Kiln.EntityId player) -> System.Collections.Generic.IReadOnlyDictionary<Kiln.ItemId, long>!
+Kiln.TestKit.HarnessCrafting.RespecStock(Kiln.EntityId player) -> System.Collections.Generic.IReadOnlyDictionary<Kiln.ItemId, long>!
 Kiln.TestKit.HarnessCrafting.Sources.get -> System.Collections.Generic.IReadOnlyList<Kiln.TestKit.FakeCraftSourceRegistration!>!
 Kiln.TestKit.HarnessCrafting.Stock(Kiln.EntityId player) -> System.Collections.Generic.IReadOnlyDictionary<Kiln.ItemId, long>!
 Kiln.TestKit.HarnessCreatureControl

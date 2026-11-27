@@ -6,6 +6,7 @@
 kiln_plugin(shroudforge
     src/plugin.cpp
     src/host_hooks.cpp
+    src/host_voxels.cpp
     src/key_feed.cpp
     src/processes.cpp)
 
@@ -14,6 +15,7 @@ kiln_plugin(shroudforge
 add_executable(sf_host_chain_test
     tests/host_chain_test.cpp
     src/host_hooks.cpp
+    src/host_voxels.cpp
     ../../core/src/services/hooks.cpp
     ../../core/src/services/hooks_chain.cpp
     ../../core/src/services/hooks_chain_asm.cpp

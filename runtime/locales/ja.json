@@ -396,6 +396,10 @@
       "waits": "待っているもの",
       "settings": "スイッチと設定"
     },
+    "news": {
+      "label": "このモッドからのお知らせ",
+      "keys_after_menu": "このモッドのキーは、このメニューを閉じると（{key} または Esc）ゲーム内で使えます。ShroudForge 本体のウィンドウと同じです。"
+    },
     "waits": {
       "restart": "次回のゲーム起動: ShroudForge がこのモッドの変更された設定を読み込むのは、ゲームを再起動したときだけです。",
       "dependency": "必要なモッド: そのモッドが動作すると ShroudForge がこれを開始します（上の理由にモッド名があります）。",
@@ -430,7 +434,11 @@
     "value_on": "オン",
     "value_off": "オフ",
     "shortcut": "ショートカット: {key}",
-    "shortcut_help": "下の SDL の割り当てを編集してください（キー入力の取得ではありません）: Ctrl+SDL:66 は Ctrl+F9、Mouse:4 はマウスボタン 4 です。空欄で無効になります。キーボードが使えるかは SF が確認します。",
+    "shortcut_off": "なし（オフ）",
+    "shortcut_help": "欄をクリックしてから、使いたいキーかマウスボタンを押してください（Ctrl、Shift、Alt との組み合わせも可）。Kiln はキーボード上のキーの位置を保存し、ShroudForge はどの配列でもそれを読み取ります。もう一度クリックすると待機をやめ、Escape でやめてメニューを閉じます。Backspace、Delete、または「解除」でキーなしになります。下に入力することもできます: Ctrl+G、F5、Mouse4、または Ctrl+SDL:10 のような ShroudForge 独自の書き方。",
+    "capture_wheel": "{setting}: マウスホイールの回転は ShroudForge のショートカットにできません。キーか、マウスの中央ボタンまたはサイドボタンを押してください。",
+    "capture_pad": "{setting}: コントローラーのボタンは ShroudForge のショートカットにできません（ShroudForge のショートカットはキーボードとマウスだけを読みます）。キーかマウスボタンを押すか、もう一度欄をクリックしてやめてください。",
+    "capture_unknown": "{setting}: このキー（{key}）が何か Kiln には分からないため保存できません。別のキーを押すか、下に ShroudForge の書き方（SDL: とキーの番号）を入力してください。",
     "field_nul": "この値には NUL 文字が含まれており、テキスト欄では表示も保持もできません。モッドの extended.mod.json で変更してください。",
     "field_long": "長すぎてここでは編集できません（{length} 文字）。モッドの extended.mod.json で変更してください。",
     "not_a_number": "{setting}: \"{text}\" は数値ではありません",
@@ -459,7 +467,7 @@
       "finite": "{setting} には有限の数値を指定します",
       "null_first": "{setting}: \"{choice}\" はこのリストの先頭にできません（値がなく、ShroudForge がモッドを拒否します）",
       "no_value_choice": "値のない選択肢",
-      "shortcut": "{setting}: Ctrl+SDL:66 や Mouse:4 のような SDL ショートカットを使ってください（空欄で無効、修飾キーの順番は Ctrl、Alt、Shift、Meta）",
+      "shortcut": "{setting}: 「{text}」をキーとして読み取れません。ショートカット欄をクリックして使いたいキーを押すか、Ctrl+G、F5、Mouse4 のように入力してください。ShroudForge 独自の書き方（Ctrl+SDL:10、Mouse:4）も使えます。空欄でショートカットは無効になります。",
       "length": "{setting} は {min}～{max} 文字にしてください",
       "length_min": "{setting} は {min} 文字以上にしてください",
       "range": "{setting} は {min}～{max} の範囲にしてください",

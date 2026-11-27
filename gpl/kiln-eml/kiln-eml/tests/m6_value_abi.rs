@@ -12,6 +12,8 @@ mod fixture;
 mod reader;
 #[path = "support/m6_types/mod.rs"]
 mod reg;
+#[path = "support/c_consumer/mod.rs"]
+mod c_consumer;
 #[path = "support/m6_userdata/mod.rs"]
 mod userdata;
 #[path = "support/m6_values/mod.rs"]
@@ -1212,42 +1214,14 @@ fn load(path: &std::path::Path) -> ConsumerRun {
     unsafe { std::mem::transmute::<unsafe extern "system" fn() -> isize, ConsumerRun>(symbol) }
 }
 
-/// The consumer libraries: `M6_VALUES_CONSUMERS` (paths, `;`-separated; the native Windows run builds them with MSVC),
-/// else built here from tests/c/m6_values_consumer.c with `$CC` (C11) and `$CXX` (C++20).
+/// The consumer libraries: `M6_VALUES_CONSUMERS` (paths, `;`-separated; also kiln-sfi's `values_consumer` example),
+/// else built here from tests/c/m6_values_consumer.c as C11 and as C++20 (`$CC`/`$CXX` on Unix, MSVC on Windows:
+/// support/c_consumer).
 fn consumers() -> Vec<std::path::PathBuf> {
     if let Ok(list) = std::env::var("M6_VALUES_CONSUMERS") {
         return list.split(';').filter(|p| !p.is_empty()).map(Into::into).collect();
     }
-    assert!(
-        cfg!(unix),
-        "set M6_VALUES_CONSUMERS to the consumer DLLs (C11 and C++20) on this platform"
-    );
-    let here = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let abi = here.join("../../../native/core/abi");
-    let source = here.join("tests/c/m6_values_consumer.c");
-    let out =
-        std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("m6-values-consumer-{}", std::process::id()));
-    std::fs::create_dir_all(&out).unwrap();
-    let cc = std::env::var("CC").unwrap_or_else(|_| "cc".into());
-    let cxx = std::env::var("CXX").unwrap_or_else(|_| "c++".into());
-    let mut built = Vec::new();
-    for (compiler, lang, standard, name) in [(cc, "c", "-std=c11", "c11"), (cxx, "c++", "-std=c++20", "cpp20")] {
-        let library = out.join(format!("libm6_values_consumer_{name}.so"));
-        let status = std::process::Command::new(&compiler)
-            .args([
-                "-x", lang, standard, "-Wall", "-Wextra", "-Werror", "-fPIC", "-shared", "-I",
-            ])
-            .arg(&abi)
-            .arg(&source)
-            .arg("-o")
-            .arg(&library)
-            .arg("-lpthread")
-            .status()
-            .unwrap_or_else(|e| panic!("{compiler}: {e}"));
-        assert!(status.success(), "{compiler} {standard} built the consumer");
-        built.push(library);
-    }
-    built
+    c_consumer::build("m6_values_consumer", "M6_VALUES_CONSUMERS")
 }
 
 // Red-first: a C consumer, compiled as C11 and as C++20 against the MIT header only, drives the real table: refusals,

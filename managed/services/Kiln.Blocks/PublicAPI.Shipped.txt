@@ -1334,6 +1334,8 @@ Kiln.CraftSourceOptions.Locks.get -> bool
 Kiln.CraftSourceOptions.Locks.init -> void
 Kiln.CraftSourceOptions.Order.get -> Kiln.CraftSourceOrder
 Kiln.CraftSourceOptions.Order.init -> void
+Kiln.CraftSourceOptions.Respec.get -> bool
+Kiln.CraftSourceOptions.Respec.init -> void
 Kiln.CraftSourceOrder
 Kiln.CraftSourceOrder.AfterStationOutputs = 1 -> Kiln.CraftSourceOrder
 Kiln.CraftSourceOrder.BeforeStationOutputs = 0 -> Kiln.CraftSourceOrder
@@ -5512,6 +5514,7 @@ const Kiln.BlockUi.StateCapability = "ui.blocks.state" -> string!
 const Kiln.ClientStations.Capability = "stations.client_view" -> string!
 const Kiln.Crafting.BuildSourcesCapability = "crafting.build_sources" -> string!
 const Kiln.Crafting.LockSourcesCapability = "items.lock_sources" -> string!
+const Kiln.Crafting.RespecSourcesCapability = "crafting.respec_sources" -> string!
 const Kiln.Crafting.SourceUiCapability = "crafting.source_ui" -> string!
 const Kiln.Crafting.SourcesCapability = "crafting.sources" -> string!
 const Kiln.Stations.ControlCapability = "stations.control" -> string!

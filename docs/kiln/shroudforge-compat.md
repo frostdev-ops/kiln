@@ -49,6 +49,8 @@ The stale-game-data patch (0.2.0-dev.31.16) pins fork branch `kiln-dev31-stale-d
 `6cb84f34`, with its review's commits on top, fast-forward): a clean copy of the game data goes back without
 a word only when Steam's manifest of the installed build lists it byte for byte, and is refused only when it is proven
 to carry a mod's changes (section 5.0, "A clean copy that carries an uninstalled mod's changes").
+The voxel-write patch (0.2.0-dev.31.18) pins fork branch `kiln-dev31-voxel-write` at `6cf01443` (on top of `a9dc2ad2`):
+`runtime.world.voxel.write` through the host's voxel writer (section 8, "Voxel writes through kiln.build").
 
 ## 1. How ShroudForge loads (source facts)
 
@@ -533,6 +535,20 @@ in `schema/fixtures/shroudforge/cases.json` exercise the Rust launcher and manag
 CRLF, typed numeric/bool/list options, chained/cyclic conditions, canonical SDL shortcut text, live/restart rules,
 refused edits and exact written bytes. No SF fork change or second UI executable is required.
 
+A `keybind` setting is a capture box (since 0.2.0-dev.31.18, `SfShortcuts.cs`): click it and press a key or the middle
+or a side mouse button, with Ctrl, Shift or Alt. Kiln stores SF's canonical text for the key's place
+(`Ctrl+Alt+Shift+Meta+SDL:<n>`, `Mouse:<n>`): the SDL code comes from the press's make code and E0 flag through SDL3's
+`windows_scancode_table` (Pause, Print Screen and Num Lock by their virtual key, as SF's own conversion), the same table
+the hosted runtime's feed and kiln-sfi's port use, so the captured code is the one SF sees for that key on any layout
+(the Ü key of a German keyboard is `SDL:47`). The box takes the press on the window thread like the Keys page's rebind
+(kept from the game and from key bindings, dropped when the page is not drawn or a Kiln text field takes the keyboard;
+Escape closes the menu inside kiln.ui);
+Backspace, Delete or Unbind clear it; the wheel and controller buttons are refused with the reason (SF shortcuts read
+the keyboard and the mouse only). The text field below still takes SF's own form, and the page converts readable forms
+(`Ctrl+G`, `F5`, `Mouse4`, a layout character such as `Ü`) before it saves; the data layer and the shared fixtures stay
+strict. Shown names follow the player's keyboard layout for letter and punctuation keys (`KeyLayout.cs`, also on Kiln's
+Keys page); other keys keep Kiln's names.
+
 The ShroudForge group lists the profile's SF mods and every other package of SF's folder that SF reads, except
 Kiln's copies of the profile's EML mods: those are rows of the EML group, which say whether SF's switch runs them, and
 the launcher sets their switch from the profile. While SF runs, a player's own legacy EML folder (mod.json and
@@ -559,7 +575,7 @@ auto-reset signals. Managed tests exercise settings, writer coalescing/failure r
 A headless software preview renders the shared-fixture SF panel at 1280×800 and its main-menu page at 1920×1080.
 In an isolated server lab, the actual managed UI writer queue changed `sf-probe` live: setting on confirmed a guarded
 write, setting off restored the baseline, and the enabled switch deactivated/reactivated its runtime without errors.
-Neither proof is rendered game-client or Steam Deck interaction. Text-based keybind/color editing, combos in place
+Neither proof is rendered game-client or Steam Deck interaction. Keybind capture and text editing, color editing, combos in place
 of radio/segmented layouts, action execution, gamepad focus and gamescope presentation still need client checks.
 
 ### 5.4 `mods/tests/sf-probe` (lab probe, MIT)
@@ -707,6 +723,16 @@ kiln-shroudforge feeds it (`native/plugins/shroudforge/src/key_feed.cpp`):
   and buttons). A failed registration query keeps the existing source. A focus loss calls `reset` once
   (kiln.ui sends one record for `WM_ACTIVATEAPP` 0 and `WM_KILLFOCUS` together; `reset` re-reads about 500 key names
   on the window thread).
+- **While Kiln has the keyboard** (since 0.2.0-dev.31.18): while kiln.ui's status says `capturing` (Kiln's menu, a Kiln
+  screen or text field, a ShroudForge shortcut's capture box), no press of a key or button is passed; releases always
+  are, so a key held before Kiln took the keyboard is let go. Kiln's interpreter (kiln-sfi `input/feed.rs`) counts no
+  press then either, and SF's own Modloader answers "not pressed" while it records a shortcut. Before, a key typed in
+  Kiln's search or pressed in a mod's own shortcut box also ran that mod's shortcut (likely netjunk's Altar Cleanup
+  "nothing to undo", logged the moment his Kiln menu opened). A status that cannot be read counts as not capturing. Known
+  limit: a modifier pressed while Kiln has the keyboard and still held after it lets go is not seen by SF until it is
+  pressed again. Print Screen's lone `WM_KEYUP` (window messages only: Windows sends no `WM_KEYDOWN` for it), which the
+  runtime counts as a press and its release, is held back too unless the runtime holds the key. `run.py`
+  `keys-captured`.
 - **Teardown** (the worker, also after a failed create or update): unsubscribe (kiln.ui waits for a record in flight),
   then `end` under the adapter's lock, then `shroudforge_destroy`. The chosen runtime DLL is never unloaded. No export
   is called after `end` or destroy, even when the window thread delivers a record during teardown or kiln.ui's
@@ -1009,7 +1035,7 @@ column names what a Kiln mod uses today for the same effect. The C# column state
 | Modloader window, World Editor window | starts installed `shroudforge.exe` only; bundled runtime has no helper windows | in-game Mods → ShroudForge handles switches/settings, not the World Editor | helper lifecycle windowless tests; rendering client check |
 | Debug Console window | not started (kiln.log has SF's log as `[sf]`) | Kiln console | by design |
 | SF self-update / repair | not run when hosted | Kiln launcher (pending: SF update source) | by design |
-| notifications feed (`shroudforge.notifications.publish`) | plugin (SF's local feed file) | Kiln.Ui notices | plugin; — |
+| notifications feed (`shroudforge.notifications.publish`) | plugin (SF's state.json `events`); hosted without a ShroudForge window: Kiln.Ui toasts each new notice and lists a mod's newest three in its details (`ShroudForgeNews.cs`, 0.2.0-dev.31.19) | Kiln.Ui toasts | managed tests (`ShroudForgeNewsTests`); client: — |
 | effect reports (`runtime.report_effect`) | plugin; kiln-manage `effects` | mod status in `state/mods.json` | done; lab |
 
 ### 8.2 `shroudforge.*` (mod API, `lua/shroudforge/v1/definitions/mod_api.lua`)
@@ -1018,7 +1044,7 @@ column names what a Kiln mod uses today for the same effect. The C# column state
 |---|---|---|---|
 | `shroudforge.settings.get(key, fallback)` | plugin | `Config.Register<T>()` | lab |
 | `shroudforge.ui.on_action`, `shroudforge.ui.toggle_modloader` | public action request files; toggle event opens installed helper, or Kiln's SF page when hosted without it | `Kiln.Ui` screens | action-file managed tests, event native Wine tests; actual action execution/rendering client check |
-| `shroudforge.notifications.publish` | plugin | Kiln.Ui notices | — |
+| `shroudforge.notifications.publish` | plugin; Kiln.Ui reads state.json `events`: toasts, the mod's details, toggle_modloader() opens the page on the mod that just published | Kiln.Ui toasts | managed tests; client: — |
 | `shroudforge.i18n.get`, `shroudforge.locale`, `shroudforge.clock` | plugin | `Context.Locale`, `Mod.Text`, `Tick` | C# localisation unit tests; SF client text unchecked |
 | `shroudforge.input.is_key_down`, `is_keybind_down`, `was_keybind_pressed`, `keybind_label` | plugin (`is_key_down` raises since SF 1.7.6); held/pressed state from Kiln's host key feed (no `shroudforge.exe` installed), else from an installed `shroudforge.exe` (section 5.6) | `Kiln.Ui.KeyBindings` | feed: real runtime with fed records under Wine, not a game client; before dev.24 bundled-only: always false (player log r1110); installed: client |
 | `shroudforge.log.trace/debug/info/warn/error`, `version`, `mod_id`, `mod_kind` | plugin (also in kiln.log as `[sf]`) | `Mod.Log` | lab (probe's `log.info` lines) |
@@ -1038,7 +1064,7 @@ column names what a Kiln mod uses today for the same effect. The C# column state
 | `runtime.values.decode/encode/normalize_field/new` | plugin | `GameValueCodec`, `GameType.Defaults`, checked reflected values | C# host tests |
 | `runtime.functions.list/list_native/find/get/get_native/bind/get_operations/bind_modifier`, `runtime.impact.call` | plugin (profile-admitted operations only) | `Kiln.Hooks`, `Kiln.Abilities` (Impact) | — |
 | `runtime.world.cursor.get`, `runtime.world.building.submit/status/cancel` | plugin (client) | `Kiln.Build` | client |
-| `runtime.world.voxel.get_grid_spec/read/write` | plugin | `Build.Grid/Read/Write` (`Kiln.Build`) | API exists; SF voxel path unchecked here |
+| `runtime.world.voxel.get_grid_spec/read/write` | plugin; `write` through Kiln's host (see "Voxel writes through kiln.build" below) | `Build.Grid/Read/Write` (`Kiln.Build`) | lab dev31-sf-voxel-write (Altar Cleanup's shape); client unchecked |
 | `runtime.world.entity.query_props(_in_bounds)/get_transform/set_scale/spawn/place/destroy/finish_building/register_prop_recipes` | plugin | `Kiln.Spawn`, `Kiln.Build` | — (world-editor mod: client) |
 | `runtime.network.status/send/send_mod/accept/connected_peers/receive/receive_mod` | plugin (SF's Steam Networking Messages) | `Kiln.Network` (`ModCalls`) | lab: "Network service is ready ... role=server" |
 | `runtime.patch.available/set_enabled` | plugin (profile-defined patches; none on KFC4) | `Kiln.Hooks` | n/a on current builds |
@@ -1096,6 +1122,45 @@ runtime installs its hooks while it initialises, in the early phase.
 Tests: `native/plugins/shroudforge/tests/run.py` (fake runtime and fake `kiln.hooks`: offer, refusal, old runtime,
 switch), `native/plugins/shroudforge/tests/test-host-chain.sh` (the adapter against the real registry with a foreign
 `jmp` on one place) and, in the fork, `kfc-runtime-test-engine-hooks` (the installer with and without a host).
+
+### Voxel writes through `kiln.build` (dev.31.18)
+
+ShroudForge's own `runtime.world.voxel.write` (`voxels/write_registered_voxel_grid.cpp`) finds the game's block writer
+(`build/VoxelWrite`) by reading the game's code from the registered terraforming impact (`gameplay/TerraformImpact`) down
+to it, keeps those bytes as evidence and compares them again before every write. It refuses (outcome 1, "voxel write was
+rejected before changing the world") when a function on that path carries an entry jump (a detoured writer is never
+selected; the evidence path is read from live code) and, once the exe file cannot be compared with the loaded code
+(another module's call-site patches; "executable file refused ... live-only resolution" in the [sf] lines), as soon as any
+function it walks is hooked. Under Kiln the path is always hooked: `kiln.rules` (`rules.dig`) and the tools service's
+impact binding hook `TerraformImpact`, `kiln.tools.carve` the carve dispatcher that calls the writer, and mods hook more
+(XHL Vein Mining: `TerraformImpact`, the dispatcher and the block writer itself). So every write failed (netjunk,
+Altar Cleanup, 0.2.0-dev.31.17: "cleaning up 41640 cells in 28 chunks", then "write failed: voxel write was rejected
+before changing the world (0 cells changed so far, undo still works)").
+
+Since dev.31.18 the host table has two optional members, `voxel_write_ready` and `voxel_write` (fork `kiln-dev31-voxel-write`;
+`kiln/UPSTREAM-PATCHES.md`). With both, `kfc-runtime` passes the write and `runtime.has("runtime.world.voxel.write")` to
+the host and never resolves its own writer. The adapter (`src/host_voxels.cpp`, `src/voxel_write_core.h`) posts the write
+from ShroudForge's mods thread to the server world's thread and waits for it (a write the world has not begun within 2 s
+is cancelled there and refused). A write is for the server world the mod saw when it asked: one that reaches the world
+thread only after another server world began (kiln-core's count of server worlds) is refused there. The box must lie in
+the voxel grid as ShroudForge's own writer requires (no coordinate below 0, x and z inside the grid's tiles), because
+`kiln.build` checks no grid bounds. After an uncertain outcome (3) that world takes no further ShroudForge voxel write
+until it is loaded again, as ShroudForge's own writer marks its session's writes uncertain. On the world's thread it
+reads the box, returns success for an unchanged box, writes through `kiln.build` with
+`KILN_BUILD_F_IN_BASES | KILN_BUILD_F_GAME_SAVE` (no base guard and no Kiln save region, as ShroudForge: the game saves
+the cells inside base build zones, and in a chunk another Kiln edit keeps), and checks the read-back. A mismatch is written back once (outcome 2);
+a fault or a failed put-back is outcome 3. Every refusal or failure goes to kiln.log as "ShroudForge voxel write refused
+before changing the world: <box>: <why>" (or "failed"): the first ten of each reason, then every 100th; an uncertain
+outcome always. Differences from
+ShroudForge's writer: `kiln.build` commits only the 8x8x8 blocks whose cells change, and it asks the game for tiles that
+are not streamed in (the write is then refused and the mod may try again). Calls go through the game's hooks as the
+game's own do. ShroudForge's own loader, the player's installed ShroudForge, and an older bundle keep upstream's writer.
+
+Tests: `native/plugins/shroudforge/tests/test-voxel-write.sh` (the core over a fake `kiln.build`, Linux),
+`test-host-chain.sh` section "the voxel writer" (posting, the wait and the cancel, the grid's bounds, a changed world,
+no write after an uncertain outcome; Wine), the fork's
+`kfc-runtime-test-engine-hooks` section "voxel writer", and `native/services/build` `build-block-writer`
+(`KILN_BUILD_F_GAME_SAVE`).
 
 ## dev.20 mixed-server evidence
 

@@ -113,7 +113,7 @@ void __cdecl remove_hook(uint64_t handle) {
     if (g_hooks && handle) g_hooks->revoke(handle);
 }
 
-KfcHost g_table = {sizeof(KfcHost), kHostVersion, &find_signature, &install_hook, &remove_hook};
+KfcHost g_table = {sizeof(KfcHost), kHostVersion, &find_signature, &install_hook, &remove_hook, nullptr, nullptr};
 
 }  // namespace
 
@@ -122,6 +122,7 @@ const KfcHost* host_table(const KilnApi* api, KilnOwner owner) {
     if (!hooks || !hooks->scan || !hooks->scan_hole || !hooks->mid2 || !hooks->revoke || !hooks->image_base) return nullptr;
     g_hooks = hooks;
     g_owner = owner;
+    host_voxels_attach(api, owner, &g_table);  // ShroudForge's voxel writes through kiln.build (host_voxels.cpp)
     return &g_table;
 }
 

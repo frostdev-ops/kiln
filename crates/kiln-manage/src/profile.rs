@@ -624,7 +624,7 @@ pub fn runtime_build(dirs: &DataDirs, receipt: &crate::install::InstallReceipt) 
 }
 
 /// Kiln.Mods.ApiVersion of this Kiln (managed/Kiln.Api/Mods.cs; a test keeps them equal).
-pub const KILN_API: &str = "0.2.24";
+pub const KILN_API: &str = "0.2.25";
 pub const META: &str = "meta.json";
 
 use crate::library::LibraryRef;

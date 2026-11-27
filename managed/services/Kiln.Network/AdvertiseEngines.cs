@@ -25,11 +25,20 @@ internal static partial class NetAdvertise
 
     private static List<Candidate> EngineCandidates(string kilnRoot)
     {
-        var list = new List<Candidate>();
         var game = Path.GetDirectoryName(Path.GetFullPath(kilnRoot));
-        if (string.IsNullOrEmpty(game)) return list;
+        return string.IsNullOrEmpty(game) ? [] : EngineMods(game, null);
+    }
+
+    /// <summary>Other engines' mods in <paramref name="game"/>'s folders that players need, each by its kind and the id
+    /// the server advertises it by: a server's required[], and what a joining client runs of them (LastServer.Lacking: a
+    /// copy switched off, ShroudForge's <c>enabled: false</c> or <c>targets</c> without "client", does not run there).
+    /// <paramref name="kinds"/>: only these kinds (null: all).</summary>
+    internal static List<Candidate> EngineMods(string game, IReadOnlySet<string>? kinds)
+    {
+        var list = new List<Candidate>();
         foreach (var (kind, folder) in EngineFolders)
         {
+            if (kinds != null && !kinds.Contains(kind)) continue;
             var root = kind == "shroudforge" ? ShroudForgeRoot(game) : Path.Combine(game, folder);
             if (!Directory.Exists(root)) continue;
             string[] dirs;
@@ -39,7 +48,7 @@ internal static partial class NetAdvertise
             foreach (var dir in dirs)
             {
                 if (Path.GetFileName(dir).StartsWith('.') || (File.GetAttributes(dir) & FileAttributes.ReparsePoint) != 0) continue;
-                if (EngineKindOf(kind, dir) is not { } needed || !needed) continue;
+                if (EngineKindOf(kind, dir) is not true) continue;
                 var (id, version, name) = EngineIdentity(dir, kind);
                 if (id != null) list.Add(new Candidate(kind, id, version, name, dir));
             }

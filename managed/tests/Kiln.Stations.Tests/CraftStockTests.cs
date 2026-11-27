@@ -402,7 +402,7 @@ public sealed class CraftStockTests : IDisposable
         // build stock) and, on a client, never watched the screen (no crafting stock at all, the station rows included).
         // The real registration on a fresh channel, with the shared stocks' attach flags cleared for it and put back after.
         const System.Reflection.BindingFlags S = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static;
-        var stocks = new[] { typeof(DyeStock), typeof(LockStock), typeof(BuildStock) };
+        var stocks = new[] { typeof(DyeStock), typeof(LockStock), typeof(BuildStock), typeof(RespecStock) };
         var saved = stocks.Select(t => (t.GetField("_attached", S)!.GetValue(null), t.GetField("_channel", S)!.GetValue(null))).ToArray();
         using var channel = Network.Channel("kiln:craftstock-ids-test", CraftStock.ChannelVersion, required: false);
         try
@@ -411,8 +411,9 @@ public sealed class CraftStockTests : IDisposable
             Assert.Null(Record.Exception(() => CraftStock.Register(channel)));
             var byId = (System.Collections.IDictionary)typeof(NetChannel)
                 .GetField("ById", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(channel)!;
-            // 1 to 4 the snapshot, its hello and the fill buttons; 5, 6 dyes; 7, 8 locks; 9 building; 10 the station rows
-            Assert.Equal(Enumerable.Range(1, 10).Select(i => (ushort)i), byId.Keys.Cast<ushort>().Order());
+            // 1 to 4 the snapshot, its hello and the fill buttons; 5, 6 dyes; 7, 8 locks; 9 building; 10 the station rows;
+            // 11 the respec (GitHub #150)
+            Assert.Equal(Enumerable.Range(1, 11).Select(i => (ushort)i), byId.Keys.Cast<ushort>().Order());
         }
         finally
         {

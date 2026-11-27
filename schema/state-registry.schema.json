@@ -124,7 +124,7 @@
         },
         "writer": {
           "type": "string",
-          "description": "This start's archive writer: kiln-eml (its EML pass, or Kiln's interpreter in kiln mode), shroudforge-hosted or shroudforge-installed (ShroudForge reserved the startup data writer), external (another loader's proxy ran, or the game data differs from kiln-eml's vanilla backup and is not its output), or none (the game's data as shipped, as far as kiln-eml can tell). Before the next release only a kiln-mode start said kiln-eml; every other start said none, also where kiln-eml or hosted ShroudForge had patched the archive. base.archive says what it rests on."
+          "description": "This start's archive writer: kiln-eml (its EML pass, or Kiln's interpreter in kiln mode), shroudforge-hosted or shroudforge-installed (ShroudForge reserved the startup data writer), external (another loader's proxy ran, or the game data differs from kiln-eml's vanilla backup and is not its output), or none (the game's data as shipped, as far as kiln-eml can tell). Before 0.2.0-dev.31.18 only a kiln-mode start said kiln-eml; every other start said none, also where kiln-eml or hosted ShroudForge had patched the archive. base.archive says what it rests on."
         },
         "token": {
           "type": "string",
@@ -132,7 +132,7 @@
         },
         "archive": {
           "type": "object",
-          "description": "What Kiln knows the archive writer did this start and what that rests on (since the next release): kiln-eml's state (kiln/state/eml.json, through kiln.eml) and the names of kiln-eml's ownership receipt and ShroudForge's record of its pass, never their contents.",
+          "description": "What Kiln knows the archive writer did this start and what that rests on (since 0.2.0-dev.31.18): kiln-eml's state (kiln/state/eml.json, through kiln.eml) and the names of kiln-eml's ownership receipt and ShroudForge's record of its pass, never their contents.",
           "required": ["source", "text"],
           "properties": {
             "source": { "enum": ["kiln-eml", "none"], "description": "kiln-eml: kiln-eml's state of this start; none: kiln-eml did not answer (no kiln-eml, or an older one)." },
@@ -149,7 +149,7 @@
         },
         "journal": {
           "type": "object",
-          "description": "The archive writer's change journal (kiln-eml's <stem>.change-journal.json: format 1 from a kiln-mode start, format 2 (next release) from an EML start, EML's own pass): read when it is this start's and its packages are named where they wrote (writer rows of kind archiveWriter, certainty named; format 1 per entry, on registries whose entries are each a whole resource only: items, drops, balance, never a recipe or loot entry; format 2 per field from its member paths, recipe and loot entries by their element); none when this start has none (hosted or installed ShroudForge and other loaders keep none: what they changed is part of the base, unnamed); stale when the file names another generation; unreadable when it is not a journal of format 1 or 2. Since 0.2.0-dev.31.17 (format 2: the next release).",
+          "description": "The archive writer's change journal (kiln-eml's <stem>.change-journal.json: format 1 from a kiln-mode start, format 2 (0.2.0-dev.31.18) from an EML start, EML's own pass): read when it is this start's and its packages are named where they wrote (writer rows of kind archiveWriter, certainty named; format 1 per entry, on registries whose entries are each a whole resource only: items, drops, balance, never a recipe or loot entry; format 2 per field from its member paths, recipe and loot entries by their element); none when this start has none (hosted or installed ShroudForge and other loaders keep none: what they changed is part of the base, unnamed); stale when the file names another generation; unreadable when it is not a journal of format 1 or 2. Since 0.2.0-dev.31.17 (format 2: 0.2.0-dev.31.18).",
           "required": ["state", "packages", "entries", "truncated"],
           "properties": {
             "state": { "enum": ["read", "none", "stale", "unreadable"] },
@@ -717,7 +717,7 @@
         },
         "who": {
           "type": "string",
-          "description": "What the writer is called when that is not just the mod: \"<mod>: content/<file>\", \"<mod>/<key>\", \"<mod or loader's mod>: <Kiln place>\" (a code change made through Kiln's content service, also another loader's: \"emf:big_stacks: items[game:material_t1_wood_logs].maxStack\"; since the next release, before it the game's item and member), \"shroudforge:<package>\", \"eml:<package>\" (an EML mod: of EML's own pass, or an EML package of the kiln-mode startup pass), \"kiln-eml:unattributed\" (a startup write no package made, or an EML mod whose id the journal cannot name), \"outside Kiln (best effort; suspects: ...)\" (a drift row)."
+          "description": "What the writer is called when that is not just the mod: \"<mod>: content/<file>\", \"<mod>/<key>\", \"<mod or loader's mod>: <Kiln place>\" (a code change made through Kiln's content service, also another loader's: \"emf:big_stacks: items[game:material_t1_wood_logs].maxStack\"; since 0.2.0-dev.31.18, before it the game's item and member), \"shroudforge:<package>\", \"eml:<package>\" (an EML mod: of EML's own pass, or an EML package of the kiln-mode startup pass), \"kiln-eml:unattributed\" (a startup write no package made, or an EML mod whose id the journal cannot name), \"outside Kiln (best effort; suspects: ...)\" (a drift row)."
         },
         "stage": {
           "enum": [
@@ -745,7 +745,7 @@
             "entry",
             "field"
           ],
-          "description": "An archiveWriter row (next release): what kiln-eml's change journal names the package on. entry: it wrote the entry's resource (a format-1 journal, a resource it created, or a format-2 path that names the whole entry), so it is listed on every field of the entry a mod edits; field: a member path it wrote (a format-2 journal of EML's own pass) is this field's or holds it."
+          "description": "An archiveWriter row (0.2.0-dev.31.18): what kiln-eml's change journal names the package on. entry: it wrote the entry's resource (a format-1 journal, a resource it created, or a format-2 path that names the whole entry), so it is listed on every field of the entry a mod edits; field: a member path it wrote (a format-2 journal of EML's own pass) is this field's or holds it."
         },
         "element": {
           "type": "string",

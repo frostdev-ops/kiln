@@ -437,12 +437,54 @@ void single_scalar_structs(const std::string&) {
 }
 }  // namespace
 
+// 31.18's kiln.log held 34,207 "items.manaCost/staminaCost is not read on this build (... of game:<item> ...)" lines at every
+// start with registry content: one per entry without a value (review of dev.32 R2b). A field many entries have no value of is
+// one note per field, with the count and the first entry.
+void notes_per_field(const std::string& dir) {
+    Fixture f(dir);
+    model::Need need;
+    need.all = true;
+    BaseModel base;
+    f.m->fill(need, &base);
+    std::map<std::string, size_t> per_field;
+    std::string sample;
+    for (const std::string& n : f.m->take_notes()) {
+        if (n.find("is not read on this build") == std::string::npos && n.find(" has no value in ") == std::string::npos) continue;
+        const size_t at = n.rfind("registry: ", 0) == 0 ? 10 : 0;  // the stage adds "registry: " (31.18 wrote it twice)
+        ++per_field[n.substr(at, n.find(' ', at) - at)], sample = n;
+    }
+    check(!per_field.empty(), "the fixture has fields some entries have no value of");
+    for (const auto& [field, count] : per_field) check(count == 1, field + ": one note, not one per entry (" + std::to_string(count) + ")");
+    check(sample.rfind("registry: ", 0) != 0, "the note does not start with \"registry: \" (the stage adds it once): " + sample);
+    check(sample.find(" has no value in ") != std::string::npos && sample.find(" entries on this build (the first: ") != std::string::npos,
+          "the note gives the count and the first entry: " + sample);
+}
+
+// review of the per-field note: its "N of M entries" counts the entries the field was read for, not every entry of the registry.
+// A fill that reads one entry whole (an added entry "like" it, without need.all) says "1 of 1", not "1 of 4".
+void notes_count_the_entries_read(const std::string& dir) {
+    Fixture f(dir);
+    model::Need need;
+    need.registries.insert("items");
+    need.whole["items"].insert("game:sword_t1");
+    BaseModel base;
+    f.m->fill(need, &base);
+    size_t notes = 0;
+    for (const std::string& n : f.m->take_notes()) {
+        if (n.find(" has no value in ") == std::string::npos) continue;
+        ++notes;
+        check(n.find(" has no value in 1 of 1 entries ") != std::string::npos, "only the entry read whole is counted: " + n);
+    }
+    check(notes > 0, "the entry read whole has fields without a value (an unset armor)");
+}
+
 int main(int argc, char** argv) {
     const std::string dir = argc > 1 ? argv[1] : "regmap";
     int failed = 0;
     const std::pair<const char*, void (*)(const std::string&)> groups[] = {
         {"byte_array_bounds", byte_array_bounds}, {"single_scalar_structs", single_scalar_structs}, {"entries_and_ids", entries_and_ids}, {"values", values}, {"needs_and_compose", needs_and_compose},
-        {"encode_writes", encode_writes},     {"id_table", id_table}, {"live_bytes", live_bytes}, {"world_rules", world_rules}, {"hooks_registry", hooks_registry}};
+        {"encode_writes", encode_writes},     {"id_table", id_table}, {"live_bytes", live_bytes}, {"notes_per_field", notes_per_field},
+        {"notes_count_the_entries_read", notes_count_the_entries_read}, {"world_rules", world_rules}, {"hooks_registry", hooks_registry}};
     for (const auto& [name, fn] : groups) {
         try {
             fn(dir);

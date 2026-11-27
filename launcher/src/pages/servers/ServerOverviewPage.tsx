@@ -194,7 +194,10 @@ function Steady({ id }: { id: string }) {
 }
 
 /** "Open web panel" (0.2.0-dev.31.12): opens the panel in the browser through the launcher's gateway for this server,
- *  then says where it is open and offers to close it (it also closes by itself after its last tab). */
+ *  then says where it is open and offers to close it (it also closes by itself after its last tab).
+ *  (0.2.0-dev.31.19) When the panel's file names its own address on the internet and the launcher's check of it passes,
+ *  it opens there instead (no gateway), with "Open on this computer instead" one click away; when the check fails, the
+ *  status says why it opened on this computer. */
 function OpenWebPanel({ id }: { id: string }) {
   const t = useT();
   const qc = useQueryClient();
@@ -202,11 +205,14 @@ function OpenWebPanel({ id }: { id: string }) {
   const open = webPanelOf(panels.data, id);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
-  async function run(action: () => Promise<unknown>) {
+  // the last open's answer: where it went (the hosted address has no gateway to list) and why it fell back, if it did
+  const [last, setLast] = useState<api.WebPanelInfo | null>(null);
+  async function run(action: () => Promise<api.WebPanelInfo | boolean>) {
     setBusy(true);
     setError(undefined);
     try {
-      await action();
+      const r = await action();
+      setLast(typeof r === "object" ? r : null);
     } catch (e) {
       setError((e as { message?: string } | null)?.message ?? t("servers.overview.webPanelError"));
     } finally {
@@ -214,13 +220,16 @@ function OpenWebPanel({ id }: { id: string }) {
       void qc.invalidateQueries({ queryKey: WEB_PANELS });
     }
   }
+  const hosted = last?.via === "hosted" ? last : null;
+  const shown = hosted ?? (open && { ...open, fallback: last && last.via !== "hosted" ? last.fallback : null });
   return <div className="k-sov-webpanel">
     <div className="k-sov-webpanel-actions">
       <Button size="s" disabled={busy} onClick={() => void run(() => api.adminOpenWebPanel(id))}>{t("servers.overview.openWebPanel")}</Button>
+      {hosted && <Button size="s" variant="ghost" disabled={busy} onClick={() => void run(() => api.adminOpenWebPanel(id, "local"))}>{t("servers.overview.openWebPanelHere")}</Button>}
       {open && <Button size="s" variant="ghost" disabled={busy} onClick={() => void run(() => api.adminCloseWebPanel(id))}>{t("servers.overview.closeWebPanel")}</Button>}
     </div>
-    {open && <ul className="k-sov-webpanel-status" aria-label={t("servers.overview.openWebPanel")}>
-      {webPanelLines(open, t).map((line) => <li key={line}>{line}</li>)}
+    {shown && <ul className="k-sov-webpanel-status" aria-label={t("servers.overview.openWebPanel")}>
+      {webPanelLines(shown, t).map((line) => <li key={line}>{line}</li>)}
     </ul>}
     {error && <Banner tone="err" title={t("servers.overview.webPanelError")}>{error}</Banner>}
   </div>;

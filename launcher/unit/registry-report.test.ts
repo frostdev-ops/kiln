@@ -92,7 +92,7 @@ describe("untrusted registry report", () => {
     expect(out[1].value).toBe("10");
     expect(out[2].operation).not.toBe(out[0].operation);
   });
-  test("an EML pass's journal names a field: the row says the field, still no operation (next release)", () => {
+  test("an EML pass's journal names a field: the row says the field, still no operation (0.2.0-dev.31.18)", () => {
     const r = registryFixture();
     r.fields[0].writers = [
       { kind: "archiveWriter", who: "eml:bravo", value: 10, certainty: "named", named: "field" },

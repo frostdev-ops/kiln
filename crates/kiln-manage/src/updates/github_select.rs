@@ -441,6 +441,13 @@ pub fn compare(installed: &Installed, selection: &Selection, api_version: &str) 
     Verdict { state, reason: None, compatibility }
 }
 
+/// Whether a selection names a candidate above `installed` by semver precedence: an answer that still offers this copy
+/// something. False for an unknown outcome and for versions that are not semantic.
+pub fn offers_more_than(selection: &Selection, installed: &str) -> bool {
+    let Outcome::Candidate(c) = &selection.outcome else { return false };
+    matches!((SemVersion::try_parse(installed), SemVersion::try_parse(&c.version)), (Some(have), Some(theirs)) if have.compare(&theirs) == Ordering::Less)
+}
+
 /// The page of a release (`https://github.com/<owner>/<repo>/releases/tag/<tag>`), made from the source's repository
 /// and a tag that matched its pattern: never a URL taken from the provider's answer.
 pub fn release_page(repository: &str, tag: Option<&str>) -> String {
@@ -785,6 +792,21 @@ mod tests {
         for odd in ["nov-2026", "final", "", "1.2.3.4"] {
             assert_eq!(state(inst(odd), &cand), (UpdateState::Unknown, Some(UnknownReason::NonSemver)), "{odd}");
         }
+    }
+
+    /// Whether a remembered answer still offers an installed copy something (the GitHub provider asks again when it
+    /// does not and another copy was installed): by precedence, never by text ("0.2.10" against "0.2.9").
+    #[test]
+    fn what_an_answer_still_offers() {
+        let ten = selection_of("v0.2.10", None);
+        assert!(offers_more_than(&ten, "0.2.9"));
+        assert!(offers_more_than(&ten, "0.2.10-rc.1"));
+        assert!(!offers_more_than(&ten, "0.2.10"), "the version just installed");
+        assert!(!offers_more_than(&ten, "0.2.10+other.build"), "build metadata does not order");
+        assert!(!offers_more_than(&ten, "0.2.12"));
+        assert!(offers_more_than(&selection_of("v0.2.12", None), "0.2.10"));
+        assert!(!offers_more_than(&ten, "not a version"));
+        assert!(!offers_more_than(&Selection::unknown(UnknownReason::NotFound, Coverage::Complete), "0.2.9"));
     }
 
     #[test]

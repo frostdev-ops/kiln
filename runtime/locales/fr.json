@@ -400,6 +400,10 @@
       "waits": "CE QU'IL ATTEND",
       "settings": "INTERRUPTEUR ET PARAMÈTRES"
     },
+    "news": {
+      "label": "NOUVELLES DE CE MOD",
+      "keys_after_menu": "Ses touches agissent dans le jeu une fois ce menu fermé ({key} ou Échap), comme avec la fenêtre de ShroudForge."
+    },
     "waits": {
       "restart": "Le prochain lancement du jeu : ShroudForge ne charge la configuration modifiée de ce mod qu'au redémarrage du jeu.",
       "dependency": "Un mod dont il a besoin : ShroudForge le démarre dès que ce mod tourne (la raison ci-dessus le nomme).",
@@ -435,7 +439,11 @@
     "value_on": "activé",
     "value_off": "désactivé",
     "shortcut": "Raccourci : {key}",
-    "shortcut_help": "Modifiez la liaison SDL ci-dessous (pas de capture de touche) : Ctrl+SDL:66 est Ctrl+F9 ; Mouse:4 est le bouton 4 de la souris. Vide le désactive. SF vérifie la disponibilité du clavier.",
+    "shortcut_off": "aucun (désactivé)",
+    "shortcut_help": "Cliquez sur la case, puis appuyez sur la touche ou le bouton de souris voulu, avec Ctrl, Shift ou Alt si vous voulez (Kiln enregistre la place de la touche sur le clavier, que ShroudForge lit sur toute disposition). Cliquez de nouveau pour ne plus attendre ; Échap annule et ferme le menu ; Retour arrière, Suppr ou Retirer le laissent sans touche. Vous pouvez aussi le taper ci-dessous : Ctrl+G, F5, Mouse4, ou la forme propre à ShroudForge comme Ctrl+SDL:10.",
+    "capture_wheel": "{setting} : un raccourci ShroudForge ne peut pas être un cran de la molette. Appuyez sur une touche ou sur le bouton du milieu ou un bouton latéral de la souris.",
+    "capture_pad": "{setting} : un raccourci ShroudForge ne peut pas être un bouton de manette : les raccourcis de ShroudForge ne lisent que le clavier et la souris. Appuyez sur une touche ou un bouton de souris, ou cliquez de nouveau sur la case pour arrêter.",
+    "capture_unknown": "{setting} : Kiln ne sait pas quelle touche c'est ({key}) et ne peut donc pas l'enregistrer. Appuyez sur une autre touche, ou tapez ci-dessous la forme de ShroudForge (SDL: et le numéro de la touche).",
     "field_nul": "Cette valeur contient un caractère NUL, qu'un champ de texte ne peut ni afficher ni garder : modifiez-la dans le extended.mod.json du mod.",
     "field_long": "Trop long pour être modifié ici ({length} caractères) : modifiez-le dans le extended.mod.json du mod.",
     "not_a_number": "{setting} : « {text} » n'est pas un nombre",
@@ -464,7 +472,7 @@
       "finite": "{setting} attend un nombre fini",
       "null_first": "{setting} : « {choice} » ne peut pas être en premier dans cette liste (il n'a pas de valeur, et ShroudForge refuserait le mod)",
       "no_value_choice": "un choix sans valeur",
-      "shortcut": "{setting} : utilisez un raccourci SDL comme Ctrl+SDL:66 ou Mouse:4 (vide le désactive ; ordre des modificateurs Ctrl, Alt, Shift, Meta)",
+      "shortcut": "{setting} : Kiln ne peut pas lire « {text} » comme une touche. Cliquez sur la case du raccourci et appuyez sur la touche voulue, ou tapez-en une comme Ctrl+G, F5 ou Mouse4. La forme propre à ShroudForge (Ctrl+SDL:10, Mouse:4) marche aussi ; vide désactive le raccourci.",
       "length": "{setting} doit faire de {min} à {max} caractères",
       "length_min": "{setting} doit faire au moins {min} caractères",
       "range": "{setting} doit être entre {min} et {max}",

@@ -258,9 +258,11 @@ KilnResult vox_write(const KilnBuildWrite* w, KilnBuildResult* result, uint32_t 
     if (!box_ok(w->origin, w->dims, &n)) return done(KILN_ERR_INVALID_ARGUMENT);
     // a transient edit is put back at the next start from what it read: it must have read the real cells
     const bool transient = (w->flags & KILN_BUILD_F_TRANSIENT) != 0;
-    if (transient && (w->flags & KILN_BUILD_F_UNLOADED)) return done(KILN_ERR_INVALID_ARGUMENT);
+    // the game's own save rule: no Kiln save region, so no need of the save-region hook either
+    const bool game_save = (w->flags & KILN_BUILD_F_GAME_SAVE) != 0;
+    if (transient && ((w->flags & KILN_BUILD_F_UNLOADED) || game_save)) return done(KILN_ERR_INVALID_ARGUMENT);
     if (!tick_thread()) return done(KILN_ERR_WRONG_THREAD);
-    if (!F.write || !regions_lifecycle_safe() || (!transient && !F.persist)) return done(KILN_ERR_UNAVAILABLE);
+    if (!F.write || !regions_lifecycle_safe() || (!transient && !game_save && !F.persist)) return done(KILN_ERR_UNAVAILABLE);
     const VoxelWorld* v = vox();
     if (!v || !world_running()) return done(KILN_ERR_UNAVAILABLE);
 
@@ -391,7 +393,7 @@ KilnResult vox_write(const KilnBuildWrite* w, KilnBuildResult* result, uint32_t 
     r.milliseconds = now_ms() - t0;
     r.blocks_written = blocks;
     r.flags |= KILN_BUILD_R_CHANGED;
-    if (!transient) {
+    if (!transient && !game_save) {
         regions_keep(wo, wd);
         r.flags |= KILN_BUILD_R_KEPT;
     }

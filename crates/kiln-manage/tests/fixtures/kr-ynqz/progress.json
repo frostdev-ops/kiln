@@ -1,0 +1,45 @@
+{
+  "atMs": 1163,
+  "format": 1,
+  "kiln": "0.2.0-dev.31.11+20261125.adc5ad4",
+  "pid": 18264,
+  "plan": [
+    "start",
+    "native-early",
+    "early-plugins",
+    "signatures",
+    "services",
+    "plugins",
+    "native",
+    "dotnet",
+    "mods",
+    "content",
+    "game"
+  ],
+  "side": "client",
+  "started": "2026-11-26T15:25:09.184Z",
+  "state": "booting",
+  "steps": [
+    {
+      "id": "start",
+      "label": "Reading Kiln's settings and the profile",
+      "ms": 0,
+      "tookMs": 44
+    },
+    {
+      "id": "native-early",
+      "label": "Loading early native mods",
+      "ms": 44,
+      "tookMs": 855
+    },
+    {
+      "detail": "ShroudForge",
+      "done": 3,
+      "id": "early-plugins",
+      "label": "Running the early plugins",
+      "ms": 899,
+      "total": 5
+    }
+  ],
+  "why": null
+}

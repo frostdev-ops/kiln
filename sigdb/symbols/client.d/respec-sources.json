@@ -1,0 +1,66 @@
+{
+  "format": 1,
+  "side": "client",
+  "extends": "server.d/respec-sources.json",
+  "comment": "GitHub #150, Kiln clients: the two screens that decide whether a respec is sent count the respec item with the game's UI count stations/client.UiAvailableCount(item, the local player's UI inventory mirror, the published Magic-chest map), the item from G38UiPlayData +0x44b238 (respec/client.ui.item, written by player_ui from its config), and send nothing when it is short. (1) The skill node details on the respec skill tree (HudScreen.SkillTreeRespec, C 0xcb7890): count >= the node's cost (its record +0x1c, r14d) offers the unlearn action (C 0xd91830 with action 2), which the tree's action handler (C 0xd4fc80) turns into UI command 0x4f (UnlearnSkillEvent); respec/client.NodeCountRet is that count's return. (2) The Flame Altar's reskill dialog (HudScreen.AltarReskill, C 0xc7ece0): met = count >= G38UiPlayData +0x44b23c (respec/client.ui.cost, the points spent) enables its button, whose confirmation sends UI command 0x4e with skill 0 (resetAllSkills); respec/client.AltarCountRet is that count's return. (3) The respec skill tree's own Rune row (C 0xcb9730) shows the count only: respec/client.HeaderCountRet, display only, not one of crafting.respec_sources' symbols. Client 26430625 (5d9ef2f1) only. docs/re/respec.md.",
+  "symbols": {
+    "respec/client.NodeCountRet": {
+      "comment": "The skill node details: movzx r14d,word [rax+0x1c] (the node's cost); call the local player's UI inventory mirror; mov r12,[rsp+0x50] (G38UiPlayData); lea r8,[rbx+0x2000] (the published stock map); mov ecx,[r12+respec/client.ui.item]; call stations/client.UiAvailableCount; mov esi,eax (the count); ... cmp esi,r14d; jae (the unlearn is offered). The return address; kiln-items' mid hook there reads eax, r14d and r12, which the literal bytes pin. Client 26430625 0xcb7e98",
+      "find": [
+        {
+          "pattern": "44 0F B7 70 1C 48 8B 87 D0 00 00 00 48 8B 18 48 85 DB 74 04 48 8B 5B 38 E8 ?? ?? ?? ?? 4C 8B 64 24 50 4C 8D 83 00 20 00 00 48 8B D0 41 8B 8C 24 {respec/client.ui.item:d32} E8 ?? ?? ?? ?? 8B F0 45 84 FF 74 ?? E8 ?? ?? ?? ?? 84 C0 75 ?? 41 3B F6 73",
+          "offset": 57
+        }
+      ]
+    },
+    "respec/client.AltarCountRet": {
+      "comment": "The Flame Altar's reskill dialog: the loop to the local player's UI inventory mirror (G38UiPlayData's player list +0x3060, stride 0x8f70); mov ecx,[rdi+respec/client.ui.item]; mov r8,r9 (the published stock map); call stations/client.UiAvailableCount; mov ecx,[rdi+respec/client.ui.cost]; cmp eax,ecx; mov [rbp+0x58],ecx; setae [rbp+0x60] (met: the button is enabled with a cost). The return address; kiln-items' mid hook there reads eax and rdi, which the literal bytes pin. Client 26430625 0xc7eeb4",
+      "find": [
+        {
+          "pattern": "4C 8B 82 68 30 00 00 49 8B CC 4D 85 C0 74 1C 48 8B 92 60 30 00 00 66 90 39 02 74 12 48 FF C1 48 81 C2 70 8F 00 00 49 3B C8 72 ED 49 8B D4 8B 8F {respec/client.ui.item:d32} 4D 8B C1 E8 ?? ?? ?? ?? 8B 8F {respec/client.ui.cost:d32} 3B C1 89 4D 58 0F 93 45 60",
+          "offset": 60
+        }
+      ]
+    },
+    "respec/client.HeaderCountRet": {
+      "comment": "The respec skill tree's Rune row (C 0xcb9730, its respec mode): the same loop to the player's mirror; mov ecx,[rbx+respec/client.ui.item]; call stations/client.UiAvailableCount; lea rcx,[rbp-0x70]; mov [rbp-0x48],eax (the count the row shows). Display only. The return address; kiln-items' mid hook there reads eax and rbx. Client 26430625 0xcb9cb4",
+      "find": [
+        {
+          "pattern": "4C 8B 82 68 30 00 00 49 8B CF 4D 85 C0 74 1D 48 8B 92 60 30 00 00 0F 1F 00 39 02 74 12 48 FF C1 48 81 C2 70 8F 00 00 49 3B C8 72 ED 49 8B D7 8B 8B {respec/client.ui.item:d32} 4D 8B C1 E8 ?? ?? ?? ?? 48 8D 4D 90 89 45 B8",
+          "offset": 61
+        }
+      ]
+    }
+  },
+  "constants": {
+    "respec/client.ui.item": {
+      "comment": "G38UiPlayData's respec item (player_ui writes it from its config: C 0x2b9763): 0x44b238",
+      "min_votes": 2
+    },
+    "respec/client.ui.cost": {
+      "comment": "G38UiPlayData's respec cost, the points spent (player_ui writes it: C 0x2b98df): 0x44b23c",
+      "min_votes": 1
+    }
+  },
+  "features": {
+    "crafting.respec_sources": {
+      "symbols": [
+        "respec/Payer",
+        "respec/RespecPaid",
+        "rules/InventoryPay",
+        "respec/client.NodeCountRet",
+        "respec/client.AltarCountRet",
+        "stations/client.UiAvailableCount"
+      ],
+      "constants": [
+        "respec/item",
+        "respec/client.ui.item",
+        "respec/client.ui.cost",
+        "crafting/bases.players",
+        "crafting/player.stride",
+        "crafting/player.permissions",
+        "players/info.handle"
+      ]
+    }
+  }
+}

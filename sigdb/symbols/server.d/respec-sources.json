@@ -1,0 +1,50 @@
+{
+  "format": 1,
+  "side": "server",
+  "comment": "GitHub #150, since 0.2.0-dev.31.18: the skill tree's paid reset (resetAllSkills) and a node's unlearn count and pay their respec item (Runes, the payer's own constant 0x41a792dc) from a player's crafting sources linked with CraftSourceOptions.Respec. player_skilltree (S 0xd4780, C 0x2e87e0) runs the version-checked UnlockSkillAction: unlearn (S 0xbbab0, C 0x2cfb10) pays the node's cost and undoes the NodeSet when the payment fails; reset (skills/Reset, S 0xb9a00, C 0x2ce370) pays the points spent when its pay flag is set, and the join check's reset (S 0xd48a7, C 0x2e8907) passes 0 and never reaches the payer. Both pay through respec/Payer (S 0xb9230, C 0x2cdce0): cost 0 answers 1 (paid) at once; else an inventory transaction from a setup with stock mode 2 (the player's bag, then the Magic chests of the base the player stands in, BaseStockForPlayer), one cost line {item respec/item, count = cost} and rules/InventoryPay(tx, {line, 1}, player, 1, 0): 0 commits (paid), anything else rolls back (refused). respec/RespecPaid is that call's return address: kiln.rules' InventoryPay hook hands it to kiln-items' craft adapter, which pays the rest from the player's respec-opted links inside the same transaction (bag and Magic chests first, all or nothing). Identical bytes on server 26430253 (f0d824be) and client 26430625 (5d9ef2f1). Evidence: docs/re/respec.md.",
+  "symbols": {
+    "respec/Payer": {
+      "comment": "The respec payer's entry: movzx ebx,dx (the cost); test bx,bx; jne; mov al,1 (cost 0: paid, nothing asked); then the setup's flags 0 and stock mode 2 (mov word [rsp+0x60],0x200). kiln-items checks this range for another module's code before it pays from links. Server 26430253 0xb9230, client 26430625 0x2cdce0",
+      "find": [
+        {
+          "pattern": "48 89 5C 24 18 48 89 7C 24 20 55 48 8D AC 24 00 8E FF FF B8 00 73 00 00 E8 ?? ?? ?? ?? 48 2B E0 0F B7 DA 48 8B F9 66 85 DB 75 07 B0 01 E9 ?? ?? ?? ?? 33 C0 66 C7 44 24 60 00 02"
+        }
+      ]
+    },
+    "respec/RespecPaid": {
+      "comment": "The respec payer's payment: mov [rsp+0x54],ebx (the cost); mov [rsp+0x50],respec/item; call (the player: world/CurrentEntityId); {ptr rsp+0x40, count 1} at rsp+0x30 (one 24-byte cost line: item +0x10, count +0x14); lea rcx,[rbp+0x50] (the transaction); mov [rsp+0x20],rsi (no item override); mov r8d,[rax] (the player); mov r9d,1; call rules/InventoryPay; then test eax,eax; je commit, else rollback (bl 0). The return address, which kiln-items compares with the payment hook's caller (its call target is checked against rules/InventoryPay, call_matches). Server 26430253 0xb93c3, client 26430625 0x2cde73",
+      "find": [
+        {
+          "scope": {
+            "symbol": "respec/Payer",
+            "size": 538
+          },
+          "pattern": "48 8B 0F 48 8D 95 ?? ?? ?? ?? 89 5C 24 54 C7 44 24 50 {respec/item:d32} E8 ?? ?? ?? ?? 48 8D 4C 24 40 48 C7 44 24 38 01 00 00 00 48 89 4C 24 30 48 8D 54 24 30 48 8D 4D 50 48 89 74 24 20 44 8B 00 41 B9 01 00 00 00 E8 ?? ?? ?? ?? 48 8D 4D 50 85 C0 74 09 E8 ?? ?? ?? ?? 32 DB EB 07 E8 ?? ?? ?? ?? B3 01",
+          "offset": 74
+        }
+      ]
+    }
+  },
+  "constants": {
+    "respec/item": {
+      "comment": "The respec item the payer charges (Material_T1_Token_WeaponUpgrade_Rune01, Runes): 0x41a792dc on both builds",
+      "min_votes": 1
+    }
+  },
+  "features": {
+    "crafting.respec_sources": {
+      "symbols": [
+        "respec/Payer",
+        "respec/RespecPaid",
+        "rules/InventoryPay"
+      ],
+      "constants": [
+        "respec/item",
+        "crafting/bases.players",
+        "crafting/player.stride",
+        "crafting/player.permissions",
+        "players/info.handle"
+      ]
+    }
+  }
+}

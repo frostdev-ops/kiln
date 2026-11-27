@@ -183,6 +183,9 @@ internal static class GameColors
         ModRunState.Loaded => Ok, ModRunState.Waiting => Attention, ModRunState.Failed => Warning, _ => Idle,
     };
 
+    /// <summary>A row's state colour: <see cref="CatalogMod.Warn"/> on a loaded mod is attention, not ok.</summary>
+    public static Color Of(CatalogMod m) => m.Warn && m.State == ModRunState.Loaded && !m.Missing ? Attention : Of(m.State, m.Missing);
+
     public static Color Of(EngineHealth h) => h switch { EngineHealth.Problem => Warning, EngineHealth.Idle => Idle, _ => Ok };
 }
 
@@ -284,11 +287,16 @@ internal sealed class ModManagerPage
         }
         // before the first list landed nothing is known to be gone: an engine asked for (ShroudForge's F9) stays chosen
         if (!ReferenceEquals(snap, CatalogSnapshot.Empty)) Filter = ModManagerLogic.Valid(snap, Filter, kilnSettings, menuEntries);
-        if (!changed && Filter == _rowsFilter && Search == _rowsSearch) return;
+        if (!changed && Filter == _rowsFilter && Search == _rowsSearch)
+        {
+            ApplySelectMod(snap);
+            return;
+        }
         _rowsFilter = Filter;
         _rowsSearch = Search;
         _rows = ModManagerLogic.Rows(snap, Filter, Search);
         if (!Filter.IsSettings && !Filter.IsMenus) Selected = ModManagerLogic.Select(_rows, Selected);
+        ApplySelectMod(snap);
         if (snap.Mods.Count == 0)
         {
             _emptyTitle = ModCatalog.Loading ? KilnText.T("mods.empty.loading") : KilnText.T("mods.empty.none");
@@ -308,14 +316,17 @@ internal sealed class ModManagerPage
 
     internal IReadOnlyList<ModRow> Rows => _rows;
 
-    private string? _request;
+    private sealed record PageRequest(string Kind, string? Mod);
+    private PageRequest? _request;
+    // the mod a taken request asked to show, until a mod list has the engine's rows to choose it from (render thread)
+    private (string Engine, string Mod)? _selectMod;
 
-    /// <summary>Shows the Mods section on <paramref name="f"/> at the next frame (any thread: a key binding, ShroudForge's
-    /// menu request).</summary>
-    public void Request(EngineFilter f) => Volatile.Write(ref _request, f.Kind);
+    /// <summary>Shows the Mods section on <paramref name="f"/> at the next frame, with the row of the engine's mod
+    /// <paramref name="mod"/> chosen when the list has it (any thread: a key binding, ShroudForge's menu request).</summary>
+    public void Request(EngineFilter f, string? mod = null) => Volatile.Write(ref _request, new PageRequest(f.Kind, mod));
 
     /// <summary>The engine a <see cref="Request"/> asked for that no frame has shown yet, or null.</summary>
-    internal string? PendingRequest => Volatile.Read(ref _request);
+    internal string? PendingRequest => Volatile.Read(ref _request)?.Kind;
 
     /// <summary>Forgets a request no frame has shown (the menu closed first).</summary>
     internal void CancelRequest() => Volatile.Write(ref _request, null);
@@ -325,8 +336,17 @@ internal sealed class ModManagerPage
     {
         if (Interlocked.Exchange(ref _request, null) is not { } wanted) return;
         Section = ModManagerSection.Mods;
-        Filter = new EngineFilter(wanted);
+        Filter = new EngineFilter(wanted.Kind);
         Search = "";
+        _selectMod = wanted.Mod is { } mod ? (wanted.Kind, mod) : null;
+    }
+
+    /// <summary>Chooses the row a request asked for once a real list is there; a list without it ends the wish.</summary>
+    private void ApplySelectMod(CatalogSnapshot snap)
+    {
+        if (_selectMod is not { } want || ReferenceEquals(snap, CatalogSnapshot.Empty) || snap.Mods.Count == 0) return;
+        _selectMod = null;
+        if (_rows.FirstOrDefault(r => r.Mod.Engine == want.Engine && r.Mod.Id == want.Mod) is { } row) Selected = row.Key;
     }
 
     internal IReadOnlyList<EngineRow> EngineRows => _engines;
@@ -355,7 +375,7 @@ internal sealed class ModManagerPage
         if (!typing && tab) Section = ModManagerLogic.Step(Section, (ui.HeldMods & KeyMods.Shift) != 0 ? -1 : 1);
         if (ui.KeyPressed(UiKey.GamepadRB, claim: true) && !typing) Section = ModManagerLogic.Step(Section, 1);
         if (ui.KeyPressed(UiKey.GamepadLB, claim: true) && !typing) Section = ModManagerLogic.Step(Section, -1);
-        if (Section == ModManagerSection.Mods && (ui.HeldMods & KeyMods.Ctrl) != 0 && ui.KeyPressed(UiKey.F)) FocusSearch = true;
+        if (Section == ModManagerSection.Mods && (ui.HeldMods & KeyMods.Ctrl) != 0 && ui.KeyPressed(UiKey.F) && !ShroudForgeUi.Capturing) FocusSearch = true;
 
         var win = ui.Cursor;
         ui.SetCursor(r.X - win.WindowX, r.Y - win.WindowY);
@@ -632,7 +652,7 @@ internal sealed class ModManagerPage
                     ui.DrawText(UiLayer.Window, it.MinX + 18 * s, it.MinY + 33 * s, Fit(ui, row.Sub, 14 * s, nameW), GameColors.Muted, 14 * s);
                 if (verW > 0)
                     ui.DrawText(UiLayer.Window, chipCol - 18 * s - verW, it.MinY + (rowH - 15 * s) / 2 - 1 * s, m.Version, GameColors.Muted, 15 * s);
-                Chip(ui, chipX, it.MinY + (rowH - 24 * s) / 2, m.Chip, GameColors.Of(m.State, m.Missing), s);
+                Chip(ui, chipX, it.MinY + (rowH - 24 * s) / 2, m.Chip, GameColors.Of(m), s);
                 // the do-not-save badge of a package kiln-sfi warns about (SfiNotice.cs), left of the state chip
                 if (SfiSafetyNotice.Badge(m) is { } sw)
                 {
@@ -731,7 +751,7 @@ internal sealed class ModManagerPage
         // the chips: state, engine, side
         var c = ui.Cursor;
         var x = c.ScreenX;
-        x += Chip(ui, x, c.ScreenY, m.Chip, GameColors.Of(m.State, m.Missing), s) + 8 * s;
+        x += Chip(ui, x, c.ScreenY, m.Chip, GameColors.Of(m), s) + 8 * s;
         x += Chip(ui, x, c.ScreenY, ModCatalog.EngineName(m.Engine), GameColors.Gold, s) + 8 * s;
         if (m.Side.Length > 0) Chip(ui, x, c.ScreenY, ModManagerLogic.SideText(m.Side, _snap.Side, m.Engine), GameColors.Idle, s);
         ui.Space(1, 26 * s);
@@ -741,7 +761,8 @@ internal sealed class ModManagerPage
         {
             Label(ui, m.State == ModRunState.Failed || m.Missing ? KilnText.T("mods.details.wrong") : KilnText.T("mods.details.state"), s);
             if (m.Reason is { } why)
-                using (ui.PushColor(UiColorSlot.Text, m.State == ModRunState.Failed || m.Missing ? GameColors.Warning : GameColors.Text))
+                using (ui.PushColor(UiColorSlot.Text, m.State == ModRunState.Failed || m.Missing ? GameColors.Warning :
+                           m.Warn ? GameColors.Attention : GameColors.Text))
                     ui.TextWrapped(why);
             if (m.Help is { } help)
                 using (ui.PushColor(UiColorSlot.Text, GameColors.Attention))

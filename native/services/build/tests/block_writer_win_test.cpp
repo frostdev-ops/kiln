@@ -56,8 +56,9 @@ bool seh_read(uintptr_t,ReadRequest* r,uintptr_t,bool* ok){size_t j=0;
 bool seh_ready(uintptr_t,uintptr_t,float*,bool* ok){*ok=true;return true;}
 bool seh_write(Fns::WriteFn f,uintptr_t w,CellSpan* s,const uint32_t* d,const int32_t* o,unsigned long*){f(w,s,d,o);return true;}
 bool regions_lifecycle_safe(){return true;}
-void regions_keep(const int32_t*,const uint32_t*){}
-KilnResult transient_kept_before(const int32_t*,const uint32_t*,const uint8_t*){return KILN_OK;}
+int keeps=0,kept_before=0;
+void regions_keep(const int32_t*,const uint32_t*){++keeps;}
+KilnResult transient_kept_before(const int32_t*,const uint32_t*,const uint8_t*){++kept_before;return KILN_OK;}
 KilnResult transient_note_before(const int32_t*,const uint32_t*,const KilnVoxel*,const KilnVoxel*,const uint8_t*){return KILN_OK;}
 void transient_kept_failed(const std::vector<std::array<int32_t,3>>&){}
 namespace tasks {Grid& grid(){static Grid instance;return instance;}void Grid::clear(){}}
@@ -89,6 +90,19 @@ int main(){
     check(kb::vox_write(&w,&r,KILN_GAMEPLAY_DENY_BUILD)==KILN_OK && cells[at(4,4,4)]==value,"explicit IN_BASES and RespectZones=false still bypass those optional protections");
     value=KILN_VOXEL_MAKE(4,255);w.flags|=KILN_BUILD_F_RESPECT_ZONES;
     check(kb::vox_write(&w,&r,KILN_GAMEPLAY_DENY_BUILD)==KILN_ERR_REVOKED && (r.flags&KILN_BUILD_R_ZONE) && kb::detail.find("zone checks unavailable")!=std::string::npos,"missing requested zone check refuses with a distinct diagnostic");
+    // KILN_BUILD_F_GAME_SAVE: the game's own rule (saved inside base build zones only), as ShroudForge's writes are: no Kiln
+    // save region, and so no need of the save-region hook; journaled transient cells it sets are still taken out
+    w.flags=KILN_BUILD_F_IN_BASES|KILN_BUILD_F_GAME_SAVE;value=KILN_VOXEL_MAKE(5,255);kb::keeps=kb::kept_before=0;
+    check(kb::vox_write(&w,&r,KILN_GAMEPLAY_DENY_BUILD)==KILN_OK && cells[at(4,4,4)]==value && (r.flags&KILN_BUILD_R_CHANGED) &&
+          !(r.flags&KILN_BUILD_R_KEPT) && kb::keeps==0 && kb::kept_before==1,"GAME_SAVE writes without a Kiln save region");
+    kb::F.persist=false;value=KILN_VOXEL_MAKE(6,255);
+    check(kb::vox_write(&w,&r,KILN_GAMEPLAY_DENY_BUILD)==KILN_OK && cells[at(4,4,4)]==value && kb::keeps==0,"GAME_SAVE needs no save-region hook");
+    w.flags=KILN_BUILD_F_IN_BASES;value=KILN_VOXEL_MAKE(7,255);
+    check(kb::vox_write(&w,&r,KILN_GAMEPLAY_DENY_BUILD)==KILN_ERR_UNAVAILABLE && cells[at(4,4,4)]==KILN_VOXEL_MAKE(6,255),"a kept write still needs the save-region hook");
+    kb::F.persist=true;w.flags=KILN_BUILD_F_IN_BASES|KILN_BUILD_F_GAME_SAVE|KILN_BUILD_F_TRANSIENT;
+    check(kb::vox_write(&w,&r,KILN_GAMEPLAY_DENY_BUILD)==KILN_ERR_INVALID_ARGUMENT && cells[at(4,4,4)]==KILN_VOXEL_MAKE(6,255),"GAME_SAVE with TRANSIENT is refused");
+    w.flags=KILN_BUILD_F_IN_BASES;value=KILN_VOXEL_MAKE(8,255);kb::keeps=0;
+    check(kb::vox_write(&w,&r,KILN_GAMEPLAY_DENY_BUILD)==KILN_OK && (r.flags&KILN_BUILD_R_KEPT) && kb::keeps==1,"without GAME_SAVE the write is kept as before");
     KilnBuildBlockInfo info{};info.size=sizeof info;
     check(kb::block_at({-.1,2,2},&info)==KILN_ERR_INVALID_ARGUMENT && info.refusal==KILN_BUILD_BLOCK_INVALID,"block query rejects below-grid coordinates instead of trusting native outside-air");
     check(kb::block_at({128,2,2},&info)==KILN_ERR_INVALID_ARGUMENT && info.refusal==KILN_BUILD_BLOCK_INVALID,"block query rejects the exclusive horizontal grid boundary");

@@ -1109,6 +1109,43 @@ fn kiln_did_not_load() {
     assert!(!ids(&build(&g.input())).contains(&"not-loaded"));
 }
 
+/// KR-YNQZ (31.11, 2026-11-26): the last start from the launcher ended in Kiln's early plugins (ShroudForge preparing,
+/// 1.2 s in), and the game no longer ran when the report was written. kiln.log and progress.json name that start's
+/// process; there was no boot.json. The report said "did not load Kiln: boot.json is missing. Check that dinput8.dll in
+/// the game folder is Kiln's and that no antivirus blocks it": a wrong cause and wrong advice, Kiln had loaded. That
+/// start's progress.json says how far it got. The fixtures are that report's progress.json and kiln.log.
+#[test]
+fn a_start_that_ended_while_kiln_was_starting_did_load_kiln() {
+    const PROGRESS: &str = include_str!("../tests/fixtures/kr-ynqz/progress.json");
+    const LOG: &str = include_str!("../tests/fixtures/kr-ynqz/kiln.log");
+    let f = Fx::healthy("kr-ynqz-boot");
+    f.rm("kiln/state/boot.json");
+    f.w("kiln/logs/kiln.log", LOG);
+    let dirs = DataDirs::at(f.root.join("data"));
+    std::fs::create_dir_all(dirs.installs()).unwrap();
+    let launch = |at: &str| std::fs::write(dirs.installs().join("c7a3e1f0-2b4d-4e6f-8a9b-0c1d2e3f4a5b.launch.json"),
+        format!(r#"{{"fingerprint":"kms1:x","mode":"profile","launched":"{at}"}}"#)).unwrap();
+    launch("2026-11-26T15:25:06Z");
+    // no progress.json: nothing says Kiln loaded
+    assert!(finding(&build(&f.input()), "not-loaded").text.contains("did not load Kiln: boot.json is missing"));
+    f.w("kiln/state/progress.json", PROGRESS);
+    let r = build(&f.input());
+    let n = finding(&r, "not-loaded");
+    assert_eq!(n.level, Level::Problem);
+    assert_eq!(n.text, "The last start from the launcher (2026-11-26T15:25:06Z) loaded Kiln (pid 18264), but the game ended before \
+        Kiln finished starting: its last step, 1.2 s in, was \"Running the early plugins (ShroudForge, 3 of 5)\" \
+        (kiln/state/progress.json), and boot.json is missing.");
+    // an older boot.json: said as before
+    f.boot(None);
+    let old = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_795_700_000);
+    std::fs::File::options().write(true).open(f.game.join("kiln/state/boot.json")).unwrap().set_modified(old).unwrap();
+    assert!(finding(&build(&f.input()), "not-loaded").text.ends_with("and boot.json is older (2026-11-26T13:33:20Z)."), "{:?}", build(&f.input()).findings);
+    f.rm("kiln/state/boot.json");
+    // a progress.json of an earlier start (over 30 s before the launch) says nothing about this one
+    launch("2026-11-26T15:30:00Z");
+    assert!(finding(&build(&f.input()), "not-loaded").text.contains("did not load Kiln: boot.json is missing"));
+}
+
 #[test]
 fn unknown_build_and_safe_idle() {
     let f = Fx::healthy("build");
@@ -1246,7 +1283,7 @@ fn eml_aside_for_hosted_shroudforge_is_no_own_loader() {
     assert!(!ids(&r).contains(&"own-loader"), "{:?}", ids(&r));
     let n = finding(&r, "eml-under-shroudforge");
     assert_eq!(n.level, Level::Info);
-    assert!(n.text.starts_with("kiln-eml stood aside at the last start for ShroudForge, which Kiln hosted"), "{}", n.text);
+    assert!(n.text.starts_with("kiln-eml handed your 1 EML pack to Kiln's ShroudForge at the last start: "), "{}", n.text);
     assert!(!r.summary.contains("EML's own loader runs in the game"), "{}", r.summary);
     // a mod ShroudForge has switched off, and one that is not in its folder: these did not run, and that is the finding
     let off = format!(r#"{on},{{"id":"b","state":"off-in-shroudforge","reason":"x"}},{{"id":"c","state":"not-loaded","reason":"y"}},{{"id":"d","state":"disabled"}}"#);
@@ -1265,11 +1302,50 @@ fn eml_aside_for_hosted_shroudforge_is_no_own_loader() {
     // EML's own loader in a start where Kiln hosts ShroudForge too: still the own-loader problem
     f.w("kiln/state/eml.json", eml(BOOT, "dbghelp.dll is loaded", on).as_bytes());
     assert!(ids(&build(&f.input())).contains(&"own-loader"));
-    // ShroudForge ran by itself: nothing says Kiln hosted it
+    // ShroudForge's file of that start says it ran by itself: kiln-eml handed the pack to ShroudForge, not Kiln's; the
+    // own loader that ran is ShroudForge's (its own finding), never EML's
     f.w("kiln/state/eml.json", eml(BOOT, WHY, on).as_bytes());
     f.w("kiln/state/shroudforge.json", sf(BOOT, "self-hosted").as_bytes());
     let r = build(&f.input());
-    assert!(ids(&r).contains(&"own-loader") && !r.findings.iter().any(|x| x.id == "eml-under-shroudforge"), "{:?}", ids(&r));
+    let n = finding(&r, "eml-under-shroudforge");
+    assert!(n.text.starts_with("kiln-eml handed your 1 EML pack to ShroudForge at the last start: "), "{}", n.text);
+    assert!(!r.summary.contains("EML's own loader runs"), "{}", r.summary);
+    let own: Vec<&str> = r.findings.iter().filter(|x| x.id == "own-loader").map(|x| x.text.as_str()).collect();
+    assert!(!own.is_empty() && own.iter().all(|t| t.starts_with("kiln-shroudforge stood aside at the last start: ShroudForge's own loader")), "{own:#?}");
+}
+
+/// KR-YNQZ (31.11, 2026-11-26): Kiln hosted ShroudForge and kiln-eml handed all 8 EML packs to it, but the report was
+/// written before ShroudForge's state file (the start had not finished; no boot.json either). The summary said "kiln-eml
+/// stood aside at the last start: EML's own loader runs in the game", a problem, in a start with no such loader. kiln-eml's
+/// own file says whom it stood aside for (only Kiln's ShroudForge plugin gives that reason) and kiln.log names the last
+/// start's process: the two are enough. The fixtures are that report's eml.json and kiln.log.
+#[test]
+fn eml_handed_to_hosted_shroudforge_before_its_state_file_is_said_so() {
+    const EML: &str = include_str!("../tests/fixtures/kr-ynqz/eml.json");
+    const LOG: &str = include_str!("../tests/fixtures/kr-ynqz/kiln.log");
+    let f = Fx::healthy("kr-ynqz");
+    std::fs::remove_file(f.game.join("kiln/state/boot.json")).unwrap();
+    f.w("kiln/state/eml.json", EML.as_bytes());
+    f.w("kiln/logs/kiln.log", LOG.as_bytes());
+    let r = build(&f.input());
+    assert!(!ids(&r).contains(&"own-loader"), "{:?}", ids(&r));
+    assert!(!r.summary.contains("EML's own loader runs"), "{}", r.summary);
+    let n = finding(&r, "eml-under-shroudforge");
+    assert_eq!(n.level, Level::Info);
+    assert!(n.text.starts_with("kiln-eml handed your 8 EML packs to Kiln's ShroudForge at the last start: "), "{}", n.text);
+    // the file of another start than the one kiln.log names: what it says, and that it is not the last start's; never
+    // EML's own loader, which nothing here shows
+    f.w("kiln/state/eml.json", EML.replace("\"pid\": 18264", "\"pid\": 9100").as_bytes());
+    let r = build(&f.input());
+    assert!(!ids(&r).contains(&"own-loader") && !r.summary.contains("EML's own loader runs"), "{}", r.summary);
+    let n = finding(&r, "eml-under-shroudforge");
+    assert_eq!(n.level, Level::Info);
+    assert!(n.text.starts_with("kiln-eml's state file is of an earlier start (pid 9100) than the last one (pid 18264): in that start it \
+        handed 8 EML packs to ShroudForge."), "{}", n.text);
+    // EML's own loader (its reason names the DLL): still the own-loader problem
+    f.w("kiln/state/eml.json", EML.replace("ShroudForge owns startup asset patching and runs EML packages in its mods folder", "dbghelp.dll is loaded").as_bytes());
+    let r = build(&f.input());
+    assert!(ids(&r).contains(&"own-loader") && !ids(&r).contains(&"eml-under-shroudforge"), "{:?}", ids(&r));
 }
 
 /// 0.2.0-dev.31.12, a player's report: a folder of his own in ShroudForge's mods folder, of a mod his profile had off, ran
@@ -1360,25 +1436,40 @@ fn an_off_native_mod_that_loads_as_a_chain_proxy_is_off_but_runs() {
 
 /// Review of 6a78171d: two files of one OLDER start said "hosted" and "aside for ShroudForge" while neither plugin ran
 /// in the last start; and a file without a pid stood for any start. Neither proves anything about the last start, so
-/// neither takes the place of the own-loader finding.
+/// neither says the last start was fine. KR-YNQZ (26 Nov): nor do they show EML's own loader, which the own-loader
+/// finding claimed: such a file now says what it does show (the start it is of) and that it says nothing about the last
+/// one. kiln-eml's file of the last start (its pid is kiln.log's last boot) speaks for that start by itself: only Kiln's
+/// ShroudForge plugin gives that reason, and ShroudForge's file may not be written yet, or be of an older start.
 #[test]
 fn state_files_of_another_start_do_not_stand_for_the_last_one() {
     const WHY: &str = "ShroudForge owns startup asset patching and runs EML packages in its mods folder";
     let f = Fx::healthy("eml-under-sf-stale");
-    let own_loader = |sf: &str, eml: &str| {
+    let said = |sf: &str, eml: &str| {
         f.w("kiln/state/shroudforge.json", sf.as_bytes());
         f.w("kiln/state/eml.json", eml.as_bytes());
         let r = build(&f.input());
-        ids(&r).contains(&"own-loader") && !r.findings.iter().any(|x| x.id == "eml-under-shroudforge")
+        assert!(!ids(&r).contains(&"own-loader") && !r.summary.contains("EML's own loader runs"), "{}", r.summary);
+        finding(&r, "eml-under-shroudforge").text.clone()
     };
     let sf = |pid: &str| format!(r#"{{{pid}"mode":"hosted","source":"bundled"}}"#);
     let eml = |pid: &str| format!(r#"{{{pid}"phase":"aside","aside":"{WHY}","mods":[]}}"#);
-    assert!(!own_loader(&sf(r#""pid":412,"#), &eml(r#""pid":412,"#)), "the last start's pair is the hosted case");
-    assert!(own_loader(&sf(r#""pid":7,"#), &eml(r#""pid":7,"#)), "an older start's pair");
-    assert!(own_loader(&sf(r#""pid":412,"#), &eml(r#""pid":7,"#)), "kiln-eml's file is older");
-    assert!(own_loader(&sf(r#""pid":7,"#), &eml(r#""pid":412,"#)), "ShroudForge's file is older");
-    assert!(own_loader(&sf(""), &eml(r#""pid":412,"#)), "ShroudForge's file names no pid");
-    assert!(own_loader(&sf(r#""pid":412,"#), &eml("")), "kiln-eml's file names no pid");
+    let last = |t: String| t.starts_with("kiln-eml handed the EML packs to Kiln's ShroudForge at the last start: ");
+    let other = |t: String, of: &str| t.starts_with(&format!("kiln-eml's state file is of {of}: in that start it handed its EML packs to \
+        ShroudForge. It says nothing about the last start."));
+    assert!(last(said(&sf(r#""pid":412,"#), &eml(r#""pid":412,"#))), "the last start's pair is the hosted case");
+    assert!(other(said(&sf(r#""pid":7,"#), &eml(r#""pid":7,"#)), "an earlier start (pid 7) than the last one (pid 412)"), "an older start's pair");
+    assert!(other(said(&sf(r#""pid":412,"#), &eml(r#""pid":7,"#)), "an earlier start (pid 7) than the last one (pid 412)"), "kiln-eml's file is older");
+    assert!(other(said(&sf(r#""pid":412,"#), &eml("")), "a start it does not name (no pid)"), "kiln-eml's file names no pid");
+    // kiln-eml's file is the last start's: it speaks for it, whatever ShroudForge's file is of
+    assert!(last(said(&sf(r#""pid":7,"#), &eml(r#""pid":412,"#))), "ShroudForge's file is older");
+    assert!(last(said(&sf(""), &eml(r#""pid":412,"#))), "ShroudForge's file names no pid");
+    // review of KR-YNQZ's fix: a later start (pid 500) is in kiln.log but got to no boot.json (it ended in its early
+    // plugins, as KR-YNQZ's did): the pair of boot.json's start (412) is of the start before, not of the last one
+    f.w("kiln/logs/kiln.log", "[I 11:00:00.000] [kiln] Kiln 0.2.0-dev.22 starting (pid 412)\r\n\
+        [I 11:00:00.100] [kiln] boot complete; handing control to the game\r\n\
+        [I 12:00:00.000] [kiln] Kiln 0.2.0-dev.22 starting (pid 500)\r\n");
+    assert!(other(said(&sf(r#""pid":412,"#), &eml(r#""pid":412,"#)), "an earlier start (pid 412) than the last one (pid 500)"),
+        "boot.json's pair, a later start in kiln.log");
 }
 
 /// Nexus report (11 Nov 2026, The Worst Map Mod): a Greeneye mod says what it found and patched only in its own log and

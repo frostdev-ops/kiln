@@ -10,6 +10,7 @@ import { Banner, Button, Card, Field, IconButton, NumberInput, Page, Select, Ske
 import { sk, type GameSettingSpec, type ServerSettingsX } from "./serverApi";
 import { useT } from "../../i18n";
 import { useMarkUnsaved } from "../../shell/unsaved";
+import { useLeaveGuard } from "../../shell/leaveGuard";
 
 type Json = Record<string, unknown>;
 interface Group { name: string; originalName?: string; password: string; reservedSlots: number; [perm: string]: unknown }
@@ -60,18 +61,25 @@ export default function ServerSettingsPage() {
   const set = (k: string, v: unknown) => setEdit((e) => ({ ...e, [k]: v }));
   const setGame = (k: string, v: unknown) => setEdit((e) => ({ ...e, gameSettings: { ...((e.gameSettings as Json) ?? {}), [k]: v }, gameSettingsPreset: "Custom" }));
   const setGroups = (g: Group[]) => set("userGroups", g.map((x) => ({ ...x, originalName: x.originalName ?? x.name })));
-  const save = async () => {
+  /** True once saved (else the toast says why). */
+  const save = async (): Promise<boolean> => {
     setSaving(true);
     try {
-      await api.serverSettingsSet(id, edit as api.Json);
+      const next = await api.serverSettingsSet(id, edit as api.Json);
       toast.ok(t("servers.settings.saved"));
+      // the saved file at once (its new values clear the edits, and with them the leave guard), then read again
+      qc.setQueryData(sk.settings(id), next);
       qc.invalidateQueries({ queryKey: sk.settings(id) });
+      return true;
     } catch (e) {
       toast.error(e, t("servers.settings.notSaved"));
+      return false;
     } finally {
       setSaving(false);
     }
   };
+  // leaving with changes asks: Save (not while the server runs: it writes the file back), Discard or Stay
+  useLeaveGuard(dirty, { what: t("servers.settings.leaveWhat"), save: running ? undefined : save, discard: () => setEdit({}) });
   if (q.isLoading) return <Page><Skeleton lines={8} /></Page>;
   if (q.error) return <Page><Banner tone="err" title="enshrouded_server.json">{errorText(q.error)}</Banner></Page>;
   const byGroup = new Map<string, GameSettingSpec[]>();
@@ -83,7 +91,7 @@ export default function ServerSettingsPage() {
         <span className="k-hint k-mono">{q.data?.path}</span>
         <div className="k-row" style={{ gap: 8 }}>
           <Button variant="ghost" disabled={!dirty} onClick={() => setEdit({})}>{t("servers.settings.discard")}</Button>
-          <Button variant={dirty ? "primary" : "secondary"} disabled={!dirty || running} loading={saving} onClick={save}>{t("common.save")}</Button>
+          <Button variant={dirty ? "primary" : "secondary"} disabled={!dirty || running} loading={saving} onClick={() => void save()}>{t("common.save")}</Button>
         </div>
       </div>
       <Card title={t("servers.settings.general")}>
