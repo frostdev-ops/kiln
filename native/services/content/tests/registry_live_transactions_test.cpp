@@ -1243,7 +1243,28 @@ void a_full_random_loot_call_has_bounded_cost() {
               at<float>(kAt + 0x14 + 796 * kStride) == 3.0f,
           "every field of every table written: " + reply.reason);
     check(sub + com < 2000, "a full randomLoot call stays within the 2,000 ms sanitizer-host budget");
+    // review of registry-loot (dev.32): Registry.Reauthor's sequence on the tick, timed: the new pass's commit over the earlier
+    // layer, then the earlier layer taken back (the lab measured a whole Loot Rarity Leveler re-author on the server)
+    std::string edits2 = edits;
+    for (size_t at = 0; (at = edits2.find(R"("op":3})", at)) != std::string::npos; at += 7) edits2.replace(at, 7, R"("op":4})");
+    uint64_t h2 = 0;
+    const auto again = std::chrono::steady_clock::now();
+    check(registry_live_begin(71, "leveler", KILN_REGISTRY_LIVE_WORLD_LOAD, &h2) == KILN_OK, "begin again");
+    check(registry_live_submit(71, h2, doc("leveler", list_of(edits2)), &reply, nullptr) == KILN_OK, "the new pass's edits taken");
+    const auto submitted2 = std::chrono::steady_clock::now();
+    registry_live_commit(71, h2, &reply);
+    const auto committed2 = std::chrono::steady_clock::now();
+    check(reply.outcome == RegistryLiveOutcome::Applied && at<float>(kAt + 0x14 + 796 * kStride) == 4.0f, "the new pass wins over the earlier layer");
     registry_live_revert(71, h, &reply);
+    const auto reverted = std::chrono::steady_clock::now();
+    check(reply.outcome == RegistryLiveOutcome::Reverted && at<float>(kAt + 0x14 + 796 * kStride) == 4.0f, "taking the earlier layer back keeps the new one");
+    const double sub2 = std::chrono::duration<double, std::milli>(submitted2 - again).count(),
+                 com2 = std::chrono::duration<double, std::milli>(committed2 - submitted2).count(),
+                 rev = std::chrono::duration<double, std::milli>(reverted - committed2).count();
+    std::printf("randomLoot re-author of %zu edits: submit %.2f ms, commit over the earlier layer %.2f ms, the earlier layer taken back %.2f ms\n",
+                kTables * 16, sub2, com2, rev);
+    check(sub2 + com2 + rev < 4000, "a full re-author stays within twice the sanitizer-host budget");
+    registry_live_revert(71, h2, &reply);
     check(reply.outcome == RegistryLiveOutcome::Reverted && at<uint8_t>(kAt + 0x08 + 796 * kStride) == 3, "and reverts");
 }
 // review-registry-proof nit: a read-only bitmask is refused as read-only, not as "is not a bitmask"
