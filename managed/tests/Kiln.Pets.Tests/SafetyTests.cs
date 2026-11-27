@@ -229,4 +229,19 @@ public sealed unsafe class SafetyTests : IDisposable
         _t.Step();
         Assert.Equal(before + 2, _t.World.HostilitySyncs.Count);   // an owner came: the pairs go again with its entity
     }
+
+    // review of dev.32 pets: a duel pair outlived its world in the roster (IsHostile true, attack orders allowed) while the
+    // native table had forgotten it with the old epoch; pairs last for their world session
+    [Fact]
+    public void Declared_pairs_end_with_their_world()
+    {
+        _t.World.Join(_t.A);
+        _t.Roster.SetHostile(_t.A, _t.B, true);
+        _t.Step();
+        Assert.True(_t.Roster.IsHostile(_t.A, _t.B));
+        _t.World.WorldEpoch = 2;
+        _t.Step();
+        Assert.False(_t.Roster.IsHostile(_t.A, _t.B));
+        Assert.Empty(_t.World.HostilitySyncs[^1]);   // the world hears that none is left
+    }
 }

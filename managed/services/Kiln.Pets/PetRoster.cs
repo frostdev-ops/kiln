@@ -295,6 +295,10 @@ internal sealed partial class PetRoster
         _online.Clear();
         _receipts.Clear();
         _retained.Clear();   // a closed world's operation ids never replay in the next one
+        // declared duel pairs last for their world session (Pets.SetHostile): the next world starts with none, and the
+        // native table (which forgot its pairs with the old epoch) is told so
+        _hostileDirty |= _hostile.Count > 0;
+        _hostile.Clear();
         _epoch = _world.WorldEpoch;
         OnWorldChanged?.Invoke();
     }
