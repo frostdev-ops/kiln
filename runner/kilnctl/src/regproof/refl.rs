@@ -345,7 +345,8 @@ fn walk(db: &TypeDb, base: &str, path: &str) -> std::result::Result<Vec<Step>, S
     }
     for part in parts {
         let owner = db.resolve(cur);
-        let stop = |why: String| Stop { at: steps.len(), owner: owner.name.clone(), member: name.into(), why };
+        let member = part.split('[').next().unwrap_or(part);  // the member a stop names, without its selectors (LOOT: an index)
+        let stop = |why: String| Stop { at: steps.len(), owner: owner.name.clone(), member: member.into(), why };
         if owner.kind != K_STRUCT {
             return Err(stop(format!("{} has no members", owner.name)));
         }
