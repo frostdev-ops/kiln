@@ -151,6 +151,27 @@ class ColumnTest(unittest.TestCase):
             want = [b if isinstance(b, int) else (b[0] if len(set(b)) == 1 else list(b)) for b in blocks]
             self.assertEqual([b if isinstance(b, int) else list(b) for b in got], want)
 
+    def test_one_value_blocks_stored_compressed_keep_that_choice(self):
+        # the game stores some one-value blocks compressed (a 5-byte all-air block at a column's top): the cells are
+        # the same, the bytes are not; `compressed` keeps the choice
+        blocks = [SOLID1, AIR, AIR]
+        kept = vt.encode_column(blocks, compressed={2})
+        col = vt.parse_column(kept)
+        self.assertEqual([r[0] for r in col.runs], ["u", "u", "c"])
+        self.assertEqual(col.compressed(), {2})
+        self.assertEqual(col.runs[2][1], [bytes.fromhex("aaaaa2aa2a")])
+        self.assertEqual([b if isinstance(b, int) else b[0] for b in col.blocks()], blocks)
+        self.assertNotEqual(vt.encode_column(blocks), kept)
+        self.assertEqual(vt.encode_column(col.blocks(), col.compressed()), kept)
+        # a changed column keeps the choice for the blocks not changed, and drops it for a block that was
+        tile = vt.build_tile(1, 1, [kept])
+        cells = vt.TileCells.from_bytes(tile)
+        cells.set(0, 0, 0, cell(5, 255))
+        self.assertEqual(vt.parse_column(vt.parse_tile(cells.to_bytes()).columns[0]).compressed(), {0, 2})
+        cells.set(0, 17, 0, SOLID1)
+        cells.set(0, 17, 0, AIR)
+        self.assertEqual(vt.parse_column(vt.parse_tile(cells.to_bytes()).columns[0]).compressed(), {0})
+
     def test_corrupt_columns_are_refused(self):
         good = vt.encode_column([SOLID1, [SOLID1] * 256 + [AIR] * 256, AIR])
         h, n = struct.unpack_from("<HH", good)
