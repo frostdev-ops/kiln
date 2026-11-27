@@ -112,6 +112,19 @@ struct BootResource {
     KilnAssetKey key{};
     std::string type;
     std::vector<BootField> fields;
+    // The front-end documents ("<mod>/<key>") whose values these fields' rows carry (their front rows): the resource patch
+    // writer leaves them out of the copy when the registry's write gives the same bytes (gamedata_bootpatch.cpp apply).
+    std::vector<std::string> front;
+};
+// One front-end document of this start (compose.h OldWrite::front): a data pack's "gearRules" (gear.h) that the registry's boot
+// back-end writes itself. registry.json "frontEnds".
+struct FrontEnd {
+    std::string mod, key;  // "gear-values-sample", "gearRules@gear.json"
+    // "registry": the registry's boot back-end wrote its values (the same bytes as its resource patch); "resourcePatch": the
+    // resource patch did, as before (why says why)
+    std::string state;
+    std::string why;
+    size_t fields = 0;  // the registry fields its values are
 };
 struct BootOutcome {
     FieldRef field;
@@ -186,7 +199,14 @@ class Runner {
     std::vector<BootResource> run(const OldWritesFn& old);
     // For deferred preparation, old owns its captures; freeze these resources before legacy boot writers change them.
     std::vector<BootResource> run(const OldWritesFn& old, const std::vector<std::pair<KilnAssetKey, std::string>>& freeze);
-    void finish(const std::vector<BootOutcome>& boot);
+    // fronts: the front-end candidates among the old documents (OldWrite::front; id "<mod>/<key>", the resource's type). With
+    // any, the stage reads the base at resources-ready (they need their fields' values), even when no mod has registry content.
+    std::vector<BootResource> run(const OldWritesFn& old, const std::vector<std::pair<KilnAssetKey, std::string>>& freeze,
+                                  const std::vector<std::pair<std::string, std::string>>& fronts);
+    // fronts: what the resource patch writer did with each front-end document the stage handed it (BootResource::front).
+    void finish(const std::vector<BootOutcome>& boot, const std::vector<FrontEnd>& fronts = {});
+    // This start's front-end documents as reported (registry.json "frontEnds"), after finish.
+    std::vector<FrontEnd> front_ends() const;
     void set_live(std::function<void(const LiveHandoff&)> install) { live_ = std::move(install); }
 
     // ---- reads (any thread) ----

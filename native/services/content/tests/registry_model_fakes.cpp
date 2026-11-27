@@ -180,6 +180,33 @@ void byte_table_type() {
     tab.fields = {{"altarsPerFlameLevel", rec(arr), 0}, {"playerLevelCap", rec(u32), 24}};
     named()["keen::ByteTable"] = &tab;
 }
+// keen::BalancingTable as the gear rules see it (gear.h lower_rules; regmap/common/balance.json's rows): the five-rarity
+// factors and chances as structs of floats, the durability curve and the enhancement unlock cost (two whole numbers). The
+// front-end suite (gear_frontend_test) writes it both ways, as a resource patch and through the registry's boot back-end.
+size_t gear_balance_type() {
+    using namespace kc::gd;
+    static TType u32, f32, rarities, bal;
+    auto rec = [](const TType& t) { return reinterpret_cast<uintptr_t>(&t); };
+    u32.name = u32.brief = "uint32", u32.kind = K_U32, u32.size = 4;
+    f32.name = f32.brief = "float32", f32.kind = K_F32, f32.size = 4;
+    rarities.name = "keen::ItemRarityFloats", rarities.brief = "ItemRarityFloats", rarities.kind = K_STRUCT, rarities.size = 20;
+    rarities.fields = {{"common", rec(f32), 0}, {"uncommon", rec(f32), 4}, {"rare", rec(f32), 8}, {"epic", rec(f32), 12}, {"legendary", rec(f32), 16}};
+    bal.name = "keen::BalancingTable", bal.brief = "BalancingTable", bal.kind = K_STRUCT, bal.size = 80;
+    bal.fields = {{"rarityDurabilityMod", rec(rarities), 0},
+                  {"gemSlotProbability", rec(rarities), 20},
+                  {"durabilityStart", rec(f32), 40},
+                  {"durabilityGrowth", rec(f32), 44},
+                  {"perkUpgradeCostSeed", rec(u32), 48},
+                  {"perkCostCreep", rec(f32), 52},
+                  {"perkCostFactorWeaponsShield", rec(f32), 56},
+                  {"perkCostFactorArmor", rec(f32), 60},
+                  {"perkCostFactorRings", rec(f32), 64},
+                  {"advancedPerkCostNominator", rec(f32), 68},
+                  {"advancedPerkCostStartLevel", rec(u32), 72},
+                  {"playerLevelCap", rec(u32), 76}};
+    named()["keen::BalancingTable"] = &bal;
+    return bal.size;
+}
 }  // namespace rbtest
 }  // namespace kc
 

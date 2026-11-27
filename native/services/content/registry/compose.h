@@ -97,6 +97,14 @@ struct OldWrite {
     Op op;
     ListOp list = ListOp::None;  // a list write (op unused): clear, append, remove, replace
     std::vector<Value> list_values;
+    // A front-end (gear.h "gearRules"; docs/kiln/services/content.md "Gear rules on the registry"): the registry's boot back-end
+    // writes this old document's value itself, through Kiln's mapping. The row stays an old path's row where it was in the
+    // composition (below every registry edit, an earlier writer for exclusive and yield, as before); only who writes the bytes
+    // changes, and only where both ways give the same bytes (gamedata_bootpatch.cpp apply checks them at every start).
+    bool front = false;
+    // On a front-end candidate's entry mark (field.field empty): why the registry does not write that document (it stays a
+    // resource patch); empty: it may.
+    std::string front_why;
 };
 
 struct ChainRow {
@@ -114,6 +122,7 @@ struct ChainRow {
     ListOp list = ListOp::None;
     std::vector<Value> list_values;
     bool exclusive = false;
+    bool front = false;  // an old path's row the registry's back-end writes (OldWrite::front): registry.json "frontEnd"
     Value after;  // the field's value after this row
 };
 

@@ -15,6 +15,7 @@
 #include <cwctype>
 #include <filesystem>
 #include <fstream>
+#include <utility>
 
 #include "../../../core/src/services/boot_archive_view.h"
 #include "../content.h"
@@ -578,6 +579,13 @@ void flush_reports() {
         LOGW("registry: the newest report was still being written to state/registry.json at exit (gave up after 2 s)");
 }
 
+// The apply's front-end verdicts (boot_hooks.h Hooks::fronts), held from its fronts call to its finish call: both run on the
+// resources-ready thread, one right after the other.
+static std::vector<FrontEnd>& applied_fronts() {
+    static std::vector<FrontEnd> v;
+    return v;
+}
+
 void bind_service() {
     if (!g_api) return;
     const auto* owner_hooks = static_cast<const KilnHooksApi*>(g_api->service(
@@ -594,13 +602,27 @@ void bind_service() {
             lab_proof();
             std::vector<std::pair<KilnAssetKey, std::string>> freeze;
             for (const auto& doc : docs) freeze.emplace_back(doc.res, doc.type);
+            // the front-ends (boot_hooks.h front_end_key: a data pack's gearRules): the registry's boot back-end writes them
+            // itself where both ways give the same bytes. <data>/content/registry/front-ends.off turns that off for a start (a
+            // lab's before/after, support): every one stays a resource patch, as before 0.2.0-dev.32.
+            std::vector<std::pair<std::string, std::string>> fronts;
+            std::set<std::string> front_ids;
+            for (const auto& doc : docs)
+                if (boothook::front_end_key(doc.key) && front_ids.insert(doc.mod + "/" + doc.key).second) fronts.emplace_back(doc.mod + "/" + doc.key, doc.type);
+            std::error_code ec;
+            if (!fronts.empty() && fs::is_regular_file(data_root() / u8"front-ends.off", ec)) {
+                LOGI("registry: kiln/data/content/registry/front-ends.off: this start's %zu gearRules document(s) stay resource patches", fronts.size());
+                fronts.clear();
+                front_ids.clear();
+            }
             // An unused registry defers decoding, but old writers must still compose over their pre-write bytes.
             // Retain owned documents, never the callback's stack reference.
             Runner::OldWritesFn old;
-            if (!docs.empty()) old = [docs](model::Model& model) { return boothook::old_writes(docs, model); };
-            return runner().run(old, freeze);
+            if (!docs.empty()) old = [docs, front_ids](model::Model& model) { return boothook::old_writes(docs, model, &front_ids); };
+            return runner().run(old, freeze, fronts);
         },
-        &boothook::write, [](const std::vector<BootOutcome>& o) { runner().finish(o); }};
+        &boothook::write, [](const std::vector<BootOutcome>& o) { runner().finish(o, std::exchange(applied_fronts(), {})); },
+        [](const std::vector<FrontEnd>& f) { applied_fronts() = f; }};
     boothook::set(&hooks);
     // the live back-end (registry_live.cpp, S9): now and worldLoad fields as store layers at each world load
     runner().set_live([](const LiveHandoff& h) {

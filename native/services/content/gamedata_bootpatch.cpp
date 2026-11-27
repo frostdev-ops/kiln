@@ -1569,6 +1569,7 @@ void KILN_CALL apply(void*) {
         reg = H->run(below);
     }
     std::vector<registry::stage::BootOutcome> outcomes;
+    std::vector<registry::stage::FrontEnd> fronts;  // what became of each front-end document the stage handed over
     std::vector<char> reg_done(reg.size(), 0);
     auto reg_of = [&](const KilnAssetKey& k) -> const registry::stage::BootResource* {
         for (size_t i = 0; i < reg.size(); ++i)
@@ -1650,10 +1651,22 @@ void KILN_CALL apply(void*) {
         else if (len < type->resolved()->size || len > kMaxResource)
             whole = "the resource " + what + " is " + std::to_string(len) + " bytes, which is not a " + rp.type;
         const registry::stage::BootResource* rb = reg_of(rp.res);
+        // the front-end documents the stage handed over (BootResource::front, compose.h OldWrite::front): the registry's boot
+        // back-end writes their values itself when that gives the same bytes as the documents do
+        std::vector<char> front(rp.docs.size(), 0);
+        bool any_front = false;
+        if (rb && H && H->write)
+            for (size_t i = 0; i < rp.docs.size(); ++i)
+                if (std::find(rb->front.begin(), rb->front.end(), rp.docs[i].mod + "/" + rp.docs[i].key) != rb->front.end()) front[i] = 1, any_front = true;
+        auto verdict = [&](const std::string& why) {
+            for (size_t i = 0; i < rp.docs.size(); ++i)
+                if (front[i]) fronts.push_back({rp.docs[i].mod, rp.docs[i].key, why.empty() ? "registry" : "resourcePatch", why, 0});
+        };
         if (!whole.empty()) {
             for (const DocPatch& d : rp.docs) fault(d, whole);
             if (rules) fault_rules(whole);
             if (rb) reg_fail(*rb, whole);
+            verdict(whole);
             return;
         }
         if (rp.type == baserules::kTable && !record.have) {
@@ -1686,7 +1699,54 @@ void KILN_CALL apply(void*) {
             std::string e;
             record.have_after = baserules::read(type->resolved(), reinterpret_cast<uintptr_t>(copy.data()), &record.after_rules, &e);
         }
-        if (rb && H && H->write) here += H->write(rp.res, rp.type, &copy, *rb, &outcomes, &notes);
+        if (any_front) {
+            // Both ways, compared byte for byte (the front-end's promise: the same bytes, or the old path). The old way: the
+            // documents as above, then the registry's own rows. The front-end's: the copy built without the front-end
+            // documents, then the registry's rows with theirs, in their places in the chain. Served: the front-end's copy when
+            // the two are the same, else the old way's, as before (registry.json frontEnds says why).
+            registry::stage::BootResource rb_old = *rb;
+            rb_old.front.clear();
+            for (auto& f : rb_old.fields) std::erase_if(f.rows, [](const registry::ChainRow& c) { return c.front; });
+            std::erase_if(rb_old.fields, [](const registry::stage::BootField& f) { return f.rows.empty(); });
+            std::vector<registry::stage::BootOutcome> out_old, out_front;
+            std::vector<std::string> notes_front;
+            std::vector<uint8_t> copy_front;
+            size_t here_front = 0;
+            if (!rb_old.fields.empty()) here += H->write(rp.res, rp.type, &copy, rb_old, &out_old, &notes);
+            std::string why;
+            for (size_t i = 0; i < rp.docs.size() && why.empty(); ++i)
+                if (front[i] && left_out[i]) why = "its resource patch was not applied (boot.json has the fault)";
+            if (why.empty()) {
+                std::vector<char> without = left_out;
+                for (size_t i = 0; i < rp.docs.size(); ++i) without[i] = without[i] || front[i];
+                size_t bad = 0;
+                std::string e;
+                if (!build(rp, type, static_cast<const uint8_t*>(data), len, without, sources, rules, &copy_front, &here_front, &notes_front, &bad, &e))
+                    why = "the resource could not be built without it (" + e + ")";
+                else
+                    here_front += H->write(rp.res, rp.type, &copy_front, *rb, &out_front, &notes_front);
+            }
+            if (why.empty() && copy_front != copy) {
+                size_t at = 0;
+                while (at < copy.size() && at < copy_front.size() && copy[at] == copy_front[at]) ++at;
+                why = "the registry's bytes differ from its resource patch's (byte " + std::to_string(at) + " of the resource): the resource patch is applied";
+            }
+            if (why.empty()) {
+                copy = std::move(copy_front);
+                notes = std::move(notes_front);
+                // the old way's count where it is higher: a resource patch counts every value it sets, one the copy already held
+                // too, the registry's write leaves such a value out; so a copy is served (and kiln.base_rules names the mod)
+                // exactly where the resource patch's was, with the same bytes
+                here = std::max(here, here_front);
+                outcomes.insert(outcomes.end(), out_front.begin(), out_front.end());
+            } else {
+                outcomes.insert(outcomes.end(), out_old.begin(), out_old.end());
+                LOGW("registry: %s: %s", what.c_str(), why.c_str());
+            }
+            verdict(why);
+        } else if (rb && H && H->write) {
+            here += H->write(rp.res, rp.type, &copy, *rb, &outcomes, &notes);
+        }
         for (const std::string& n : notes) LOGI("%s", n.c_str());
         if (!here) {
             // nothing to serve: the table already holds what the rules ask for (or nothing changed at all)
@@ -1705,6 +1765,9 @@ void KILN_CALL apply(void*) {
                 });
                 reg_fail(*rb, why);
             }
+            for (auto& x : fronts)  // neither way reached the game
+                for (size_t i = 0; i < rp.docs.size(); ++i)
+                    if (front[i] && x.mod == rp.docs[i].mod && x.key == rp.docs[i].key) x.state = "resourcePatch", x.why = why;
             return;
         }
         written += here;
@@ -1756,6 +1819,7 @@ void KILN_CALL apply(void*) {
             reg_fail(rb, "kiln.assets refused the patched " + what + " (" + std::to_string(rc) + ")");
         }
     }
+    if (H && H->fronts) H->fronts(fronts);
     if (H && H->finish) H->finish(outcomes);
 }
 

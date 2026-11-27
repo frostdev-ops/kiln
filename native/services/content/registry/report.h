@@ -62,6 +62,8 @@ struct ReportMeta {
     json saves;
     // registry.json "migrated": what the schemas' id migrations renamed in this start's edits ({mod, source, stage, note}).
     json migrated;
+    // registry.json "frontEnds": this start's front-end documents (stage.h FrontEnd: {mod, key, state, fields, reason}); null: none.
+    json front_ends;
     // A game entry's base origin per field (S5 / S10); unset: "archive" (the game's data as the archive writer published it).
     // An entry a mod added always reports "added".
     std::function<std::string(const FieldRef&)> origin;

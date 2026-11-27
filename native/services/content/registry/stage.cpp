@@ -426,6 +426,9 @@ struct Runner::Impl {
         report_written = job->seq;
     }
     std::vector<BootResource> boot;
+    // front-ends (compose.h OldWrite::front): this start's candidates ("<mod>/<key>", the resource's type) and what became of each
+    std::vector<std::pair<std::string, std::string>> front_candidates;
+    std::vector<FrontEnd> fronts;
     std::map<std::string, uint64_t> edits_by_mod;
     // plans (registry-rollback): plans/index.json as this start read it (the last good plan, the plan the last world ran on),
     // and the plan this start runs on when a rollback applied (its hash and its own "previous")
@@ -871,14 +874,20 @@ KilnResult Runner::submit(uint64_t owner, const std::string& owner_mod, const st
     return say(KILN_OK);
 }
 
-std::vector<BootResource> Runner::run(const OldWritesFn& old_fn) { return run(old_fn, {}); }
+std::vector<BootResource> Runner::run(const OldWritesFn& old_fn) { return run(old_fn, {}, {}); }
 
 std::vector<BootResource> Runner::run(const OldWritesFn& old_fn, const std::vector<std::pair<KilnAssetKey, std::string>>& freeze) {
+    return run(old_fn, freeze, {});
+}
+
+std::vector<BootResource> Runner::run(const OldWritesFn& old_fn, const std::vector<std::pair<KilnAssetKey, std::string>>& freeze,
+                                      const std::vector<std::pair<std::string, std::string>>& fronts) {
     Impl& d = *d_;
     std::vector<ModInput> inputs;
     {
         std::lock_guard lk(d.mu);
         if (phase_.load() != Phase::None) return {};
+        d.front_candidates = old_fn ? fronts : std::vector<std::pair<std::string, std::string>>{};
         d.stage_thread = std::this_thread::get_id();
         d.stage_thread_set = true;
         phase_.store(Phase::Add);
@@ -1092,7 +1101,8 @@ std::vector<BootResource> Runner::run(const OldWritesFn& old_fn, const std::vect
         FieldRef ref;
         then_stacks = then_stacks || (field_ref_of(it.key(), &ref) && ref.registry == "items" && ref.field == "maxStack");
     }
-    const bool want_base = !inputs.empty() || !fallback.empty() || then_stacks;
+    // a front-end candidate needs its fields' values and the composition of its rows (OldWrite::front), registry content or not
+    const bool want_base = !inputs.empty() || !fallback.empty() || then_stacks || !d.front_candidates.empty();
     // A mod whose code uses the registry API (Kiln.Host's set_order flag): decode the stable base here, at resources-ready,
     // before kiln.content writes packs into resident resource pages, rather than at first use (review4 NS1).
     bool users = false;
@@ -1149,6 +1159,16 @@ std::vector<BootResource> Runner::run(const OldWritesFn& old_fn, const std::vect
     model::Need need = model::needs_of(d.schema, named_inputs);
     named_inputs.clear();
     if (then_stacks) need.fields["items"].insert("maxStack"), need.registries.insert("items");
+    // a front-end candidate's resource: every scalar boot field of the registries it is an entry of (its rows' base values)
+    for (const auto& [id, type] : d.front_candidates)
+        for (const auto& [name, rmap] : d.rm.registries) {
+            if (rmap.entries.resource_type != type) continue;
+            const RegistrySpec* rs = d.schema.registry(name);
+            for (const auto& [fname, row] : rmap.rows)
+                if (rs && rs->field(fname) && row.backend == map::Backend::Boot && fname.find("[]") == std::string::npos &&
+                    (row.conv == "int" || row.conv == "float" || row.conv == "bool" || row.conv == "time" || row.conv == "enum"))
+                    need.fields[name].insert(fname), need.registries.insert(name);
+        }
     if (d.env.prepare_live && eager) need.all = true;
     bool hit = false;
     if (!src && !want_base) {
@@ -1455,27 +1475,82 @@ std::vector<BootResource> Runner::run(const OldWritesFn& old_fn, const std::vect
         std::lock_guard lk(d.mu);
         d.outside = pre;
     }
-    // the boot back-end's resources: restart fields whose chains hold registry rows
+    // the boot back-end's resources: restart fields whose chains hold registry rows, or a front-end document's rows
+    // (OldWrite::front: the registry writes that old document's value itself, in its place in the chain)
+    std::vector<FrontEnd> verdicts;
+    std::map<std::string, std::string> front_kept;  // a candidate the registry does not write -> why
+    std::map<std::string, std::set<FieldRef>> front_fields;  // a candidate the registry may write -> its rows' fields
+    for (const auto& [id, type] : d.front_candidates) {
+        if (!m) {
+            front_kept[id] = "the registry stage could not read the game's base at this start";
+            continue;
+        }
+        bool mark = false, rows = false;
+        for (const OldWrite& w : old) {
+            if (w.who != id) continue;
+            if (w.field.field.empty()) {
+                mark = true;
+                if (!w.front_why.empty() && !front_kept.count(id)) front_kept[id] = w.front_why;
+            } else if (w.front) {
+                rows = true;
+                front_fields[id].insert(w.field);
+            }
+        }
+        if (!front_kept.count(id) && !rows) front_kept[id] = mark ? "it sets no value a registry field holds" : "no registry maps the resource it patches on this game build";
+    }
     std::vector<BootResource> boot;
+    std::set<FieldRef> boot_refs;
     for (const auto& [ref, fo] : r.fields) {
         const auto reg = d.rm.registries.find(ref.registry);
         if (reg == d.rm.registries.end() || is_raw_field(ref.field)) continue;
         const auto row = reg->second.rows.find(ref.field);
         if (row == reg->second.rows.end() || row->second.backend != map::Backend::Boot) continue;
-        std::vector<ChainRow> rows;
-        for (const ChainRow& c : fo.chain)
-            if (c.kind == WriterKind::Registry) rows.push_back(c);
-        if (rows.empty()) continue;
+        const model::Entry* e = m ? m->find(ref.registry, ref.id) : nullptr;
         const RegistrySpec* rs = d.schema.registry(ref.registry);
         const FieldSpec* f = rs ? rs->field(ref.field) : nullptr;
-        const model::Entry* e = m ? m->find(ref.registry, ref.id) : nullptr;
-        if (!f || !e) continue;
+        if (f && e) boot_refs.insert(ref);
+    }
+    // a candidate is written by the registry only when every value it sets reaches a boot field here (whole or not at all)
+    for (const auto& [id, refs] : front_fields)
+        for (const FieldRef& ref : refs)
+            if (!boot_refs.count(ref) && !front_kept.count(id)) front_kept[id] = ref.text() + " is not a field the registry's boot back-end writes here";
+    auto carried = [&](const ChainRow& c) { return c.front && c.kind == WriterKind::OldPatch && !front_kept.count(c.who) && front_fields.count(c.who); };
+    for (auto& [ref, fo] : r.fields)  // a kept candidate's rows are the old path's again, everywhere
+        for (ChainRow& c : fo.chain)
+            if (c.front && !carried(c)) c.front = false;
+    for (OldWrite& w : old)
+        if (w.front && (front_kept.count(w.who) || !front_fields.count(w.who))) w.front = false;
+    for (const auto& [ref, fo] : r.fields) {
+        if (!boot_refs.count(ref)) continue;
+        const auto reg = d.rm.registries.find(ref.registry);
+        const auto row = reg->second.rows.find(ref.field);
+        std::vector<ChainRow> rows;
+        std::set<std::string> carries;
+        for (const ChainRow& c : fo.chain)
+            if (c.kind == WriterKind::Registry || carried(c)) {
+                rows.push_back(c);
+                if (c.front) carries.insert(c.who);
+            }
+        if (rows.empty()) continue;
+        const RegistrySpec* rs = d.schema.registry(ref.registry);
+        const FieldSpec* f = rs->field(ref.field);
+        const model::Entry* e = m->find(ref.registry, ref.id);
         auto it = std::find_if(boot.begin(), boot.end(), [&](const BootResource& b) { return std::memcmp(&b.key, &e->place.key, sizeof b.key) == 0; });
         if (it == boot.end()) {
-            boot.push_back({e->place.key, e->place.type, {}});
+            boot.push_back({e->place.key, e->place.type, {}, {}});
             it = boot.end() - 1;
         }
         it->fields.push_back({ref, &reg->second, &row->second, *f, std::move(rows)});
+        for (const std::string& who : carries)
+            if (std::find(it->front.begin(), it->front.end(), who) == it->front.end()) it->front.push_back(who);
+    }
+    for (const auto& [id, type] : d.front_candidates) {
+        FrontEnd x;
+        if (const size_t slash = id.find('/'); slash != std::string::npos) x.mod = id.substr(0, slash), x.key = id.substr(slash + 1);
+        else x.key = id;
+        if (const auto k = front_kept.find(id); k != front_kept.end()) x.state = "resourcePatch", x.why = k->second;
+        else x.state = "pending", x.fields = front_fields[id].size();
+        verdicts.push_back(std::move(x));
     }
     // A cache hit has not populated the model's entry locations yet. Locate boot targets before releasing its source.
     if (m) m->release();
@@ -1504,6 +1579,7 @@ std::vector<BootResource> Runner::run(const OldWritesFn& old_fn, const std::vect
     d.inputs = std::move(inputs);
     d.result = std::move(r);
     d.boot = boot;
+    d.fronts = std::move(verdicts);
     d.counts.refused = static_cast<uint32_t>(d.result.refused.size());
     d.counts.conflicts = static_cast<uint32_t>(d.result.lines.size());
     uint32_t edits = 0;
@@ -1563,7 +1639,12 @@ bool Runner::prepare_live(LiveData* out, std::string* why) {
     }
 }
 
-void Runner::finish(const std::vector<BootOutcome>& outcomes) {
+std::vector<FrontEnd> Runner::front_ends() const {
+    std::lock_guard lk(d_->mu);
+    return d_->fronts;
+}
+
+void Runner::finish(const std::vector<BootOutcome>& outcomes, const std::vector<FrontEnd>& applied) {
     Impl& d = *d_;
     std::vector<uint64_t> ready;
     LiveHandoff live;
@@ -1573,6 +1654,42 @@ void Runner::finish(const std::vector<BootOutcome>& outcomes) {
     {
         std::lock_guard lk(d.mu);
         if (phase_.load() == Phase::Start || phase_.load() == Phase::WorldLoad) return;
+        // the front-ends: what the resource patch writer did with each candidate the stage handed it. One it does not name
+        // (its resource could not be read, no apply ran) was not written by the registry: its rows are the old path's again.
+        std::set<std::string> kept;
+        for (FrontEnd& x : d.fronts) {
+            if (x.state != "pending") {
+                kept.insert(x.mod + "/" + x.key);
+                continue;
+            }
+            const auto a = std::find_if(applied.begin(), applied.end(), [&](const FrontEnd& y) { return y.mod == x.mod && y.key == x.key; });
+            if (a != applied.end() && a->state == "registry") {
+                x.state = "registry";
+                continue;
+            }
+            x.state = "resourcePatch";
+            x.why = a != applied.end() && !a->why.empty() ? a->why : "the resource patch writer did not hand it to the registry";
+            kept.insert(x.mod + "/" + x.key);
+        }
+        if (!kept.empty()) {
+            for (auto& [ref, fo] : d.result.fields)
+                for (ChainRow& c : fo.chain)
+                    if (c.front && kept.count(c.who)) c.front = false;
+            for (OldWrite& w : d.old)
+                if (w.front && kept.count(w.who)) w.front = false;
+        }
+        json front_rows = json::array();
+        for (const FrontEnd& x : d.fronts) {
+            json row = {{"mod", x.mod}, {"key", x.key}, {"state", x.state}, {"fields", x.fields}};
+            if (!x.why.empty()) row["reason"] = x.why;
+            front_rows.push_back(std::move(row));
+            if (x.state == "registry")
+                d.log(0, "registry: " + x.mod + "'s " + x.key + " is written by the registry's boot back-end (" + std::to_string(x.fields) +
+                             " field(s), the same bytes as its resource patch)");
+            else
+                d.log(0, "registry: " + x.mod + "'s " + x.key + " stays a resource patch: " + x.why);
+        }
+        d.meta.front_ends = front_rows.empty() ? json(nullptr) : std::move(front_rows);
         for (const BootOutcome& o : outcomes) {
             auto fo = d.result.fields.find(o.field);
             if (fo == d.result.fields.end()) continue;
