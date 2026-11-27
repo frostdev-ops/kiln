@@ -6595,6 +6595,14 @@
     "replay": {
       "row": "效果重放，{who}：{state}。{text}",
       "optIn": "选择加入文件",
+      "title": "效果重放",
+      "sub": "Kiln 会记录每个 ShroudForge 和 EML 包在注册表中改动的内容。你选择加入的包，在游戏更新后其 Lua 不再运行时，会按这份记录重放。下次启动时读取你的选择。",
+      "toggle": "游戏更新后重放",
+      "toggleFor": "游戏更新后重放 {who}",
+      "saved": "已保存。下次启动时读取。",
+      "notSaved": "无法保存该选择",
+      "unavailable": "无法读取选择加入文件",
+      "none": "上次启动中没有 ShroudForge 或 EML 包",
       "state": {
         "recorded": "已记录",
         "replayed": "已重放",

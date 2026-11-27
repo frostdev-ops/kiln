@@ -24,12 +24,16 @@ export interface RegistryRefusal { owner: string; field: string; stage: string; 
  * "RestartRequired: " (native report.h). total: counts.restartRequired (every row, also those the native cap left out). */
 export interface RegistryRestart { total: number; rows: RegistryRefusal[] }
 export const RESTART_TOKEN = "RestartRequired: ";
+/** One package of registry.json's "replay": `who` "shroudforge:<id>" / "eml:<id>" ("" for the opt-in file itself), `line`
+ * the sentence players read, `optIn` what the start read from the opt-in file. */
+export interface RegistryReplayRow { who: string; line: string; state: string; optIn: boolean }
 export interface RegistryReport {
   written: string; generation: number; phase: string; baseOrigin: string; baseWriter: string; verified: boolean;
   /** Whether the archive writer's packages are named (base.journal, since 0.2.0-dev.31.17); empty: nothing to say. */
   journal: string;
-  /** Effect replay (registry.json "replay", next release): one line per opted-in package; empty: none is opted in. */
-  replay: string[];
+  /** Effect replay (registry.json "replay", next release): one row per ShroudForge or EML package the start's journal lists
+   * (and per opted-in one it does not); empty: none. */
+  replay: RegistryReplayRow[];
   fields: RegistryField[]; conflicts: RegistryConflict[]; refused: RegistryRefusal[]; restart: RegistryRestart;
   entries: { kind: string; registry: string; id: string; state: string; owner: string; source: string; reason: string }[]; omitted: number; empty: boolean;
   /** Earlier writers left out of field chains: native's truncated.writers plus this view's own 64-writer cut. */
@@ -71,7 +75,11 @@ const omitted = (x: unknown): number => x === undefined ? 0 : count(x);
 const optional = (x: unknown): string => x === undefined ? "" : text(x);
 // A replayed package's stand-in writer (stage.cpp effect replay: mod "replay.sf.<id>" / "replay.eml.<id>", its writer rows
 // marked "standIn"); null: not that form. Only ids a standIn row carries are read so: a Kiln mod may have such an id too.
-function replayOwner(mod: string): string | null {
+// `packages`: the replay rows' stand-in mod ids -> the package (an id with a capital letter carries a hash in its mod id).
+function replayOwner(mod: string, packages?: Map<string, string>): string | null {
+  const who = packages?.get(mod);
+  const p = who ? /^(shroudforge|eml):(.+)$/.exec(who) : null;
+  if (p) return t(p[1] === "eml" ? "registry.replayedEml" : "registry.replayedSf", { id: p[2] });
   const m = /^replay\.(sf|eml)\.(.+)$/.exec(mod);
   return m ? t(m[1] === "eml" ? "registry.replayedEml" : "registry.replayedSf", { id: m[2] }) : null;
 }
@@ -99,16 +107,17 @@ function journalLine(base: ObjectRow): string {
   if (state === "none" && text(base.writer) === "none") return "";
   return t("registry.journal.notNamed", { reason: j.text === undefined ? t(`registry.journal.${state === "stale" || state === "unreadable" ? state : "none"}`) : redactRaw(text(j.text)) });
 }
-// registry.json "replay": absent before the next release and when no package is opted in.
-function replayLines(x: unknown): string[] {
+// registry.json "replay": absent before the next release and when the start's journal lists no package.
+function replayRows(x: unknown): RegistryReplayRow[] {
   if (x === undefined) return [];
   return array(x).slice(0, REPORT_LIMITS.rows).map(y => {
     const r = object(y), who = text(r.who), state = text(r.state);
-    return t("registry.replay.row", {
+    const known = ["recorded", "replayed", "refused", "none"].includes(state) ? state : "none";
+    return { who, state: known, optIn: r.optIn === true, line: t("registry.replay.row", {
       who: who ? archiveOwner(who) : t("registry.replay.optIn"),
-      state: t(`registry.replay.state.${["recorded", "replayed", "refused", "none"].includes(state) ? state : "none"}`),
+      state: t(`registry.replay.state.${known}`),
       text: redactRaw(text(r.text)),
-    });
+    }) };
   });
 }
 function certainty(x: unknown): string {
@@ -188,7 +197,13 @@ export function parseRegistryReport(input: string): RegistryReport {
       const w = object(y);
       if (w.standIn === true && typeof w.mod === "string") standIns.add(w.mod);
     }
-  const owner = (x: unknown): string => x === null ? t("registry.baseOwner") : (standIns.has(text(x)) && replayOwner(text(x))) || text(x);
+  // the replay rows name each package's stand-in mod id ("mod"): its label is the package's own id, whatever the mod id holds
+  const packages = new Map<string, string>();
+  for (const x of r.replay === undefined ? [] : array(r.replay).slice(0, REPORT_LIMITS.rows)) {
+    const p = object(x);
+    if (typeof p.mod === "string" && typeof p.who === "string") packages.set(p.mod, p.who);
+  }
+  const owner = (x: unknown): string => x === null ? t("registry.baseOwner") : (standIns.has(text(x)) && replayOwner(text(x), packages)) || text(x);
   let launcherWriterCut = 0;
   const seen = new Map<string, number>();
   const fieldRows = fields.slice(0, REPORT_LIMITS.rows).map(x => {
@@ -211,7 +226,7 @@ export function parseRegistryReport(input: string): RegistryReport {
         // list and leaf, so a chain says which element an operation changed
         const element = w.element === undefined || raw ? "" : isKilnField(text(f.registry), text(w.element)) ? text(w.element) : t("registry.elementHidden");
         const kind = text(w.kind), who = optional(w.who);
-        return { element, owner: kind === "archiveWriter" && who ? archiveOwner(who) : (w.standIn === true && replayOwner(text(w.mod))) || who || optional(w.mod) || t("registry.referenceCheck"), kind: writerKind(kind, w.named), stage: optional(w.stage),
+        return { element, owner: kind === "archiveWriter" && who ? archiveOwner(who) : (w.standIn === true && replayOwner(text(w.mod), packages)) || who || optional(w.mod) || t("registry.referenceCheck"), kind: writerKind(kind, w.named), stage: optional(w.stage),
           // an archive-writer package: kiln-eml's journal names the entry (or the field) it wrote, not what it did there
           operation: kind === "archiveWriter" ? t(w.named === "field" ? "registry.archiveOpField" : "registry.archiveOp")
             : w.list !== undefined ? value(w.list, w.listEntriesLeftOut) : w.op !== undefined ? value(w.op, w.opEntriesLeftOut) : t("registry.referenceOp"),
@@ -234,13 +249,13 @@ export function parseRegistryReport(input: string): RegistryReport {
     written, generation: count(r.generation), phase: text(r.phase), baseOrigin: text(base.origin), baseWriter: text(base.writer), verified: regmap.verified,
     restart: { total: Math.max(totals.restartRequired === undefined ? 0 : count(totals.restartRequired), restartRows.length), rows: restartRows },
     journal: journalLine(base),
-    replay: replayLines(r.replay),
+    replay: replayRows(r.replay),
     fields: fieldRows, writersOmitted: omitted(truncated.writers) + launcherWriterCut,
     conflicts: conflicts.slice(0, REPORT_LIMITS.rows).map(x => {
       const c = object(x), field = text(c.field);
       const registry = text(c.registry), prefix = `${registry}[${text(c.id)}].`;
       const raw = c.raw === true || !field.startsWith(prefix), unknown = !raw && !isKilnField(registry, field.slice(prefix.length));
-      return { field: raw ? ADVANCED_FIELD() : unknown ? unknownField(field) : field, kind: text(c.kind), winner: owner(c.winner), loser: c.loser === null ? t("registry.noOwner") : text(c.loser),
+      return { field: raw ? ADVANCED_FIELD() : unknown ? unknownField(field) : field, kind: text(c.kind), winner: owner(c.winner), loser: c.loser === null ? t("registry.noOwner") : owner(c.loser),
         certainty: certainty(c.certainty), certain: c.certainty === "certain", text: raw ? t("registry.advancedConflict") : redactRaw(text(c.text)) };
     }),
     refused: refusedRows,

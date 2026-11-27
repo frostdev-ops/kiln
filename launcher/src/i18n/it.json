@@ -6255,6 +6255,14 @@
     "replay": {
       "row": "Riapplicazione dell'effetto, {who}: {state}. {text}",
       "optIn": "il file di adesione",
+      "title": "Riapplicazione dell'effetto",
+      "sub": "Kiln registra ciò che ogni pacchetto ShroudForge ed EML ha modificato nel registro. Un pacchetto a cui aderisci viene riapplicato da quella registrazione dopo un aggiornamento del gioco, quando il suo Lua non funziona più. Il prossimo avvio legge la tua scelta.",
+      "toggle": "Riapplica dopo un aggiornamento del gioco",
+      "toggleFor": "Riapplica {who} dopo un aggiornamento del gioco",
+      "saved": "Salvato. Il prossimo avvio lo legge.",
+      "notSaved": "Non è stato possibile salvare la scelta",
+      "unavailable": "Non è stato possibile leggere il file di adesione",
+      "none": "Nessun pacchetto ShroudForge o EML nell'ultimo avvio",
       "state": {
         "recorded": "registrato",
         "replayed": "riapplicato",

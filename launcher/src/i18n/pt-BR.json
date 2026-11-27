@@ -6255,6 +6255,14 @@
     "replay": {
       "row": "Reaplicação de efeito, {who}: {state}. {text}",
       "optIn": "o arquivo de adesão",
+      "title": "Reaplicação de efeito",
+      "sub": "O Kiln registra o que cada pacote do ShroudForge e do EML mudou no registro. Um pacote que você ativar é reaplicado a partir desse registro após uma atualização do jogo, quando o Lua dele não funciona mais. A próxima inicialização lê a sua escolha.",
+      "toggle": "Reaplicar após uma atualização do jogo",
+      "toggleFor": "Reaplicar {who} após uma atualização do jogo",
+      "saved": "Salvo. A próxima inicialização vai ler.",
+      "notSaved": "Não foi possível salvar a escolha",
+      "unavailable": "Não foi possível ler o arquivo de adesão",
+      "none": "Nenhum pacote do ShroudForge ou do EML na última inicialização",
       "state": {
         "recorded": "registrado",
         "replayed": "reaplicado",

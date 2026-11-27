@@ -455,6 +455,25 @@ enum RegistryCmd {
         #[arg(long)]
         real: bool,
     },
+    /// Effect replay of ShroudForge and EML packages (opt-in per package): Kiln records each package's effect on the
+    /// registry by default; an opted-in package is replayed from that record after a game update when its Lua no longer
+    /// runs. Without --opt-in/--opt-out: what the opt-in file holds and what the last start did with each package
+    Replay {
+        /// Server instance [default: --dir, else the client Steam knows]
+        name: Option<String>,
+        /// A server or client folder
+        #[arg(long, conflicts_with = "name")]
+        dir: Option<PathBuf>,
+        /// Opt this package in: shroudforge:<id>, eml:<id>, or an <id> the last start names once
+        #[arg(long, value_name = "MOD", conflicts_with = "opt_out")]
+        opt_in: Option<String>,
+        /// Opt this package out (its effect is still recorded, never replayed)
+        #[arg(long, value_name = "MOD")]
+        opt_out: Option<String>,
+        /// Allow a folder inside a Steam library (the real game)
+        #[arg(long)]
+        real: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -658,6 +677,7 @@ fn dispatch(cmd: Cmd) -> anyhow::Result<i32> {
                 RegistryCmd::Rollback { name, dir, to, clear, dry_run, real } => {
                     registry::rollback(registry::RollbackArgs { name, dir, to, clear, dry_run, real })
                 }
+                RegistryCmd::Replay { name, dir, opt_in, opt_out, real } => registry::replay(name, dir, opt_in, opt_out, real),
             };
         }
         Cmd::Profile { cmd } => {

@@ -6255,6 +6255,14 @@
     "replay": {
       "row": "Repetición de efectos, {who}: {state}. {text}",
       "optIn": "el archivo de activación",
+      "title": "Repetición de efectos",
+      "sub": "Kiln registra lo que cada paquete de ShroudForge y EML cambió en el registro. Un paquete que actives se repite desde ese registro tras una actualización del juego, cuando su Lua ya no funciona. El próximo inicio lee tu elección.",
+      "toggle": "Repetir tras una actualización del juego",
+      "toggleFor": "Repetir {who} tras una actualización del juego",
+      "saved": "Guardado. El próximo inicio lo lee.",
+      "notSaved": "No se pudo guardar la elección",
+      "unavailable": "No se pudo leer el archivo de activación",
+      "none": "Ningún paquete de ShroudForge o EML en el último inicio",
       "state": {
         "recorded": "registrado",
         "replayed": "repetido",

@@ -6549,6 +6549,14 @@
     "replay": {
       "row": "Odtwarzanie efektu, {who}: {state}. {text}",
       "optIn": "plik zgody",
+      "title": "Odtwarzanie efektu",
+      "sub": "Kiln zapisuje, co każdy pakiet ShroudForge i EML zmienił w rejestrze. Pakiet, dla którego wyrazisz zgodę, jest odtwarzany z tego zapisu po aktualizacji gry, gdy jego Lua już nie działa. Następne uruchomienie odczyta twój wybór.",
+      "toggle": "Odtwarzaj po aktualizacji gry",
+      "toggleFor": "Odtwarzaj {who} po aktualizacji gry",
+      "saved": "Zapisano. Następne uruchomienie to odczyta.",
+      "notSaved": "Nie udało się zapisać wyboru",
+      "unavailable": "Nie udało się odczytać pliku zgody",
+      "none": "Brak pakietu ShroudForge lub EML przy ostatnim uruchomieniu",
       "state": {
         "recorded": "zapisano",
         "replayed": "odtworzono",

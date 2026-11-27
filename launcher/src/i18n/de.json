@@ -6255,6 +6255,14 @@
     "replay": {
       "row": "Wirkungswiederholung, {who}: {state}. {text}",
       "optIn": "die Opt-in-Datei",
+      "title": "Wirkungswiederholung",
+      "sub": "Kiln zeichnet auf, was jedes ShroudForge- und EML-Paket in der Registry geändert hat. Ein Paket, für das du dich entscheidest, wird nach einem Spiel-Update aus dieser Aufzeichnung wiederholt, wenn sein Lua nicht mehr läuft. Der nächste Start liest deine Wahl.",
+      "toggle": "Nach einem Spiel-Update wiederholen",
+      "toggleFor": "{who} nach einem Spiel-Update wiederholen",
+      "saved": "Gespeichert. Der nächste Start liest es.",
+      "notSaved": "Die Wahl konnte nicht gespeichert werden",
+      "unavailable": "Die Opt-in-Datei konnte nicht gelesen werden",
+      "none": "Kein ShroudForge- oder EML-Paket beim letzten Start",
       "state": {
         "recorded": "aufgezeichnet",
         "replayed": "wiederholt",

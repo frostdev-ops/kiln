@@ -217,6 +217,85 @@ pub fn value_text(v: Option<&Value>) -> String {
     }
 }
 
+// ---- effect replay's opt-in (native/services/content/registry/replay.h, owner decision D6) ----
+
+/// Effect replay's opt-in file, relative to [`DATA_REL`]: `{"format": 1, "packages": {"shroudforge:<id>": true, ...}}`. Kiln
+/// records every ShroudForge and EML package's effect by default; a package opted in here is also REPLAYED from that record
+/// after a game update, when its Lua is not applied on the new build. The stage reads the file at each start.
+pub const REPLAY_OPT_IN_REL: &str = "replay/opt-in.json";
+
+/// `shroudforge:<id>` / `eml:<id>`, as the stage names a package (a ShroudForge identifier: 1 to 80 of A-Z a-z 0-9 . _ -).
+pub fn replay_package_ok(who: &str) -> bool {
+    let Some((kind, id)) = who.split_once(':') else { return false };
+    matches!(kind, "shroudforge" | "eml")
+        && (1..=80).contains(&id.len())
+        && id.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+}
+
+/// The packages the opt-in file names (true: opted in); empty without a file. An unreadable file is an error (the stage
+/// opts nothing in then, and says so in registry.json).
+pub fn replay_opt_ins(game: &Path) -> Result<BTreeMap<String, bool>> {
+    let Some(t) = read_capped(&data_dir(game).join(REPLAY_OPT_IN_REL), 1 << 20, "the effect replay opt-in file")? else {
+        return Ok(BTreeMap::new());
+    };
+    let bad = |why: String| {
+        Error::new(ErrorCode::Parse, format!("{DATA_REL}/{REPLAY_OPT_IN_REL} is not readable ({why}): fix it or remove it (no package is opted in while it is)"))
+    };
+    let doc: Value = serde_json::from_str(&t).map_err(|e| bad(e.to_string()))?;
+    if doc.get("format").and_then(Value::as_u64) != Some(1) {
+        return Err(bad("format is not 1".into()));
+    }
+    let Some(packages) = doc.get("packages").and_then(Value::as_object) else { return Err(bad("no packages object".into())) };
+    packages
+        .iter()
+        .map(|(who, on)| match on.as_bool() {
+            Some(on) if replay_package_ok(who) => Ok((who.clone(), on)),
+            _ => Err(bad(format!("{who:?} is not shroudforge:<id> or eml:<id> set to true or false"))),
+        })
+        .collect()
+}
+
+/// `spec` as a package of the opt-in file: `shroudforge:<id>` / `eml:<id>` as given, or a bare `<id>` that the last start's
+/// registry.json names in its `replay` list once (one kind).
+pub fn replay_package(game: &Path, spec: &str) -> Result<String> {
+    if spec.contains(':') {
+        return if replay_package_ok(spec) {
+            Ok(spec.to_owned())
+        } else {
+            Err(Error::invalid(format!("{spec:?} is not shroudforge:<id> or eml:<id> (an id is 1 to 80 of A-Z a-z 0-9 . _ -)")))
+        };
+    }
+    let known: Vec<String> = read_capped(&game.join(REPORT_REL), MAX_REPORT_BYTES, "kiln/state/registry.json")?
+        .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+        .and_then(|d| d.get("replay").and_then(Value::as_array).cloned())
+        .into_iter()
+        .flatten()
+        .filter_map(|r| text(&r, "who"))
+        .filter(|w| w.split_once(':').is_some_and(|(_, id)| id == spec))
+        .collect();
+    match known.as_slice() {
+        [one] => Ok(one.clone()),
+        [] => Err(Error::not_found(format!(
+            "the last start's {REPORT_REL} names no package {spec:?}: name it shroudforge:{spec} or eml:{spec}"
+        ))),
+        _ => Err(Error::invalid(format!("{spec:?} is both a ShroudForge and an EML package: name it shroudforge:{spec} or eml:{spec}"))),
+    }
+}
+
+/// Opts `who` in to effect replay (`on`) or out of it, keeping every other package of the file as it is; the next start
+/// reads it. Returns the file's packages after the change.
+pub fn set_replay_opt_in(game: &Path, who: &str, on: bool) -> Result<BTreeMap<String, bool>> {
+    if !replay_package_ok(who) {
+        return Err(Error::invalid(format!("{who:?} is not shroudforge:<id> or eml:<id>")));
+    }
+    let mut packages = replay_opt_ins(game)?;
+    packages.insert(who.to_owned(), on);
+    let mut body = serde_json::to_vec_pretty(&serde_json::json!({"format": 1, "packages": packages}))?;
+    body.push(b'\n');
+    crate::util::write_atomic(&data_dir(game).join(REPLAY_OPT_IN_REL), &body)?;
+    Ok(packages)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -297,5 +376,36 @@ mod tests {
         assert!(clear(&g.0).unwrap());
         assert!(!clear(&g.0).unwrap(), "nothing left to clear");
         assert_eq!(pending(&g.0).unwrap(), None);
+    }
+
+    #[test]
+    fn replay_opt_in_writes_the_file_the_stage_reads_and_keeps_the_others() {
+        let g = Game::new("replay");
+        assert!(replay_opt_ins(&g.0).unwrap().is_empty(), "no file: nothing opted in");
+        let after = set_replay_opt_in(&g.0, "shroudforge:BetterStacks", true).unwrap();
+        assert_eq!(after.get("shroudforge:BetterStacks"), Some(&true));
+        set_replay_opt_in(&g.0, "eml:more-recipes", true).unwrap();
+        let off = set_replay_opt_in(&g.0, "shroudforge:BetterStacks", false).unwrap();
+        assert_eq!((off.get("shroudforge:BetterStacks"), off.get("eml:more-recipes")), (Some(&false), Some(&true)), "the other package stays opted in");
+        let on_disk: Value = serde_json::from_str(&std::fs::read_to_string(data_dir(&g.0).join(REPLAY_OPT_IN_REL)).unwrap()).unwrap();
+        assert_eq!(on_disk, json!({"format": 1, "packages": {"eml:more-recipes": true, "shroudforge:BetterStacks": false}}), "the stage's format 1");
+        for bad in ["betterstacks", "dll:x", "shroudforge:", "shroudforge:two words", &format!("eml:{}", "x".repeat(81))] {
+            assert!(set_replay_opt_in(&g.0, bad, true).is_err(), "{bad:?} is no package");
+        }
+        assert_eq!(replay_opt_ins(&g.0).unwrap().len(), 2, "a refused name writes nothing");
+        std::fs::write(data_dir(&g.0).join(REPLAY_OPT_IN_REL), r#"{"format": 1, "packages": {"betterstacks": true}}"#).unwrap();
+        let e = set_replay_opt_in(&g.0, "eml:more-recipes", false).unwrap_err().message;
+        assert!(e.contains("not readable") && e.contains("fix it or remove it"), "an unreadable file is never written over: {e}");
+    }
+
+    #[test]
+    fn replay_package_takes_a_bare_id_the_last_start_names_once() {
+        let g = Game::new("replay-name");
+        assert_eq!(replay_package(&g.0, "eml:more-recipes").unwrap(), "eml:more-recipes");
+        assert!(replay_package(&g.0, "dll:x").is_err());
+        assert!(replay_package(&g.0, "betterstacks").unwrap_err().message.contains("shroudforge:betterstacks"), "no report: name the kind");
+        std::fs::write(g.0.join(REPORT_REL), json!({"replay": [{"who": "shroudforge:betterstacks"}, {"who": "eml:both"}, {"who": "shroudforge:both"}]}).to_string()).unwrap();
+        assert_eq!(replay_package(&g.0, "betterstacks").unwrap(), "shroudforge:betterstacks");
+        assert!(replay_package(&g.0, "both").unwrap_err().message.contains("both a ShroudForge and an EML package"));
     }
 }

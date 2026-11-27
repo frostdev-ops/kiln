@@ -5,7 +5,10 @@ async function report(page: Page, value: unknown, error = false) {
   await page.route("**/src/registry/mock.ts*", route => route.fulfill({
     contentType: "application/javascript",
     body: `export async function readMockRegistryReport() { ${error ? 'throw new Error("fixture: report unreadable")' : `return ${JSON.stringify(value === null ? null : typeof value === "string" ? value : JSON.stringify(value))}`}; }
-export async function mockRegistryRollback(o) { return { plan: null, previous: null, rollback: null, pending: null, target: null, changes: [], changesUnknown: null, blocked: "fixture: no plans", dryRun: o.dryRun, wrote: false, cleared: o.clear ? false : null }; }`,
+export async function mockRegistryRollback(o) { return { plan: null, previous: null, rollback: null, pending: null, target: null, changes: [], changesUnknown: null, blocked: "fixture: no plans", dryRun: o.dryRun, wrote: false, cleared: o.clear ? false : null }; }
+const optIns = {};
+export async function mockRegistryReplayOptIns() { return { ...optIns }; }
+export async function mockRegistryReplayOpt(who, on) { optIns[who] = on; return { ...optIns }; }`,
   }));
   await page.goto("/#/conflicts");
   await expect(page.getByRole("heading", { name: "Registry conflicts", exact: true })).toBeVisible();
@@ -201,4 +204,22 @@ test("hosted ShroudForge's journal, a replayed package's stand-in writer and the
   const field = page.locator(".registry-field").first();
   await field.locator("summary").click();
   await expect(field.getByText("betterstacks (ShroudForge package, replayed from its recorded effect)", { exact: true })).toBeVisible();
+});
+
+// review-j3: the effect replay card's toggle per package writes the opt-in file (the browser mock here; the Tauri command
+// is kiln_manage::registry_plan::set_replay_opt_in, the one kilnctl registry replay --opt-in|--opt-out calls)
+test("the effect replay card opts a package in and out", async ({ page }) => {
+  const r = registryFixture();
+  await report(page, { ...r, replay: [
+    { who: "shroudforge:betterstacks", state: "recorded", text: "its Lua ran this start: its effect is recorded (1 field(s)), replayable after a game update", fields: 1, optIn: false, mod: "replay.sf.betterstacks" },
+  ] });
+  const card = page.getByTestId("registry-replay-card");
+  await expect(card.getByText("Effect replay", { exact: true })).toBeVisible();
+  const toggle = card.getByRole("switch", { name: "Replay shroudforge:betterstacks after a game update" });
+  await expect(toggle).not.toBeChecked();
+  await toggle.check();
+  await expect(toggle).toBeChecked();
+  await expect(card.getByTestId("registry-replay-saved")).toHaveText("Saved. The next start reads it.");
+  await toggle.uncheck();
+  await expect(toggle).not.toBeChecked();
 });

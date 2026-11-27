@@ -142,12 +142,33 @@ describe("untrusted registry report", () => {
     // a winner that is a stand-in names the package; a Kiln mod of such an id stays itself
     const won = parse({ ...r, fields: [{ ...r.fields[0], winner: "replay.sf.betterstacks" }, { ...r.fields[0], winner: "replay.sf.realmod" }] });
     expect(won.fields.map(f => f.winner)).toEqual(["betterstacks (ShroudForge package, replayed from its recorded effect)", "replay.sf.realmod"]);
-    expect(out.replay).toEqual([
+    expect(out.replay.map(x => x.line)).toEqual([
       "Effect replay, betterstacks (ShroudForge package): replayed. its Lua was not applied on this game build (boom); its effect recorded on build 0123abcd is replayed through the registry: 1 field(s)",
       "Effect replay, the opt-in file: not replayed. replay/opt-in.json is not {...}: no package is opted in to effect replay",
     ]);
+    expect(out.replay.map(x => [x.who, x.state, x.optIn])).toEqual([["shroudforge:betterstacks", "replayed", false], ["", "refused", false]]);
     expect(parse(registryFixture()).replay).toEqual([]);  // a report without replay rows
     expect(() => parse({ ...registryFixture(), replay: [{ who: 7, state: "replayed", text: "x", fields: 0 }] })).toThrow();
+  });
+  // review-j3: every package is recorded by default and listed with its opt-in (the Conflicts page's toggle); a stand-in
+  // writer is named by its package through the row's "mod", so an id with a capital letter (a hashed mod id) reads as itself
+  test("effect replay rows: every package with its opt-in, and the stand-in named through the row's mod id", () => {
+    const r = registryFixture();
+    r.fields[0].writers = [
+      { kind: "registry", mod: "replay.sf.betterstacks.1a2b3c4d", standIn: true, op: 33, value: 33, certainty: "certain" },
+      ...r.fields[0].writers,
+    ] as typeof r.fields[0].writers;
+    const out = parse({ ...r, replay: [
+      { who: "shroudforge:BetterStacks", state: "replayed", text: "x", fields: 1, optIn: true, mod: "replay.sf.betterstacks.1a2b3c4d" },
+      { who: "eml:more-recipes", state: "recorded", text: "its Lua ran this start: its effect is recorded (2 field(s)), replayable after a game update", fields: 2, optIn: false, mod: "replay.eml.more-recipes" },
+    ] });
+    expect(out.replay.map(x => [x.who, x.state, x.optIn])).toEqual([["shroudforge:BetterStacks", "replayed", true], ["eml:more-recipes", "recorded", false]]);
+    expect(out.replay[1].line).toBe("Effect replay, more-recipes (EML package): recorded. its Lua ran this start: its effect is recorded (2 field(s)), replayable after a game update");
+    expect(out.fields[0].writers[0].owner).toBe("BetterStacks (ShroudForge package, replayed from its recorded effect)");
+    // a conflict line whose loser is the stand-in names the package too
+    const lost = parse({ ...r, replay: [{ who: "shroudforge:BetterStacks", state: "replayed", text: "x", fields: 1, optIn: true, mod: "replay.sf.betterstacks.1a2b3c4d" }],
+      conflicts: [{ ...r.conflicts[0], winner: "stacker", loser: "replay.sf.betterstacks.1a2b3c4d" }] });
+    expect(lost.conflicts[0].loser).toBe("BetterStacks (ShroudForge package, replayed from its recorded effect)");
   });
   test.each(["null", "[]", "{}", "{", '{"format":2}'])("rejects invalid or unsupported document %s", text => {
     expect(() => parseRegistryReport(text)).toThrow();
@@ -355,7 +376,9 @@ describe("snapshot freshness", () => {
 // the EML pass's field-level ones included, and no locale still says a recipe or loot entry is never named (an EML pass
 // names them by their element).
 test("every locale has the archive-writer texts, the EML pass's field-level ones too, with English's placeholders", () => {
-  const keys = ["journal.read", "journal.truncated", "archiveUnattributed", "archiveOp", "archiveOpField", "kind.archiveWriter", "kind.archiveWriterField", "certaintyHint"];
+  const keys = ["journal.read", "journal.truncated", "archiveUnattributed", "archiveOp", "archiveOpField", "kind.archiveWriter", "kind.archiveWriterField", "certaintyHint",
+    // review-j3: the effect replay card (its toggle writes the opt-in file)
+    "replay.row", "replay.title", "replay.sub", "replay.toggle", "replay.toggleFor", "replay.saved", "replay.notSaved", "replay.unavailable", "replay.none"];
   const at = (o: unknown, k: string) => k.split(".").reduce<unknown>((x, p) => (x as Record<string, unknown> | undefined)?.[p], (o as Record<string, unknown>).registry);
   const ph = (s: unknown) => (String(s).match(/\{[a-z]+\}/gi) ?? []).sort().join();
   const old: Record<string, string> = { de: "Rezept- oder Beute-Eintrag wird nicht benannt", es: "no se nombra ninguna entrada de receta", fr: "recette ou de butin n'est pas nommée",

@@ -6856,6 +6856,14 @@
     "replay": {
       "row": "Effect replay, {who}: {state}. {text}",
       "optIn": "the opt-in file",
+      "title": "Effect replay",
+      "sub": "Kiln records what each ShroudForge and EML package changed in the registry. A package you opt in is replayed from that record after a game update, when its Lua no longer runs. The next start reads your choice.",
+      "toggle": "Replay after a game update",
+      "toggleFor": "Replay {who} after a game update",
+      "saved": "Saved. The next start reads it.",
+      "notSaved": "The choice could not be saved",
+      "unavailable": "The opt-in file could not be read",
+      "none": "No ShroudForge or EML package in the last start",
       "state": {
         "recorded": "recorded",
         "replayed": "replayed",

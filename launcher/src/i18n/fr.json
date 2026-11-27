@@ -6255,6 +6255,14 @@
     "replay": {
       "row": "Rejeu d'effet, {who} : {state}. {text}",
       "optIn": "le fichier d'activation",
+      "title": "Rejeu d'effet",
+      "sub": "Kiln enregistre ce que chaque paquet ShroudForge et EML a modifié dans le registre. Un paquet que vous activez est rejoué depuis cet enregistrement après une mise à jour du jeu, quand son Lua ne fonctionne plus. Le prochain démarrage lit votre choix.",
+      "toggle": "Rejouer après une mise à jour du jeu",
+      "toggleFor": "Rejouer {who} après une mise à jour du jeu",
+      "saved": "Enregistré. Le prochain démarrage le lit.",
+      "notSaved": "Le choix n'a pas pu être enregistré",
+      "unavailable": "Le fichier d'activation n'a pas pu être lu",
+      "none": "Aucun paquet ShroudForge ou EML au dernier démarrage",
       "state": {
         "recorded": "enregistré",
         "replayed": "rejoué",

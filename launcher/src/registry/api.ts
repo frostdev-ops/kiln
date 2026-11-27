@@ -35,3 +35,20 @@ export async function registryRollback(gameId: GameId, opts: { clear: boolean; d
       : await (await import("./mock")).mockRegistryRollback(opts);
   } catch (e) { throw toKilnError(e); }
 }
+
+/** Effect replay's opt-in file (kiln_manage::registry_plan::REPLAY_OPT_IN_REL, the one `kilnctl registry replay` writes):
+ * package ("shroudforge:<id>" / "eml:<id>") -> opted in. */
+export type RegistryReplayOptIns = Record<string, boolean>;
+export async function registryReplayOptIns(gameId: GameId): Promise<RegistryReplayOptIns> {
+  try {
+    return isTauri() ? await invoke<RegistryReplayOptIns>("registry_replay_opt_ins", { gameId })
+      : await (await import("./mock")).mockRegistryReplayOptIns();
+  } catch (e) { throw toKilnError(e); }
+}
+/** Opts one package in to effect replay (on) or out of it; the next start reads the file. Returns the file's packages. */
+export async function registryReplayOpt(gameId: GameId, who: string, on: boolean): Promise<RegistryReplayOptIns> {
+  try {
+    return isTauri() ? await invoke<RegistryReplayOptIns>("registry_replay_opt", { gameId, who, on })
+      : await (await import("./mock")).mockRegistryReplayOpt(who, on);
+  } catch (e) { throw toKilnError(e); }
+}
