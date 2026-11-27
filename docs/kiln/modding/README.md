@@ -57,7 +57,7 @@ generated [../status.generated.md](../status.generated.md); what has no API yet 
 | [../services/queries.md](../services/queries.md) | `Kiln.Queries`: what is on a line through the terrain, the ground below a point, voxel line of sight, the entities in a sphere or a box; the ray budget all mods share |
 | [../typegen.md](../typegen.md) | Typed reads of the game's ECS components: `Kiln.Ecs` (`TryGet`, `Get`, `Has`, `All`, `Supports`), generated per game build; example in §4.3 |
 | [typed-fields.md](typed-fields.md) | The game's data as typed C# structures, for what blocks don't cover: `GameFields`, `GameEnums`, checked string paths |
-| [registries/README.md](registries/README.md) | Kiln's registries (items, recipes, loot, drops, balance, lootRules, randomLoot): the game's data under Kiln-owned names and ids, with when each field takes effect. Experimental (KILNX031) |
+| [registries/README.md](registries/README.md) | Kiln's registries (items, recipes, loot, drops, balance, arsenals, creatures, perks, skills, stations, abilities, buffs, difficulty, world, limits, lootRules, randomLoot): the game's data under Kiln-owned names and ids, with when each field takes effect. Experimental (KILNX031) |
 | [registries/views.md](registries/views.md) | One read-only view over every registry and every other resource type of the game, under Kiln names (since 0.2.0-dev.32, KILNX031) |
 | [tiers.md](tiers.md) | Stable, Advanced, Native: what each public surface promises across a game update, what API 1.0.0 freezes, and how to move a mod up a tier |
 | [resource-patches.md](resource-patches.md) | Change a field of the game's data before the game reads it (the balancing table and the like): `resourcePatches` in a boot mod |
