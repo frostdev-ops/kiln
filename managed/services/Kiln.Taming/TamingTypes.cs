@@ -158,7 +158,7 @@ public sealed record TamingChoicesResult(bool Ok, string? Reason, ulong Revision
 /// <param name="Ok">See above.</param>
 /// <param name="Reason">Why not (a word first: WrongOwner, StaleSession, Busy, StaleStep, RequestConflict, StaleSelection,
 /// OutOfRange, Threshold, BodyGone, TemplateMismatch, Cap, DefinitionInUse, CommitDeferred, AttemptClosed, Expired,
-/// UncertainCommit, Canceled, NativePending, TooManyRequests, Refused).</param>
+/// UncertainCommit, PartialCostCommitted, Canceled, NativePending, TooManyRequests, Refused).</param>
 /// <param name="Progress">The attempt after the call.</param>
 /// <param name="Pet">The pet the tame made (a definition with <see cref="TamingDefinition.Pet"/>), as it was made; null
 /// otherwise.</param>
