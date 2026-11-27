@@ -128,8 +128,9 @@ public sealed class NpcSpeechTestMod : Mod
     private static EntityId _placed;
     private static string? _placeError;
 
-    // A fresh lab world has no villagers: Ramone's template (a villager with NpcDialog), spawned 3 m from a player (a
-    // LABBOT bot), so the real-NPC checks have an NPC. `near` finds it a moment later.
+    // A fresh lab world has no villagers: Ramone's template (a villager with NpcDialog), recruited for the world first
+    // (the game removes a locked villager 2 s after a spawn: lab run2 of the NPCD review), then spawned 3 m from a player
+    // (a LABBOT bot), so the real-NPC checks have an NPC. `near` finds it a moment later.
     private const string Ramone = "fe2ce3af-e771-4179-9450-f2dee8d21209";
 
     private static SpeechResult Place(CommandContext c)
@@ -145,6 +146,8 @@ public sealed class NpcSpeechTestMod : Mod
     {
         try
         {
+            var recruited = await Survivors.RecruitWorld(new SurvivorId(Villagers.NpcIdOf(Guid.Parse(Ramone))));
+            if (!recruited.Ok && recruited.Reason is { } why) _placeError = $"recruit: {why}";
             _placed = await Creatures.Spawn(Ramone, at, 180, new CreatureSpawnOptions { Tag = "npcspeech-test" });
         }
         catch (Exception e)
