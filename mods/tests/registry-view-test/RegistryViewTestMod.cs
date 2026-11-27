@@ -49,11 +49,19 @@ public sealed class RegistryViewTestMod : Mod
         var field = itemInfo?.Field("maxStackSize");
         Check(field is { CoveredBy: "items.maxStack", Exact: true, Readable: true }, $"itemInfo.maxStackSize is covered by {field?.CoveredBy ?? "nothing"} (exact {field?.Exact})");
         var wood = new RegistryId("game:material_t1_wood_logs");
-        if (itemInfo is not null && itemInfo.Select(wood.Value).Count == 1)
+        clock.Restart();
+        var woodIds = itemInfo?.Select(wood.Value) ?? [];
+        var itemListMs = clock.Elapsed.TotalMilliseconds;
+        if (itemInfo is not null && woodIds.Count == 1)
         {
+            clock.Restart();
             var viaView = itemInfo[wood].Get<int>("maxStackSize");
+            var viewReadMs = clock.Elapsed.TotalMilliseconds;
+            clock.Restart();
             var viaRegistry = RegistryViews.Find("items")![wood].Get<int>("maxStack");
-            Check(viaView == viaRegistry && viaView > 0, $"{wood.Value}: maxStackSize {viaView} through the advanced view, maxStack {viaRegistry} through the registry");
+            var registryReadMs = clock.Elapsed.TotalMilliseconds;
+            Check(viaView == viaRegistry && viaView > 0, $"{wood.Value}: maxStackSize {viaView} through the advanced view, maxStack {viaRegistry} through the registry " +
+                $"(itemInfo's first Select {itemListMs:F0} ms, the view read {viewReadMs:F0} ms, the registry's first read {registryReadMs:F0} ms)");
         }
         else Check(false, $"itemInfo has no {wood.Value}");
         // a member one field maps one to one and formulas only read is that field (review of J1)
@@ -97,14 +105,18 @@ public sealed class RegistryViewTestMod : Mod
             var fs = v.Fields;
             fields += fs.Count;
             unread += fs.Count(f => !f.Readable);
+            var listClock = Stopwatch.StartNew();
             var ids = v.Select();
+            var selectMs = listClock.Elapsed.TotalMilliseconds;
             entries += ids.Count;
-            var row = new JsonObject { ["view"] = v.Name, ["fields"] = fs.Count, ["unread"] = fs.Count(f => !f.Readable), ["entries"] = ids.Count,
+            var row = new JsonObject { ["view"] = v.Name, ["fields"] = fs.Count, ["unread"] = fs.Count(f => !f.Readable), ["entries"] = ids.Count, ["selectMs"] = Math.Round(selectMs, 1),
                 ["coveredBy"] = new JsonArray(fs.Where(f => f.CoveredBy is not null).Select(f => (JsonNode)JsonValue.Create(f.CoveredBy!)!).Distinct().ToArray()) };
             if (ids.Count > 0)
             {
                 ++withEntries;
+                listClock.Restart();
                 var snap = v[ids[0]].Snapshot();
+                row["snapshotMs"] = Math.Round(listClock.Elapsed.TotalMilliseconds, 1);
                 read += snap.Fields.Count;
                 refused += snap.Refused.Count;
                 row["firstRead"] = snap.Fields.Count;
