@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 // Pet clearance calibration on a dedicated lab server (dossier 19d, gate C6), player-free:
-//   fixtures  sealed lanes of building blocks (Fixtures.cs): corridors 0.5/1/2 m wide with 1/2/3 m headroom, a door-wall
-//             doorway, two S-bends, the wide open control; written once per session (Transient), far from the base;
+//   fixtures  sealed lanes of building blocks (Fixtures.cs): corridors 0.5/1/2 m wide with 1/2/3 m headroom, a 1.5 m gap
+//             under 3 m, 1.5 m of headroom over 2 m, a door-wall doorway, two S-bends, the wide open control; written once
+//             per session (Transient), far from the base;
 //   bodies    each plan creature spawned without an owner, forced ready (lab), invulnerable, on the players' side, at its
 //             scale, held by Kiln.Pets' own broker leases (PetControl: PetStay, then PetFollow) as a pet's body is;
 //   sweep     per fixture, kiln.queries routes from the start to the exit room for every HorizontalSpace x VerticalSpace

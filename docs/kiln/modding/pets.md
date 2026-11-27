@@ -79,30 +79,45 @@ thread; `await` them from your handlers or commands.
 
 ## Walking beside the owner: measured clearance
 
-A pet walks routes beside its owner only when Kiln has a **measured clearance profile** for its creature, at its scale,
-on the running game build ([the service page](../services/pets.md#measured-clearance-gate-c6)). Without one it still
-follows, by catching up to its owner on safe ground. Kiln ships profiles for the game creatures it calibrated (the list
-is on the service page: wolves, boars, the Sabertooth, hounds, spiders, the rat and the Vukah, among others); a game
-update invalidates them until Kiln ships new ones.
+A pet walks routes beside its owner only when Kiln has a **measured clearance profile** for its creature's body, at its
+scale, on the running game build ([the service page](../services/pets.md#measured-clearance-gate-c6)). Without one it
+still follows, by catching up to its owner on safe ground. Kiln ships two kinds, and a game update invalidates both
+until Kiln ships new ones:
+- **creature profiles** for the game creatures it calibrated one by one (the list is on the service page);
+- **body profiles**: when three or more walking creatures with the same body (path walker, movement collider, the
+  template's own scale) were calibrated and every one passed with the same pair, every walking creature with that body
+  gets it. These cover most of the game's walking enemies at scale 1 (the service page lists the bodies).
 
-Your own creature block, or a game creature at a scale Kiln did not calibrate, needs a profile of your own:
+A game creature's id matches whatever its case (`game:Enemy_Vukah_Melee` is `game:enemy_vukah_melee`).
 
-1. Build your mod, then calibrate on a dedicated lab server (no game client is involved):
+Your own creature block, or a game creature at a scale Kiln did not calibrate, needs a profile of your own (unless its
+body has a body profile). The calibration runs on Kiln's own lab tooling, on a dedicated lab server (no game client), so
+it needs what Kiln's developers use:
+- a Kiln source checkout, on Linux ([Building on Linux](../building-on-linux.md): `prepare` builds Kiln and deploys it
+  into the lab);
+- the lab base: a vanilla SteamCMD install of the dedicated server in `~/srv/enshrouded/lab2` with a world in its
+  `savegame` folder, and a GE-Proton Wine prefix in `~/srv/enshrouded/ge-pfx`
+  ([Lab base](../linux-server.md#lab-base-srvenshroudedlab2); `tools/lab/lab.sh` says what it reads).
+
+1. Build your mod, then calibrate in a lab of your own (a lowercase `<name>-<name>` and a free UDP port):
    ```
-   tools/pets-clearance/calibrate.sh prepare --creature my-mod:wolfling --mod path/to/built/my-mod --out .out/my-clearance
-   tools/pets-clearance/calibrate.sh run --out .out/my-clearance      # one lab session: 1 min + 4.5 min a creature
-   tools/pets-clearance/calibrate.sh profile --out .out/my-clearance
+   tools/pets-clearance/calibrate.sh prepare --lab my-pets --port 32100 --creature my-mod:wolfling --mod path/to/built/my-mod --out .out/my-clearance
+   tools/pets-clearance/calibrate.sh run --lab my-pets --out .out/my-clearance     # one lab session: 1 min, then 5 min a creature (2.5 with --no-native at prepare)
+   tools/pets-clearance/calibrate.sh profile --lab my-pets --out .out/my-clearance
    ```
    For a game creature at another scale: `--creature game:enemy_wildbeast_wolf_earlygame@1.5`. `report.md` shows every
-   fixture and requirement pair, and why a pair failed.
+   fixture and requirement pair, and why a pair failed or does not vouch for the body. `run` stops at once when the lab
+   server ends before the lab mod's last line.
 2. Ship `.out/my-clearance/clearance.json` as `pets/clearance.json` in your mod's folder. It applies to your mod's pets
-   only, and only on the game build it names.
+   only, and only on the game build it names. It may hold body profiles too, when you calibrated three or more creatures
+   of one body.
 3. Calibrate again after a game update (the profile names the build), and after you change the creature's `Body.Size`
-   (the profile names the body it was measured on).
+   or `Body.Scale` (the profile names the body it was measured on; a running server notices a changed body within 10 s).
 
 A creature for which no requirement pair passes gets no profile: a route it accepts somewhere would be one its body
 cannot walk. Nor does a body wider than 2 m or taller than 3 m (the lab's widest gap and highest headroom), which the
-fixtures cannot judge. Its pets catch up instead.
+fixtures cannot judge, nor a pair that leaves a gap or headroom one 0.5 m cell narrower or lower than the body
+unmeasured. Its pets catch up instead.
 
 ## The HUD
 
