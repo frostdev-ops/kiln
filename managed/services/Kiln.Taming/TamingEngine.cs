@@ -829,16 +829,24 @@ internal sealed class TamingEngine
         var item = step is FeedStep f ? f.Item : ((UseToolStep)step).Item;
         var count = step is FeedStep fc ? fc.Count : 1;
         var list = new List<TamingItemChoice>();
+        var truncated = false;
         foreach (var s in _costs.Slots(a.OwnerEntity))
         {
             if (s.Item != item || s.IsEmpty) continue;
             if (step is FeedStep ? !s.ItemEntity.IsNone || s.Count < count : s.ItemEntity.IsNone || s.Ref.IsNone || s.IsBroken) continue;
-            if (list.Count == MaxReceiptsPerAttempt) return new(false, "ChoiceLimit: more than 256 matching slots", TokenOf(a), []);
+            if (list.Count == MaxChoices)
+            {
+                truncated = true;   // the first 256 are listed, and the answer says there were more (never a refusal)
+                break;
+            }
             var label = $"{s.Slot} x{s.Count}";
             list.Add(new TamingItemChoice(ItemSelection.Of(a.OwnerEntity, s), label.Length > 64 ? label[..64] : label));
         }
-        return new(true, null, TokenOf(a), list);
+        return new(true, null, TokenOf(a), list) { Truncated = truncated };
     }
+
+    /// <summary>The most choices <see cref="Choices"/> lists.</summary>
+    internal const int MaxChoices = 256;
 
     private static TamingToken TokenOf(Attempt a) => new(a.Challenge, a.Revision, a.Completed);
 

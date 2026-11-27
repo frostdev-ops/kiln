@@ -145,6 +145,8 @@ Kiln.TamingChoicesResult.Reason.init -> void
 Kiln.TamingChoicesResult.Refusal.get -> Kiln.TamingRefusal
 Kiln.TamingChoicesResult.TamingChoicesResult(bool Ok, string? Reason, Kiln.TamingToken? Token, System.Collections.Generic.IReadOnlyList<Kiln.TamingItemChoice!>! Choices) -> void
 Kiln.TamingChoicesResult.Token.get -> Kiln.TamingToken?
+Kiln.TamingChoicesResult.Truncated.get -> bool
+Kiln.TamingChoicesResult.Truncated.init -> void
 Kiln.TamingChoicesResult.Token.init -> void
 Kiln.TamingCommitContext
 Kiln.TamingCommitContext.<Clone>$() -> Kiln.TamingCommitContext!

@@ -179,6 +179,10 @@ public sealed record TamingItemChoice(ItemSelection Selection, string Label);
 /// <param name="Choices">The slots that can pay the step.</param>
 public sealed record TamingChoicesResult(bool Ok, string? Reason, TamingToken? Token, IReadOnlyList<TamingItemChoice> Choices) : IKilnResult
 {
+    /// <summary>More slots could pay the step than the 256 <see cref="Choices"/> lists: these are the first 256 in the
+    /// owner's inventories' order (a UI says that there are more).</summary>
+    public bool Truncated { get; init; }
+
     /// <summary>Why not, as a value: <see cref="TamingRefusal.None"/> when <see cref="Ok"/>, else the first word of
     /// <see cref="Reason"/>.</summary>
     public TamingRefusal Refusal => RefusalWords.Of(Ok, Reason, TamingRefusal.None, TamingRefusal.Other);

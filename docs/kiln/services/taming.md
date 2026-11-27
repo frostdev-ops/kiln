@@ -69,7 +69,7 @@ The same in JSON: `Taming.DefineJson(json)`, one object or an array ([modding/ta
 | `Taming.Advance(player, attempt, request, selection)` | Checks the token, range, target and threshold, and posts `TamingAdvancingEvent`. For the last step it also preflights the pet's slot and posts `TamingCommittingEvent`. It takes the exact cost and applies the step (`TamingStepChangedEvent`). After the last step it tames. |
 | `Taming.Retry(player, attempt, request)` | The cost-free retry of a deferred tame (`AwaitingCommit`): it checks again and binds, taking nothing. |
 | `Taming.Cancel(player, attempt, request)` | Ends the attempt; a cost in flight settles first. |
-| `Taming.Inspect(attempt)` / `Taming.Choices(player, attempt)` | Reads only: the attempt now, and the owner's slots that can pay the next step (at most 256, as server selections). |
+| `Taming.Inspect(attempt)` / `Taming.Choices(player, attempt)` | Reads only: the attempt now, and the owner's slots that can pay the next step (as server selections: the first 256, with `Truncated` when more could pay). |
 
 **Requests and tokens.** Every action takes a `TamingRequest(RequestId, Token)`, the one request shape of Kiln.Pets
 (`PetRequest(RequestId, ExpectedStateRevision)`) and Kiln.Taming: `TamingRequest.New(progress.Token)`. Each answer's

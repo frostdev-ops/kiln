@@ -72,7 +72,7 @@ public sealed class TamingApiShapeTests
     [Fact]
     public void Every_reason_word_Kiln_Taming_writes_is_a_refusal_member()
     {
-        var notResults = new HashSet<string> { "ItemUnknown", "ChoiceLimit" };   // ItemUnknown: TamingJson's ArgumentException text; ChoiceLimit: until A7   // TamingJson's: an ArgumentException's text, never a result
+        var notResults = new HashSet<string> { "ItemUnknown" };   // TamingJson's: an ArgumentException's text, never a result
         var words = SourceWords("Kiln.Taming").Where(w => !notResults.Contains(w)).ToHashSet();
         Assert.Contains("AttemptClosed", words);
         Assert.Empty(words.Where(w => !Enum.TryParse<TamingRefusal>(w, out _)).Order());
@@ -114,5 +114,26 @@ public sealed class TamingApiShapeTests
     {
         foreach (var name in new[] { nameof(Taming.Begin), nameof(Taming.Advance), nameof(Taming.Retry), nameof(Taming.Cancel) })
             Assert.Equal(typeof(Task<TamingResult>), typeof(Taming).GetMethod(name)!.ReturnType);
+    }
+
+    // ---- A7: Choices lists the first 256 and says it cut the list ----
+
+    [Fact]
+    public void Choices_past_256_slots_lists_the_first_256_and_says_so()
+    {
+        var f = new TamingFixture().With(FeedTwice());
+        f.Costs.Inventory = Enumerable.Range(1, 300)
+            .Select(i => new InventorySlot(new SlotId((ulong)i), Bait, 5, EntityId.None, 0, null, default, 0, false, false, false, 0)).ToList();
+        var p = f.Begin().Progress!;
+        var c = f.Engine.Choices(f.A, p.Id);
+        Assert.True(c.Ok, c.Reason);
+        Assert.True(c.Truncated);
+        Assert.Equal(256, c.Choices.Count);
+        Assert.Equal(new SlotId(1), c.Choices[0].Selection.Slot);
+        Assert.Equal(p.Token, c.Token);
+        f.Costs.Inventory = f.Costs.Inventory.Take(3).ToList();
+        Assert.False(f.Engine.Choices(f.A, p.Id).Truncated);
+        Assert.Equal(TamingRefusal.NotOwner, f.Engine.Choices(f.B, p.Id).Refusal);
+        Assert.Equal(TamingRefusal.AttemptClosed, f.Engine.Choices(f.A, new TameAttemptId(Guid.NewGuid())).Refusal);
     }
 }

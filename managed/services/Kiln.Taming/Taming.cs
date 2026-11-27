@@ -129,8 +129,9 @@ public static class Taming
     [RequiresCapability("taming.steps")]
     public static TamingProgress? Inspect(TameAttemptId attempt) => Engine("Taming.Inspect").Inspect(attempt);
 
-    /// <summary>The slots of the owner's inventories that can pay the next step (at most 256), as selections the server
-    /// read, with the token of the view they were read on (<see cref="TamingChoicesResult.Token"/>). A read only: it
+    /// <summary>The slots of the owner's inventories that can pay the next step, as selections the server read, with the
+    /// token of the view they were read on (<see cref="TamingChoicesResult.Token"/>): the first 256, and
+    /// <see cref="TamingChoicesResult.Truncated"/> when more could pay (never a refusal for many slots). A read only: it
     /// refreshes no timeout.</summary>
     [TickThreadOnly]
     [RequiresCapability("taming.steps")]
