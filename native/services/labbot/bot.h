@@ -146,13 +146,14 @@ struct Engine {
     virtual bool end_game(uint32_t slot) = 0;
 };
 
-// Steps (server frames) each phase may take before the bot gives up.
+// Milliseconds each phase may take before the bot gives up (Bot::step's `now` is a millisecond clock: the GameServer's
+// receive step runs hundreds of times a second, so a count of steps is no measure of time; lab p1).
 struct Limits {
-    uint64_t connect = 600;   // ~10 s: the GameServer sees the published state within a frame or two
-    uint64_t login = 600;
-    uint64_t load = 3600;     // ~60 s: the spawn position search streams the world around the spawn point
-    uint64_t spawn = 3600;
-    uint64_t leave = 1200;    // ~20 s: the final save waits up to 5 s for an ack, the record's removal a few frames
+    uint64_t connect = 10000;  // the session publishes within a frame or two, SyncSockets makes the sockets in the next
+    uint64_t login = 10000;
+    uint64_t load = 60000;     // the spawn position search streams the world around the spawn point
+    uint64_t spawn = 60000;
+    uint64_t leave = 20000;    // the final save waits up to 5 s for an ack, the record's removal a few frames
 };
 
 struct Bot {
@@ -165,8 +166,8 @@ struct Bot {
     // progress
     Phase phase = Phase::Free;
     std::string reason;            // Failed / Left: why; otherwise the last notable event
-    uint64_t phase_since = 0;      // step the phase began
-    uint64_t joined = 0, in_game = 0;
+    uint64_t phase_since = 0;      // `now` the phase began
+    uint64_t joined = 0, in_game = 0;  // `now` of the first step and of the entity's appearance
     uint32_t entity = 0;
     uint8_t record_state = 0, permissions = 0;
     bool upload_sent = false, ready_sent = false, final_sent = false;
@@ -176,7 +177,7 @@ struct Bot {
 
     // Whether the published state must list this bot now (the session thread asks).
     bool injected() const { return phase >= Phase::Connecting && phase <= Phase::Leaving; }
-    // One server frame. `now` = the server step.
+    // One server frame. `now` = a millisecond clock (Limits are in milliseconds); it never goes back.
     void step(Engine& g, uint64_t now, const LoginLayout& L, const Limits& lim = {});
     // Ends the bot's game: a clean logout (final save, the game removes it), or `drop` = as a lost connection (the
     // published state stops listing it and the game resets the record). Before the bot is in game: always a drop.

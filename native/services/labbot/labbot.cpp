@@ -351,6 +351,7 @@ struct Slot {
     Bot bot;
     Phase logged = Phase::Free;
     uint64_t last_note = 0;
+    uint64_t joined_step = 0, in_game_step = 0;  // server steps (KilnLabBotInfo); the bot itself counts milliseconds
 };
 std::recursive_mutex g_mu;  // the bots; GameServer thread steps them, any thread reads info/list
 Slot g_slots[KILN_LABBOT_MAX];
@@ -379,8 +380,8 @@ void fill_info(const Slot& s, KilnLabBotInfo* out) {
     out->saves_acked = s.bot.saves_acked;
     out->account = s.bot.account;
     std::memcpy(out->character_id, s.bot.character, 16);
-    out->joined_step = s.bot.joined;
-    out->in_game_step = s.bot.in_game;
+    out->joined_step = s.joined_step;
+    out->in_game_step = s.in_game_step;
     std::snprintf(out->name, sizeof out->name, "%s", s.bot.name.c_str());
     std::snprintf(out->reason, sizeof out->reason, "%s", s.bot.reason.c_str());
 }
@@ -388,14 +389,17 @@ void fill_info(const Slot& s, KilnLabBotInfo* out) {
 void step_bots(uintptr_t gs) {
     std::lock_guard<std::recursive_mutex> lk(g_mu);
     const uint64_t now = g_step.fetch_add(1, std::memory_order_relaxed) + 1;
+    const uint64_t ms = GetTickCount64();
     GameEngine eng;
     eng.gs = gs;
     for (uint32_t i = 0; i < KILN_LABBOT_MAX; ++i) {
         Slot& s = g_slots[i];
         if (!s.used) continue;
         const Phase before = s.bot.phase;
-        if (live(s)) s.bot.step(eng, now, g_login);
+        if (live(s)) s.bot.step(eng, ms, g_login);
         const Phase after = s.bot.phase;
+        if (!s.joined_step) s.joined_step = now;
+        if (after == Phase::InGame && !s.in_game_step) s.in_game_step = now;
         pub_set(i, s.bot.entry, s.bot.injected());
         if (after == Phase::Loading && s.logged == Phase::LoggingIn) {
             const labbot::SaveView sv = eng.save(s.bot.entry.slot);
@@ -410,8 +414,8 @@ void step_bots(uintptr_t gs) {
             s.logged = after;
         }
         // while it waits to be seen, say what is missing every ~5 s
-        if (after == Phase::Connecting && before == Phase::Connecting && now - s.last_note >= 100) {
-            s.last_note = now;
+        if (after == Phase::Connecting && before == Phase::Connecting && ms - s.last_note >= 5000) {
+            s.last_note = ms;
             logf(KILN_LOG_INFO, "labbot: bot %u '%s' waits to be seen: %s", s.id, s.bot.name.c_str(), eng.seen.c_str());
         }
     }

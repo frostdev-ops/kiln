@@ -498,6 +498,28 @@ void t_failures() {
     }
 }
 
+// 11: the limits are wall-clock milliseconds (labbot.cpp passes GetTickCount64): the GameServer's receive step runs
+// hundreds of times a second (lab p1: 3600 steps in 5.5 s), so a slow spawn search (a rejoin) must not fail at 5 s
+void t_limits_are_time() {
+    FakeGame g;
+    g.load_frames = 1000000;  // the spawn search does not end in this test
+    Bot b = make_bot();
+    uint64_t ms = 1000;
+    for (int i = 0; i < 6000 && !ended(b); ++i) {  // 6 s, one step a millisecond
+        g.frame();
+        b.step(g, ++ms, g.L);
+    }
+    CHECK(b.phase == Phase::Loading, "6 s of 1 ms steps: still loading (%s: %s)", phase_name(b.phase), b.reason.c_str());
+    for (int i = 0; i < 60 && !ended(b); ++i) {  // then a step a second up to the limit
+        g.frame();
+        ms += 1000;
+        b.step(g, ms, g.L);
+    }
+    CHECK(b.phase == Phase::Failed && b.reason.find("state 1") != std::string::npos, "the load limit: %s '%s'", phase_name(b.phase), b.reason.c_str());
+    Limits lim;
+    CHECK(lim.connect >= 10000 && lim.load >= 60000 && lim.leave >= 20000, "limits in ms");
+}
+
 void t_leave_timeout() {
     FakeGame g;
     g.never_free = true;
@@ -528,6 +550,7 @@ int main() {
     t_drop();
     t_failures();
     t_leave_timeout();
+    t_limits_are_time();
     std::printf("labbot host: %d checks, %d failed\n", g_checks, g_failures);
     return g_failures ? 1 : 0;
 }
