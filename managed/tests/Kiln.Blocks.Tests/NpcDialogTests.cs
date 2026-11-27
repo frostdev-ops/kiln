@@ -409,9 +409,9 @@ public sealed unsafe class NpcDialogTests : IDisposable
         Assert.Empty(Wire.OfType<SpeechMsg>());                          // 31.16-31.21 clients have no farewells
         Assert.Equal(SpeechMode.Game, Npcs.SpeechOf(Ramone));            // the greeting is its own
 
-        var no = f.Suppress();
-        Assert.False(no.Ok);
-        Assert.Contains("Replace", no.Reason);
+        // dev.32 api-shape (docs lane C's C7): a farewell cannot be suppressed, so its handle has no Suppress to answer Ok:false
+        Assert.IsType<NpcLines>(f);
+        Assert.Null(typeof(NpcLines).GetMethod("Suppress"));
 
         Wire.Clear();
         f.Clear();
@@ -458,7 +458,7 @@ public sealed unsafe class NpcDialogTests : IDisposable
         Assert.Contains($"lines {Ramone.Value} 2 2 [{Tag("I can't work like this. Bring me food."):x8}] pick 1 seed 0", Snapshot());
         Assert.Equal(NpcLineKind.MenuLine, Assert.Single(Wire.OfType<LinesMsg>()).Kind);
         Assert.Empty(Wire.OfType<SpeechMsg>());
-        Assert.False(m.Suppress().Ok);
+        Assert.IsType<NpcLines>(m);                                        // no Suppress (C7)
         Assert.Throws<ArgumentException>(() => Npcs.MenuLine(EntityId.None));
     }
 

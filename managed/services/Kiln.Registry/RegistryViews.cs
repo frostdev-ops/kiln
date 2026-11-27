@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // One read-only view over every registry and every other resource type the game has (kiln.registry.view,
 // native/core/abi/services/kiln_registry_view.h; docs/kiln/modding/registries/views.md). Stable views are the registries:
-// they read what the registry resolved, mapped and proven per game build, and are written through Registry.Change and
+// they read what the registry resolved, mapped and proven per game build, and are written through Registries.Change and
 // Mod.OnRegistry as before. Advanced views are every other resource type of the running build (quests, NPC dialogs,
 // materials, UI data), with Kiln names derived from the game's reflection and kept by Kiln's alias table across game updates:
 // verified per game build, read-only. A field a registry covers says so (CoveredBy), the stable way to the same data.
@@ -135,7 +135,7 @@ public static class RegistryViews
 
     /// <summary>Kiln serves the views here (they open once the game's resources are loaded: before that, calls throw
     /// <see cref="KilnUnavailableException"/> with the reason).</summary>
-    [AnyThread]
+    [AnyThread, CapabilityGuard(Service)]
     public static bool Available => Backend() is not null;
 
     /// <summary>Every view, stable ones first.</summary>

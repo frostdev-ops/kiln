@@ -837,7 +837,15 @@ void bind_service() {
             if (!docs.empty()) old = [docs, front_ids](model::Model& model) { return boothook::old_writes(docs, model, &front_ids); };
             return runner().run(old, freeze, fronts);
         },
-        &boothook::write, [](const std::vector<BootOutcome>& o) { runner().finish(o, std::exchange(applied_fronts(), {})); },
+        &boothook::write,
+        [](const std::vector<BootOutcome>& o) {
+            // the altar rule's two values (limits.h altar_notes): a table above the cap in effect is said, with what to raise
+            json game;
+            std::string why;
+            const int64_t cap = limits::base_value("altarCap", &game, &why) && game.is_number_integer() ? game.get<int64_t>() : 0;
+            for (const std::string& line : limits::altar_notes(o, cap)) LOGW("%s", line.c_str());
+            runner().finish(o, std::exchange(applied_fronts(), {}));
+        },
         [](const BootResource& rb, std::vector<BootOutcome>* outcomes, std::vector<std::string>* notes) {
             const size_t n = limits::apply(rb, outcomes, notes);
             look_for_other_hooks(true);  // a hook placed before the stage (a plugin's, an early mod's)

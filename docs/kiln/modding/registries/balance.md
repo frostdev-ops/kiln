@@ -6,7 +6,7 @@ The game's balance table: experience and levels, the flame's altars and water so
 
 Schema version 0.1.1, experimental (KILNX031: may change in any release until it is marked stable). C# entry type `Kiln.Registry.BalanceEntry`. What registries are, the stages, the conflict rules and how ids are made: [README](README.md).
 
-Edits per call: 4,096. One `OnRegistry` callback (one phase of one entry point) or one `Registry.Change` takes at most this many edits of this registry; a call with more is refused whole, with the reason in kiln.log and registry.json, and nothing of it applies (the other calls do). The default for a registry whose schema declares none (4,096).
+Edits per call: 4,096. One `OnRegistry` callback (one phase of one entry point) or one `Registries.Change` takes at most this many edits of this registry; a call with more is refused whole, with the reason in kiln.log and registry.json, and nothing of it applies (the other calls do). The default for a registry whose schema declares none (4,096).
 
 ## Ids
 
@@ -38,7 +38,7 @@ Groups of fields:
 | `levelCap` | int 1..1000 | restart | number | 0.1.0 | mapped | restart | The highest player level. |
 | `skillPointsPerLevel` | int 0..1000 | restart | number | 0.1.0 | mapped | restart | Skill points a level gives. |
 | `flameLevelMax` | int 0..1000 | restart | read-only | 0.1.0 | mapped | restart | The highest flame level. Read-only in this version: the per-flame-level lists are exactly flameLevelMax + 1 long. |
-| `altarsPerFlameLevel` | list of int 0..255, as long as flameLevelMax + 1 | restart | indexed | 0.1.0 | mapped | restart | Flame altars allowed at each flame level, one value per level from 0 to flameLevelMax. The game's code allows at most 16 whatever the table says; limits.maxAltars raises that (since dev.32). Edited one level at a time (altarsPerFlameLevel[i]). |
+| `altarsPerFlameLevel` | list of int 0..255, as long as flameLevelMax + 1 | restart | indexed | 0.1.0 | mapped | restart | Flame altars allowed at each flame level, one value per level from 0 to flameLevelMax. The game's code allows at most 16 whatever the table says; limits.maxAltars raises that (since dev.32): a level above limits.maxAltars allows limits.maxAltars, and kiln.log says so. Edited one level at a time (altarsPerFlameLevel[i]). |
 | `waterSourcesPerFlameLevel` | list of int 0..255, as long as flameLevelMax + 1 | restart | indexed | 0.1.0 | mapped | restart | Water sources allowed at each flame level, one value per level from 0 to flameLevelMax. Edited one level at a time. |
 | `buildzoneSizesPerAltarLevel` | list of entries, at most 1001 | restart | list | 0.1.0 | mapped | restart | The size of an altar's build zone at each altar level, in metres. |
 | `buildzoneSizesPerAltarLevel[].x` | float m 0..100000 | restart | number | 0.1.0 | mapped | restart | The build zone's size along x, in metres. |

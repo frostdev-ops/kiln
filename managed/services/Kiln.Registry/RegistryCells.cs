@@ -117,6 +117,31 @@ internal static class RegistryCells
         throw Mismatch(field, o, "one of " + string.Join(", ", names));
     }
 
+    // An enum whose one value is no value (loot.fixedRarity's "none", C#'s null; dev.32 api-shape): the index of the others.
+    internal static int? OptionalEnum(IRegistryCells c, int field, int index, string[] names, string none)
+    {
+        var o = Get(c, field, index);
+        if (o is null || (o is string n && n == none))
+            return null;
+        if (o is string s)
+        {
+            int at = Array.IndexOf(names, s);
+            if (at >= 0)
+                return at;
+        }
+        throw Mismatch(field, o, none + " or one of " + string.Join(", ", names));
+    }
+
+    internal static void SetOptionalEnum(IRegistryCells c, int field, int index, string[] names, string none, int? value)
+    {
+        if (value is not { } v)
+        {
+            c.Set(field, index, none);
+            return;
+        }
+        SetEnum(c, field, index, names, v);
+    }
+
     internal static uint Flags(IRegistryCells c, int field, int index, string[] names)
     {
         var o = Get(c, field, index);

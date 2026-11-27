@@ -33,6 +33,22 @@ public sealed class ApiScanSourceTests
             {
                 public static class Capabilities { public static bool Is(string name) => true; }
                 public static unsafe class Services { public static T* Get<T>(string name, int version) where T : unmanaged => null; }
+                [System.AttributeUsage(System.AttributeTargets.Property)]
+                internal sealed class CapabilityGuardAttribute(params string[] rows) : System.Attribute { public string[] Rows { get; } = rows; }
+                // dev.32 api-shape: test seams (a static delegate asking the row) and parameterless helpers, and Kiln's declaration
+                public static class Seams
+                {
+                    internal static System.Func<bool> StacksOn = () => Capabilities.Is("svc.stacks");
+                    internal static System.Func<string, bool> Is = name => Capabilities.Is(name);
+                    internal static bool StepsOn() => Is("svc.steps");
+                    internal static bool Busy() => Svc.Side;
+                    public static bool StacksAvailable => StacksOn();
+                    public static bool StepsAvailable => StepsOn();
+                    public static bool NotAvailable => Busy();
+                    [CapabilityGuard("svc.host", "svc.host.live")]
+                    public static bool HostAvailable => Transport?.Invoke() == true;
+                    internal static System.Func<bool>? Transport;
+                }
                 public static unsafe class Svc
                 {
                     private struct Table { public int X; }
@@ -81,8 +97,16 @@ public sealed class ApiScanSourceTests
         var facts = new Dictionary<string, ApiScanGuards.Guard>(StringComparer.Ordinal);
         foreach (var pd in tree.GetRoot(TestContext.Current.CancellationToken).DescendantNodes().OfType<PropertyDeclarationSyntax>())
             if (ApiScanGuards.Read(model, pd, TestContext.Current.CancellationToken) is { } g)
-                facts["P:Kiln.Svc." + pd.Identifier.ValueText] = g;
-        var rows = ApiScanGuards.Resolve(facts).ToDictionary(r => r.Key.Substring("P:Kiln.Svc.".Length), r => string.Join(",", r.Value.Rows));
+                facts[model.GetDeclaredSymbol(pd, TestContext.Current.CancellationToken)!.GetDocumentationCommentId()!] = g;
+        var resolved = ApiScanGuards.Resolve(facts);
+        var rows = resolved.Where(r => r.Key.StartsWith("P:Kiln.Svc.", StringComparison.Ordinal))
+            .ToDictionary(r => r.Key.Substring("P:Kiln.Svc.".Length), r => string.Join(",", r.Value.Rows));
+        // dev.32 api-shape (docs lane C's C8: Taming.Available, ItemCosts.StacksAvailable, Registry.Available were not guards)
+        Assert.Equal(("svc.stacks", "StacksOn(): Is(\"svc.stacks\")"), Row("P:Kiln.Seams.StacksAvailable"));  // a delegate seam
+        Assert.Equal(("svc.steps", "StepsOn(): Is(\"svc.steps\")"), Row("P:Kiln.Seams.StepsAvailable"));     // a helper through one
+        Assert.False(resolved.ContainsKey("P:Kiln.Seams.NotAvailable"));                                     // a helper that asks none
+        Assert.Equal(("svc.host,svc.host.live", "[CapabilityGuard(\"svc.host\")]; [CapabilityGuard(\"svc.host.live\")]"), Row("P:Kiln.Seams.HostAvailable"));
+        (string, string) Row(string id) => (string.Join(",", resolved[id].Rows), resolved[id].Why);
         Assert.Equal("kiln.svc", rows["Available"]);              // T != null, T from Services.Get("kiln.svc")
         Assert.Equal("kiln.svc", rows["DelegatedAvailable"]);     // through U => T
         Assert.Equal("kiln.svc", rows["LocalAvailable"]);         // through var t = T

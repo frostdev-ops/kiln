@@ -24,9 +24,9 @@ public sealed partial class ItemLootEntry : IRegistryEntry
     [RegistryField("loot.rarities", RegistryApplies.Now, JoinedClient = "serverOnly")]
     public RegistryRarities Rarities { get => (RegistryRarities)RegistryCells.Flags(_c, ItemLootFields.Rarities, _i, RegistryRaritiesNames.All); set => RegistryCells.SetFlags(_c, ItemLootFields.Rarities, _i, RegistryRaritiesNames.All, (uint)value); }
 
-    /// <summary>A rarity every drop gets (none: rolled from rarities).</summary>
+    /// <summary>A rarity every drop gets (none: rolled from rarities). In C# ItemLootEntry.Rarity, null for none (0.2.0-dev.31's FixedRarity, an ItemLootRarity, still works).</summary>
     [RegistryField("loot.fixedRarity", RegistryApplies.Now, JoinedClient = "serverOnly")]
-    public ItemLootRarity FixedRarity { get => (ItemLootRarity)RegistryCells.Enum(_c, ItemLootFields.FixedRarity, _i, ItemLootRarityNames.All); set => RegistryCells.SetEnum(_c, ItemLootFields.FixedRarity, _i, ItemLootRarityNames.All, (int)value); }
+    public RegistryRarity? Rarity { get => RegistryCells.OptionalEnum(_c, ItemLootFields.FixedRarity, _i, RegistryRarityNames.All, "none") is int k ? (RegistryRarity)k : null; set => RegistryCells.SetOptionalEnum(_c, ItemLootFields.FixedRarity, _i, RegistryRarityNames.All, "none", (int?)value); }
 }
 
 /// <summary>The stack size of a drop.</summary>
@@ -76,29 +76,6 @@ public enum RegistryRarities : uint
 internal static class RegistryRaritiesNames
 {
     internal static readonly string[] All = { "common", "uncommon", "rare", "epic", "legendary" };
-}
-
-/// <summary>A rarity every drop gets (none: rolled from rarities).</summary>
-[global::System.Diagnostics.CodeAnalysis.Experimental("KILNX031", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/registries/loot.md")]
-public enum ItemLootRarity
-{
-    /// <summary>none</summary>
-    None = 0,
-    /// <summary>common</summary>
-    Common = 1,
-    /// <summary>uncommon</summary>
-    Uncommon = 2,
-    /// <summary>rare</summary>
-    Rare = 3,
-    /// <summary>epic</summary>
-    Epic = 4,
-    /// <summary>legendary</summary>
-    Legendary = 5,
-}
-
-internal static class ItemLootRarityNames
-{
-    internal static readonly string[] All = { "none", "common", "uncommon", "rare", "epic", "legendary" };
 }
 
 internal static class ItemLootFields

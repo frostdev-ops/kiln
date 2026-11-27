@@ -47,7 +47,7 @@
       "type": "integer",
       "minimum": 4096,
       "maximum": 16384,
-      "description": "How many edits of this registry one call takes: one OnRegistry callback (one phase of one entry point), one Registry.Change draft, one code batch at the stage. A call with more is refused whole (kiln.log, registry.json). Default 4096; a registry declares more when every field of every entry of the current game data needs it."
+      "description": "How many edits of this registry one call takes: one OnRegistry callback (one phase of one entry point), one Registries.Change draft, one code batch at the stage. A call with more is refused whole (kiln.log, registry.json). Default 4096; a registry declares more when every field of every entry of the current game data needs it."
     },
     "doc": {
       "type": "string",
@@ -256,6 +256,15 @@
         "optional": {
           "type": "boolean",
           "description": "A ref that may be absent (cleared)."
+        },
+        "nullValue": {
+          "type": "string",
+          "description": "An enum: the value its C# property reads as null (the property is the nullable of an enum of the other values, which typeName may share with another field: loot.fixedRarity's none, RegistryRarity?). C# only, not the field's contract."
+        },
+        "csName": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Za-z0-9]*$",
+          "description": "The C# property's name when it is not the field's (default: the field's name in Pascal case), for a field with a value or a list: loot.fixedRarity is ItemLootEntry.Rarity, so that the property 0.2.0-dev.31 shipped as FixedRarity, of another type, keeps its name beside it. C# only, not the field's contract: data packs, the lock and the field catalog name the field."
         },
         "fixedLength": {
           "type": "integer",

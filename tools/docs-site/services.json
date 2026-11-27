@@ -1194,11 +1194,11 @@
         },
         {
           "name": "kiln.registry",
-          "members": 2
+          "members": 4
         },
         {
           "name": "kiln.registry.live",
-          "members": 3
+          "members": 4
         },
         {
           "name": "registry.items.add",

@@ -15,7 +15,7 @@ namespace Kiln.Host;
 
 /// <summary>kiln.internal.registry v3 (kiln_registry_host.h), 80 bytes: field order is the table's. v1 (24 bytes) ends
 /// after SetMode; ReadPass (v2, 32 bytes) is a runtime pass's read without the reading mod's own layers (review4 NS5); v3
-/// (dev.32 LOOT-2) prepares a Registry.Reauthor turn off the world thread and lands it on the tick.</summary>
+/// (dev.32 LOOT-2) prepares a Registries.Reauthor turn off the world thread and lands it on the tick.</summary>
 [StructLayout(LayoutKind.Sequential)]
 internal unsafe struct KilnRegistryHostApi
 {
@@ -177,7 +177,8 @@ internal sealed partial class ModManager
         return Resolver.Resolve(input, env).Order.Where(c => c.Manifest is not null).Select(c => (c.Manifest!.Id, c.Manifest!.Version, c.Manifest!.Side)).ToList();
     }
 
-    /// <summary>The mods whose code references the registry API (OnRegistry, Registry.Change/Read), from metadata only: the
+    /// <summary>The mods whose code references the registry API (OnRegistry, Registries.Change/Read/Ready, or the older name
+    /// Registry's), from metadata only: the
     /// stage prepares the game's base for them at resources-ready instead of at first use (review4 NS1).</summary>
     internal HashSet<string> RegistryUsers()
     {

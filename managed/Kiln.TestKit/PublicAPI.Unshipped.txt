@@ -25,3 +25,5 @@ Kiln.TestKit.HarnessTaming.NativeStep(Kiln.EntityRef creature) -> void
 Kiln.TestKit.HarnessTaming.Place(string! creature, Kiln.WorldPosition at, double healthFraction = 1, bool nativeTameable = false) -> Kiln.EntityRef
 Kiln.TestKit.HarnessTaming.Remove(Kiln.EntityRef creature) -> void
 Kiln.TestKit.KilnHarness.Taming.get -> Kiln.TestKit.HarnessTaming!
+[KILNX031]Kiln.TestKit.HarnessRegistry.Refused.get -> string?
+[KILNX031]Kiln.TestKit.HarnessRegistry.RunReauthored(Kiln.TestKit.ModHandle! mod, bool offTick = true, Kiln.RegistryPhase phase = Kiln.RegistryPhase.Alter, Kiln.RegistryWorld? world = null) -> string?

@@ -8,21 +8,25 @@ namespace Kiln.Registry;
 
 /// <summary>
 /// Typed access to Kiln's registries: the game's data (items, recipes, loot, creatures, perks, skills, ...) as typed entries over
-/// Kiln-owned ids and field names, never the game's own names. A mod edits them from <see cref="Mod.OnRegistry"/>, from a live
-/// <see cref="Change"/>, or authors its edits again when its settings change (<see cref="Reauthor"/>).
+/// Kiln-owned ids and field names, never the game's own names. A mod edits them from <see cref="Mod.OnRegistry"/> (a callback's
+/// stage, <see cref="For"/>), from a live <see cref="Change"/>, reads them with <see cref="Read"/>, or authors its WorldLoad edits
+/// again when its settings change (<see cref="Reauthor"/>).
 /// </summary>
 /// <remarks>
 /// <para>The contexts are supplied by Kiln (<see cref="RegistryContext"/>, a parameter of <see cref="Mod.OnRegistry"/>); a mod
-/// never constructs one. Get the typed view of one with <see cref="For"/>. An edit is buffered while the callback runs and
+/// never constructs one. Get the typed stage of one with <see cref="For"/>. An edit is buffered while the callback runs and
 /// submitted only if it returns; a callback that throws submits nothing. Never keep a context, an entry or a list after the
 /// callback returns: they expire, and using one then throws <see cref="RegistryContextException"/>.</para>
 /// <para>Entry points: a mod declares the points it authors at with <see cref="RegistryEntryPointsAttribute"/>:
 /// <see cref="RegistryEntryPoint.GameStart"/> (the default; the only point that can add entries and change restart fields),
-/// <see cref="RegistryEntryPoint.ModLoad"/>, <see cref="RegistryEntryPoint.WorldLoad"/> (each new world; the point to re-author
-/// with <see cref="Reauthor"/>) and <see cref="RegistryEntryPoint.HotReload"/>. Inside a point the edits run in three passes
-/// shared by all mods, in order: Add, then Alter (ordinary assignments), then Final (explicit, <see cref="RegistryStage.Final"/>).
-/// A field Kiln has not proven on this game build is refused per entry, with a reason in <c>kiln.log</c> and
-/// <c>registry.json</c>; it never corrupts and never fails the other entries.</para>
+/// <see cref="RegistryEntryPoint.ModLoad"/>, <see cref="RegistryEntryPoint.WorldLoad"/> (each new world; the point
+/// <see cref="Reauthor"/> runs again) and <see cref="RegistryEntryPoint.HotReload"/>. Inside a point the edits run in three
+/// passes shared by all mods, in order: Add, then Alter (ordinary assignments), then Final (explicit,
+/// <see cref="RegistryStage.Final"/>). A field Kiln has not proven on this game build is refused per entry, with a reason in
+/// <c>kiln.log</c> and <c>registry.json</c>; it never corrupts and never fails the other entries.</para>
+/// <para>The name: since 0.2.0-dev.32 this class is <c>Registries</c>. Before it, <see cref="Registry"/>, which is also its
+/// namespace's name, so code inside a <c>Kiln.*</c> namespace needed an alias; that name still works, with an obsolete
+/// warning, and goes no earlier than 1.0.</para>
 /// <para>Stability: these types are experimental (<c>KILNX031</c>) until each registry is marked stable; a mod opts in with
 /// <c>NoWarn</c> for the id (<c>#pragma warning disable KILNX031</c>). The registries' fields and ids are listed in
 /// <c>docs/kiln/modding/registries</c>.</para>
@@ -33,11 +37,11 @@ namespace Kiln.Registry;
 /// {
 ///     public override void OnRegistry(RegistryContext context)
 ///     {
-///         var registry = Kiln.Registry.Registry.For(context);                      // the typed view of this callback
-///         registry.Alter(view => view.Items["game:material_t1_wood_logs"].MaxStack = 500);
-///         registry.Alter(view =>
+///         var registry = Registries.For(context);                                    // the typed stage of this callback
+///         registry.Alter(stage => stage.Items["game:material_t1_wood_logs"].MaxStack = 500);
+///         registry.Alter(stage =>
 ///         {
-///             foreach (var recipe in view.Recipes.Select()) recipe.Duration /= 2;   // every recipe crafts twice as fast
+///             foreach (var recipe in stage.Recipes.Select()) recipe.Duration /= 2;   // every recipe crafts twice as fast
 ///         });
 ///     }
 /// }
@@ -46,7 +50,7 @@ namespace Kiln.Registry;
 /// <seealso cref="RegistrySchema"/>
 /// <seealso href="https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/registries/README.md">Registries: the modder's guide</seealso>
 [Experimental("KILNX031")]
-public static partial class Registry
+public static partial class Registries
 {
     /// <summary>The typed adapter of this callback. Retaining it or its entries does not extend the context's lifetime.</summary>
     /// <param name="context">The context Kiln gave the <see cref="Mod.OnRegistry"/> callback (or <see cref="Change"/> or
@@ -64,7 +68,8 @@ public static partial class Registry
     }
 }
 
-/// <summary>A callback's typed data view and buffered edits. Nothing is submitted until the handler succeeds.
+/// <summary>A callback's stage: its typed entries, read as the pass sees the registries, and its buffered edits (the docs' word
+/// for it; RegistryViews' read-only views are another thing). Nothing is submitted until the handler succeeds.
 /// Ordinary assignments and Alter target the alter pass; Final is explicit. The host preserves all-mod pass ordering.</summary>
 [Experimental("KILNX031"), RegistryThreadOnly]
 public sealed class RegistryStage
@@ -73,6 +78,13 @@ public sealed class RegistryStage
     private readonly JsonArray _edits = [];
     private readonly Dictionary<(string Registry, string Id, string Field), JsonNode?> _view = new();
     private readonly Dictionary<(string Registry, string Id), (string Like, JsonObject Fields)> _added = new();
+    // dev.32 api-shape: the elements this callback appended to a list of entries with fields (AppendNew), while no later list
+    // operation named the list: their fields go in the append itself (a data pack's append gives the element whole), so they
+    // compose by value with other mods' appends and removals, never as an index edit that another mod's append would shift
+    // onto its own element; an element's identity (a drop entry's item, read-only once made) is given there. View element ->
+    // the element of the recorded append (null: an entry being added, whose fields carry its whole list).
+    private readonly Dictionary<JsonNode, JsonObject?> _pending = new(ReferenceEqualityComparer.Instance);
+    private readonly Dictionary<(string Registry, string Id, string List), List<JsonNode>> _pendingOf = new();
     private RegistryPhase _target = RegistryPhase.Alter;
     private static readonly IReadOnlyDictionary<int, RegistryFieldSpec> Specs = RegistrySchema.Fields.ToDictionary(x => x.Id);
     internal RegistryStage(RegistryContext context) { Context = context; context.Capture = Capture; }
@@ -138,7 +150,7 @@ public sealed class RegistryStage
     /// <summary>Authors ordinary field edits, once in the alter pass.</summary>
     public void Alter(Action<RegistryStage> edits) { ArgumentNullException.ThrowIfNull(edits); In(RegistryPhase.Alter, () => edits(this)); }
     /// <summary>Authors final edits, once in the final automatic pass. Other mods' final edits are not in its read view.
-    /// Inside Registry.Change this is an ordinary Alter edit in that single transaction, not a global Final pass.</summary>
+    /// Inside Registries.Change this is an ordinary Alter edit in that single transaction, not a global Final pass.</summary>
     public void Final(Action<RegistryStage> edits) { ArgumentNullException.ThrowIfNull(edits); In(RegistryPhase.Final, () => edits(this)); }
 
     internal void In(RegistryPhase target, Action action)
@@ -158,13 +170,19 @@ public sealed class RegistryStage
     private string? Capture()
     {
         Context.Ensure();
+        Context.CapRefusal = null;
         if (_edits.Count == 0) return null;
         foreach (var (registry, count) in _counts)
             if (count > CapOf(registry))
-                Context.Owner.Log.Warn($"registry: {(Context.EntryPoint == RegistryEntryPoint.Manual ? "Registry.Change" : $"OnRegistry {Context.EntryPoint} {Context.Phase}")}: " +
+            {
+                Context.Owner.Log.Warn($"registry: {(Context.EntryPoint == RegistryEntryPoint.Manual ? "Registries.Change" : $"OnRegistry {Context.EntryPoint} {Context.Phase}")}: " +
                     $"{count} {registry} edits in one call, over its cap of " +
                     $"{CapOf(registry)} edits per call (RegistrySchema.EditsPerCall); Kiln refuses this call whole (registry.json), the other calls apply. " +
                     "Split the edits over the entry point's phases (Alter, Final) or over several calls.");
+                // what Kiln's submit answers (ir.cpp refuse_over_cap), for TestKit's harness offline
+                Context.CapRefusal ??= $"{registry}: {count} edits in one call, over this registry's cap of {CapOf(registry)} edits per call; " +
+                    "the call is refused whole and nothing of it was applied (split the edits over the entry point's phases or over several calls)";
+            }
         return new JsonObject { ["ir"] = 1, ["mod"] = Context.ModId, ["stage"] = Context.Phase.ToString().ToLowerInvariant(),
             ["source"] = "managed:" + Context.Identity, ["edits"] = _edits.DeepClone() }.ToJsonString();
     }
@@ -236,6 +254,32 @@ public sealed class RegistryStage
         IEnumerable values => new JsonArray(values.Cast<object?>().Select(Json).ToArray()),
         _ => System.Text.Json.JsonSerializer.SerializeToNode(value),
     };
+    // An element of a list of entries with fields as the IR takes it from C#: a struct inside the element nested
+    // ({"count": {"min": 1}}), as the types and the docs show it; the stage's view keeps the live reads' flat dotted leaves.
+    private static JsonNode? Nested(JsonNode? element)
+    {
+        if (element is not JsonObject flat) return element?.DeepClone();
+        var o = new JsonObject();
+        foreach (var (key, value) in flat)
+        {
+            var at = o;
+            var parts = key.Split('.');
+            for (var i = 0; i < parts.Length - 1; ++i)
+                at = at[parts[i]] as JsonObject ?? (JsonObject)(at[parts[i]] = new JsonObject());
+            at[parts[^1]] = value?.DeepClone();
+        }
+        return o;
+    }
+    private static JsonArray NestedList(IEnumerable<JsonNode?> elements) => new(elements.Select(Nested).ToArray());
+    // A leaf of a nested element ("count.min" in {"count": {...}}).
+    private static void SetNested(JsonObject element, string path, JsonNode? value)
+    {
+        var parts = path.Split('.');
+        var at = element;
+        for (var i = 0; i < parts.Length - 1; ++i)
+            at = at[parts[i]] as JsonObject ?? (JsonObject)(at[parts[i]] = new JsonObject());
+        at[parts[^1]] = value;
+    }
     private static JsonNode? Leaf(JsonNode? node, string path)
     {
         if (node is JsonObject o && o.TryGetPropertyValue(path, out var exact)) return exact;
@@ -285,13 +329,14 @@ public sealed class RegistryStage
         public void Set(int field, int index, object? value)
         {
             var spec = Field(field);
-            if (spec.ReadOnly) throw new ArgumentException("the registry field is read-only");
+            var bracket = spec.Path.IndexOf("[]", StringComparison.Ordinal);
+            // an element's identity (a drop entry's item) is read-only once the element is made: given on one this callback appended
+            if (spec.ReadOnly && !(bracket >= 0 && Appended(spec, bracket, index))) throw new ArgumentException("the registry field is read-only");
             if (!stage.Writable(phase)) return;
             var node = Json(value);
             var path = spec.Path.Replace("[]", $"[{index}]", StringComparison.Ordinal);
             if (spec.Type == RegistryFieldType.List && index >= 0) path += $"[{index}]";
             // Validate the projected write before recording it: a caller may catch an invalid index and continue.
-            var bracket = spec.Path.IndexOf("[]", StringComparison.Ordinal);
             JsonArray? list = null; JsonObject? obj = null;
             if (bracket >= 0)
             {
@@ -305,36 +350,65 @@ public sealed class RegistryStage
                 if (list is null || index >= list.Count) throw new ArgumentOutOfRangeException(nameof(index));
             }
             var adding = stage._added.TryGetValue((registry, id), out var creation);
-            if (!adding) stage.Record(new JsonObject { ["registry"] = registry, ["select"] = id, ["field"] = path, ["op"] = node?.DeepClone() });
-            if (obj is not null) obj[spec.Path[(bracket + 3)..]] = node;
+            var leaf = bracket >= 0 ? spec.Path[(bracket + 3)..] : "";
+            // a leaf of an element this callback appended goes in that append (by value), not in an edit by index after it
+            JsonObject? element = null;
+            var appended = obj is not null && stage._pending.TryGetValue(obj, out element);
+            if (appended && element is not null) SetNested(element, leaf, node?.DeepClone());
+            if (!adding && !appended) stage.Record(new JsonObject { ["registry"] = registry, ["select"] = id, ["field"] = path, ["op"] = node?.DeepClone() });
+            if (obj is not null) obj[leaf] = node;
             else if (list is not null) list[index] = node;
             else stage._view[(registry, id, spec.Path)] = node;
             if (adding)
             {
                 var root = bracket >= 0 ? spec.Path[..bracket] : spec.Path;
-                creation.Fields[root] = stage._view[(registry, id, root)]?.DeepClone();
+                var now = stage._view[(registry, id, root)];
+                creation.Fields[root] = bracket >= 0 && now is JsonArray elements ? NestedList(elements) : now?.DeepClone();
             }
         }
+        // Whether element `index` of the leaf's list is one this callback appended (and no later list operation named the list).
+        private bool Appended(RegistryFieldSpec leaf, int bracket, int index)
+            => index >= 0 && stage.Read(registry, id, leaf.Path[..bracket]) is JsonArray list && index < list.Count &&
+               list[index] is { } element && stage._pending.ContainsKey(element);
         public int Count(int listField) => stage.Read(registry, id, Field(listField).Path) is JsonArray array ? array.Count : 0;
         public void ListOp(int listField, RegistryListOp op, IReadOnlyList<object?> values)
         {
             var spec = Field(listField);
             if (spec.ReadOnly) throw new ArgumentException("the registry field is read-only");
             if (!stage.Writable(phase)) return;
-            var json = values.Select(value => value is null && spec.Element == RegistryFieldType.Struct ? new JsonObject() : Json(value)).ToArray();
-            var payload = new JsonObject { [op.ToString().ToLowerInvariant()] = op == RegistryListOp.Clear ? JsonValue.Create(true) : new JsonArray(json.Select(x => x?.DeepClone()).ToArray()) };
+            var structs = spec.Element == RegistryFieldType.Struct;
+            var json = values.Select(value => value is null && structs ? new JsonObject() : Json(value)).ToArray();
+            var items = op == RegistryListOp.Clear ? null : structs ? NestedList(json) : new JsonArray(json.Select(x => x?.DeepClone()).ToArray());
+            var payload = new JsonObject { [op.ToString().ToLowerInvariant()] = items is null ? JsonValue.Create(true) : items };
+            var key = (registry, id, spec.Path);
             var old = stage.Read(registry, id, spec.Path) as JsonArray ?? [];
+            // the elements stay the same nodes (an appended one is known by its node): taken out of the list before
+            var kept = old.ToArray();
+            old.Clear();
             var next = op switch
             {
                 RegistryListOp.Clear => new JsonArray(),
                 RegistryListOp.Replace => new JsonArray(json),
-                RegistryListOp.Append => new JsonArray(old.Select(x => x?.DeepClone()).Concat(json).ToArray()),
-                RegistryListOp.Remove => new JsonArray(old.Where(x => !json.Any(v => JsonNode.DeepEquals(x, v))).Select(x => x?.DeepClone()).ToArray()),
+                RegistryListOp.Append => new JsonArray(kept.Concat(json).ToArray()),
+                RegistryListOp.Remove => new JsonArray(kept.Where(x => !json.Any(v => JsonNode.DeepEquals(x, v))).ToArray()),
                 _ => throw new ArgumentOutOfRangeException(nameof(op)),
             };
-            if (stage._added.TryGetValue((registry, id), out var creation)) creation.Fields[spec.Path] = next.DeepClone();
+            // a later operation names the list's elements by value: the ones appended before it are made, their fields edited by index
+            if (op != RegistryListOp.Append && stage._pendingOf.Remove(key, out var sealedNodes))
+                foreach (var node in sealedNodes) stage._pending.Remove(node);
+            var adding = stage._added.TryGetValue((registry, id), out var creation);
+            if (adding) creation.Fields[spec.Path] = structs ? NestedList(next) : next.DeepClone();
             else stage.Record(new JsonObject { ["registry"] = registry, ["select"] = id, ["field"] = spec.Path, ["list"] = payload });
-            stage._view[(registry, id, spec.Path)] = next;
+            if (op == RegistryListOp.Append && structs)
+            {
+                if (!stage._pendingOf.TryGetValue(key, out var mine)) stage._pendingOf[key] = mine = [];
+                for (var i = 0; i < json.Length; ++i)
+                {
+                    stage._pending[json[i]!] = adding ? null : (JsonObject)items![i]!;
+                    mine.Add(json[i]!);
+                }
+            }
+            stage._view[key] = next;
         }
     }
 }

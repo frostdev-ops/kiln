@@ -38,7 +38,7 @@ public sealed partial class ItemEntry : IRegistryEntry
 
     /// <summary>The perk of each rarity slot, common first. A copy fills rarity + 1 slots. New copies only.</summary>
     [RegistryField("items.perks", RegistryApplies.Now, JoinedClient = "now")]
-    public RegistryValueList<RegistryId> Perks => new(_c, ItemFields.Perks, static (c, i) => RegistryCells.Id(c, ItemFields.Perks, i));
+    public RegistryValueList<RegistryId> Perks => new(_c, ItemFields.Perks, static (c, i) => RegistryCells.Id(c, ItemFields.Perks, i), static (c, i, v) => RegistryCells.Set(c, ItemFields.Perks, i, v));
 
     /// <summary>The damage the tooltip shows at levels.min. Kiln solves the game's damage factor for it with the balance table's constants.</summary>
     [RegistryField("items.power", RegistryApplies.Now, JoinedClient = "now")]
@@ -218,7 +218,7 @@ public sealed partial class ItemFuel
     public global::System.TimeSpan BurnTime { get => RegistryCells.Time(_c, ItemFields.FuelBurnTime, _i); set => RegistryCells.Set(_c, ItemFields.FuelBurnTime, _i, value); }
 }
 
-/// <summary>The rarity a new copy gets when it does not roll one. Copies that exist keep theirs.</summary>
+/// <summary>The values of items.rarity and loot.fixedRarity.</summary>
 [global::System.Diagnostics.CodeAnalysis.Experimental("KILNX031", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/registries/items.md")]
 public enum RegistryRarity
 {

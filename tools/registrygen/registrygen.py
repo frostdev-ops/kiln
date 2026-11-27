@@ -75,7 +75,9 @@ KILN_ID = re.compile(r"^[a-z0-9][a-z0-9_.-]*:[a-z0-9_.-]+(~[0-9a-f]{8,32})?$")
 # Kiln.Registry's hand-written types: no generated type may take their names.
 HANDWRITTEN_TYPES = ("RegistryId", "RegistryValueList", "RegistryEntryList", "RegistryFixedList", "RegistrySchema",
                      "RegistryFieldSpec", "RegistryFieldType", "RegistryOps", "RegistryFieldAttribute", "IRegistryEntry",
-                     "IRegistryCells", "RegistryCells", "RegistryApplies", "RegistryListOp")
+                     "IRegistryCells", "RegistryCells", "RegistryApplies", "RegistryListOp",
+                     # 0.2.0-dev.31 shapes kept by hand beside the generated ones (RegistryLegacy.cs, owner 2026-11-27)
+                     "Registries", "Registry", "ItemLootRarity")
 # Registries a ref may name besides the schemas here: Kiln registries that later phases add (their ids follow the same
 # rules; until they exist, a ref to them is checked as an id's shape only).
 LATER_REGISTRIES = ("inputCategories", "templates")
@@ -141,7 +143,7 @@ class Registry:
 
     @property
     def edits_per_call(self):
-        """How many edits of this registry one call (an OnRegistry callback's batch, a Registry.Change draft) takes."""
+        """How many edits of this registry one call (an OnRegistry callback's batch, a Registries.Change draft) takes."""
         return self.doc.get("editsPerCall", DEFAULT_EDITS_PER_CALL)
 
 
@@ -263,7 +265,7 @@ def type_names(reg):
     enums = {}
     for r in reg.rows:
         if r.enum_type and r.kind != "list":
-            vals = tuple(r.spec.get("values", []))
+            vals = enum_values(r)
             if r.enum_type in enums and enums[r.enum_type] != vals:
                 out.append((r.enum_type, "enum"))     # the same name with other values: a second type
             elif r.enum_type not in enums:
@@ -272,15 +274,37 @@ def type_names(reg):
     return out
 
 
+def enum_values(row):
+    """An enum or flags field's C# values: its schema values but the one C# reads as null (nullValue), with its kind."""
+    none = row.spec.get("nullValue")
+    return (row.kind, tuple(v for v in row.spec.get("values", []) if v != none))
+
+
+def enum_owners(model_regs, order=None):
+    """Each enum type several fields share (one name for one set of values, dev.32 api-shape: RegistryRarity for items.rarity
+    and loot.fixedRarity): the registry whose file declares it (the first in the lock's order, else by name) and the fields."""
+    owners = {}
+    for reg in (order or sorted(model_regs.values(), key=lambda r: r.name)):
+        for r in reg.rows:
+            if r.enum_type and r.kind != "list":
+                owners.setdefault(r.enum_type, (reg.name, []))[1].append(r.qualified)
+    return owners
+
+
 def check_type_names(regs):
-    errs, seen = [], {}
+    errs, seen, enums = [], {}, {}
     for reg in regs.values():
+        for r in reg.rows:
+            if r.enum_type and r.kind != "list":
+                enums.setdefault(r.enum_type, set()).add(enum_values(r))
         for n, what in type_names(reg):
+            # an enum (and its names) declared once and used by fields of several registries: the same values everywhere
+            shared = what in ("enum", "enum names") and len(enums.get(n.removesuffix("Names") if what == "enum names" else n, ())) == 1
             if n in HANDWRITTEN_TYPES:
                 errs.append(f"{reg.name}: the C# type {n} ({what}) is one of Kiln.Registry's own types")
-            elif n in seen:
+            elif n in seen and not (shared and seen[n].endswith(" " + what)):
                 errs.append(f"{reg.name}: the C# type name {n} is used twice ({seen[n]} and {reg.name} {what})")
-            else:
+            elif n not in seen:
                 seen[n] = f"{reg.name} {what}"
     return errs
 
@@ -380,13 +404,22 @@ def check_registry(d, name):
 
 
 FIELD_KEYS = {"type", "doc", "applies", "ops", "readOnly", "min", "max", "unit", "values", "registry", "fields", "of",
-              "maxItems", "formula", "side", "since", "typeName", "optional", "fixedLength", "lengthField", "lengthOffset", "joinedClient"}
+              "maxItems", "formula", "side", "since", "typeName", "optional", "fixedLength", "lengthField", "lengthOffset", "joinedClient",
+              "nullValue", "csName"}
 
 
 def walk(reg, fields, prefix, applies, list_path, read_only, errors, known):
     if not isinstance(fields, dict) or not fields:
         errors.append(f"{reg.name}.{prefix or '(root)'}: fields must be a non-empty object")
         return
+    # the C# properties of one type (this object's fields): a csName names no other one
+    props = {}
+    for key, spec in fields.items():
+        if NAME.match(key) and isinstance(spec, dict):
+            name = str(spec.get("csName") or pascal(key))
+            if name in props:
+                errors.append(f"{reg.name}.{prefix}{key}: csName {name} is the C# property of {reg.name}.{prefix}{props[name]} too")
+            props.setdefault(name, key)
     for key, spec in fields.items():
         path = f"{prefix}{key}"
         q = f"{reg.name}.{path}"
@@ -419,8 +452,19 @@ def walk(reg, fields, prefix, applies, list_path, read_only, errors, known):
         for k in ("fixedLength", "lengthField", "lengthOffset"):
             if k in spec and t != "list":
                 errors.append(f"{q}: {k} is for lists only")
+        # C# only (not the field's contract): the enum value its C# property reads as null, so the property is the nullable of
+        # an enum of the other values (loot.fixedRarity: none, the RegistryRarity? null)
+        if "nullValue" in spec and (t != "enum" or spec["nullValue"] not in (spec.get("values") or [])):
+            errors.append(f"{q}: nullValue is one of an enum field's values")
         if "typeName" in spec and not TYPE_NAME.match(str(spec["typeName"])):
             errors.append(f"{q}: typeName must be a C# type name")
+        # C# only (not the field's contract): the C# property's name when it is not the field's (loot.fixedRarity is
+        # ItemLootEntry.Rarity, so that dev.31's FixedRarity, another type, keeps its name beside it); a leaf's or a list's
+        if "csName" in spec:
+            if t == "struct":
+                errors.append(f"{q}: csName is for a field with a value or a list (a struct's property and type follow its name)")
+            elif not TYPE_NAME.match(str(spec["csName"])):
+                errors.append(f"{q}: csName must be a C# member name")
         if t == "struct":
             if "ops" in spec:
                 errors.append(f"{q}: a struct has no ops (its fields have)")
@@ -1001,6 +1045,7 @@ class CsWriter:
         self.rows = {r.path: r for r in reg.rows}
         self.types, self.enums = [], []
         self.fields_class = f"{reg.type_name}Fields"
+        self.owners = enum_owners(model.registries, ordered(model, lock))
 
     def fid(self, row):
         return f"{self.fields_class}.{pascal(row.path.replace('[]', ' ').replace('.', ' '))}"
@@ -1028,18 +1073,30 @@ class CsWriter:
             elif row.read_only:
                 body = f"public global::System.Collections.Generic.IReadOnlyList<{t}> {name} => new RegistryValueList<{t}>(_c, {fid}, static (c, i) => {get});"
             else:
-                body = f"public RegistryValueList<{t}> {name} => new(_c, {fid}, static (c, i) => {get});"
+                body = (f"public RegistryValueList<{t}> {name} => new(_c, {fid}, static (c, i) => {get}, "
+                        f"static (c, i, v) => RegistryCells.Set(c, {fid}, i, v));")
             return doc + [attr, indent + body]
         if row.kind in ("enum", "flags"):
             t = row.enum_type
             names = f"{t}Names.All"
-            if row.kind == "enum":
+            none = row.spec.get("nullValue")
+            if none is not None:
+                getter = f"RegistryCells.OptionalEnum(_c, {fid}, _i, {names}, \"{none}\") is int k ? ({t})k : null"
+                setter = f"RegistryCells.SetOptionalEnum(_c, {fid}, _i, {names}, \"{none}\", (int?)value)"
+            elif row.kind == "enum":
                 getter = f"({t})RegistryCells.Enum(_c, {fid}, _i, {names})"
                 setter = f"RegistryCells.SetEnum(_c, {fid}, _i, {names}, (int)value)"
             else:
                 getter = f"({t})RegistryCells.Flags(_c, {fid}, _i, {names})"
                 setter = f"RegistryCells.SetFlags(_c, {fid}, _i, {names}, (uint)value)"
-            self.enum(t, row.spec.get("values", []), row.kind == "flags", row.spec.get("doc"))
+            owner, fields = self.owners.get(t, (self.reg.name, [row.qualified]))
+            if owner == self.reg.name:
+                # one registry's own enum keeps its first field's doc; one several registries share says whose values it is
+                shared = len({f.split(".", 1)[0] for f in fields}) > 1
+                enum_doc = f"The values of {' and '.join(fields)}." if shared else row.spec.get("doc")
+                self.enum(t, list(enum_values(row)[1]), row.kind == "flags", enum_doc)
+            if none is not None:
+                t += "?"
         elif row.kind == "ref" and row.spec.get("optional"):
             t = "RegistryId?"
             getter = f"RegistryCells.OptionalId(_c, {fid}, _i)"
@@ -1048,7 +1105,10 @@ class CsWriter:
             t = CS_SCALAR[row.kind]
             getter = f"RegistryCells.{CS_GET[row.kind]}(_c, {fid}, _i)"
             setter = f"RegistryCells.Set(_c, {fid}, _i, value)"
-        if row.read_only:
+        # a read-only leaf of a list's elements is the element's identity (a drop entry's item): given on an element the callback
+        # appends, read-only once it is made (the stage refuses the set then), as a data pack's append gives it
+        given = row.read_only and row.list_path and row.spec.get("readOnly") and not self.rows[row.list_path].read_only
+        if row.read_only and not given:
             return doc + [attr, f"{indent}public {t} {name} => {getter};"]
         return doc + [attr, f"{indent}public {t} {name} {{ get => {getter}; set => {setter}; }}"]
 
@@ -1092,7 +1152,7 @@ class CsWriter:
         for key, spec, row, sub in children:
             out.append("")
             if row is not None:
-                out += self.prop(row, pascal(key), indent)
+                out += self.prop(row, spec.get("csName") or pascal(key), indent)
             else:
                 tname = spec.get("typeName") or self.reg.type_name + pascal(key)
                 self.struct_class(tname, sub, spec.get("doc"), False)
@@ -1190,14 +1250,76 @@ def render_cs_catalog(model, lock):
 
 # ---------------------------------------------------------------- the data section's schema
 
+def value_schema(spec):
+    """A plain value of a field's spec as the parser takes it (ir.cpp scalar_of / flags_of): its JSON type, a number's range.
+    An enum's names stay plain strings (the parser reads them in any case); an id is <namespace>:<name>."""
+    t = spec.get("type")
+    out = {"int": {"type": "number"}, "float": {"type": "number"}, "time": {"type": "number"}, "bool": {"type": "boolean"},
+           "enum": {"type": "string"}, "flags": {"type": "array", "items": {"type": "string"}},
+           "ref": {"type": "string", "pattern": ":"}}.get(t, {})
+    out = dict(out)
+    if t in NUMBERS:
+        if spec.get("min") is not None:
+            out["minimum"] = spec["min"]
+        if spec.get("max") is not None:
+            out["maximum"] = spec["max"]
+    if t == "ref" and spec.get("optional"):
+        out = {"anyOf": [out, {"type": "null"}]}
+    return out
+
+
+def element_schema(of):
+    """One element of a list field as the parser takes it (ir.cpp struct_of): a plain value, or an object of the element's
+    fields where a struct inside the element is a nested object ({"count": {"min": 1}}, as the C# types and the docs show
+    it) or, the older spelling the parser still reads, dotted leaves ({"count.min": 1})."""
+    if of.get("type") != "struct":
+        return value_schema(of)
+
+    def obj(fields, dotted):
+        props = {}
+        for key, spec in (fields or {}).items():
+            if not isinstance(spec, dict):
+                continue
+            if spec.get("type") == "struct":
+                props[key] = obj(spec.get("fields"), False)
+                if dotted:
+                    for leaf, leaf_spec in leaves(spec.get("fields"), key + "."):
+                        props[leaf] = dict(value_schema(leaf_spec), description=f"The older, dotted spelling of {key}: {{...}}'s leaf.")
+            else:
+                props[key] = value_schema(spec)
+        return {"type": "object", "additionalProperties": False, "properties": props}
+
+    def leaves(fields, prefix):
+        for key, spec in (fields or {}).items():
+            if isinstance(spec, dict) and spec.get("type") == "struct":
+                yield from leaves(spec.get("fields"), prefix + key + ".")
+            elif isinstance(spec, dict):
+                yield prefix + key, spec
+
+    return dict(obj(of.get("fields"), True), description="An element: its fields by name; a struct of the element as a nested object.")
+
+
+def list_schema(element):
+    """The list operations of one list field with its elements' schema (the shared "list" def says the shape only)."""
+    arr = {"type": "array", "minItems": 1, "items": element}
+    return {"anyOf": [{"const": "clear"},
+                      {"type": "object", "additionalProperties": False, "minProperties": 1, "maxProperties": 1,
+                       "properties": {"clear": {"const": True}, "append": arr, "remove": arr,
+                                      "replace": {"type": "array", "items": element}}}]}
+
+
 def render_section(model, lock):
     defs = {
+        # the parser's two forms (ir.cpp selector_of, the IR's schema): a plain string is {"id": <it>}
         "select": {
-            "type": "object", "additionalProperties": False, "required": ["id"],
-            "description": "Which entries: an id, a case-insensitive glob over ids (game:material_*), or an old debug-name selector; where: conditions on the entry's fields; has / hasNot: traits.",
-            "properties": {"id": {"type": "string", "minLength": 1}, "where": {"type": "object"},
-                           "has": {"type": "array", "items": {"type": "string"}},
-                           "hasNot": {"type": "array", "items": {"type": "string"}}},
+            "description": "Which entries: an id, a case-insensitive glob over ids (game:material_*), or an old debug-name selector, as a plain string or as {\"id\": ...}; the object form also takes where: conditions on the entry's fields; has / hasNot: traits.",
+            "anyOf": [
+                {"type": "string", "minLength": 1},
+                {"type": "object", "additionalProperties": False, "required": ["id"],
+                 "properties": {"id": {"type": "string", "minLength": 1}, "where": {"type": "object"},
+                                "has": {"type": "array", "items": {"type": "string"}},
+                                "hasNot": {"type": "array", "items": {"type": "string"}}}},
+            ],
         },
         "op": {
             "description": "A value (set), or relative operations evaluated as data packs evaluate them: r = clamp(v * mul + add, min, max), then raiseOnly / lowerOnly against v.",
@@ -1243,14 +1365,27 @@ def render_section(model, lock):
         kinds = (["add"] if e.get("add") else []) + (["remove"] if e.get("remove") else [])
         if kinds:
             props["entry"] = {"enum": kinds}
+        # a list field's elements are checked by its own schema: a list op naming the field (append, remove, replace), and the
+        # list's value in an added entry's fields
+        lists = [r for r in reg.rows if r.kind == "list" and not r.read_only and r.ops == "list"]
+        checks = []
+        for r in lists:
+            key = "list." + r.path
+            rd["$defs"][key] = list_schema(element_schema(r.spec["of"]))
+            checks.append({"if": {"required": ["field"], "properties": {"field": {"const": r.path}}},
+                           "then": {"properties": {"list": {"$ref": f"#/$defs/{name}/$defs/{key}"}}}})
         if e.get("add"):
             # the one id grammar (KILN_ID) for a mod's own entry: not the reserved game: and kiln:, no clash suffix
             props["id"] = {"type": "string", "pattern": "^(?!(game|kiln):)[a-z0-9][a-z0-9_.-]*:[a-z0-9_.-]+$"}
             props["like"] = {"type": "string", "minLength": 1}
             props["fields"] = {"type": "object", "propertyNames": {"$ref": f"#/$defs/{name}/$defs/field"}}
+            if lists:
+                props["fields"]["properties"] = {r.path: {"type": "array", "items": element_schema(r.spec["of"])} for r in lists}
         rd["$defs"]["edit"] = {"type": "object", "additionalProperties": False, "required": ["registry"],
                                "description": f"An edit of the {name} registry (docs/kiln/modding/registries/{name}.md).",
                                "properties": props}
+        if checks:
+            rd["$defs"]["edit"]["allOf"] = checks
         defs[name] = rd
         edits.append({"$ref": f"#/$defs/{name}/$defs/edit"})
     defs["edit"] = {"oneOf": edits}
@@ -1331,7 +1466,7 @@ def render_doc(model, lock, reg):
            "What registries are, the stages, the conflict rules and how ids are made: [README](README.md).",
            "",
            f"Edits per call: {reg.edits_per_call:,}. One {code('OnRegistry')} callback (one phase of one entry point) or one "
-           f"{code('Registry.Change')} takes at most this many edits of this registry; a call with more is refused whole, with "
+           f"{code('Registries.Change')} takes at most this many edits of this registry; a call with more is refused whole, with "
            "the reason in kiln.log and registry.json, and nothing of it applies (the other calls do). "
            + ("The schema declares it (" + code("editsPerCall") + ") to fit every field of every entry of the current game data."
               if "editsPerCall" in d else f"The default for a registry whose schema declares none ({DEFAULT_EDITS_PER_CALL:,})."),

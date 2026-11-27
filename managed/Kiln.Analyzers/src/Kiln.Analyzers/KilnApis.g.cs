@@ -965,6 +965,8 @@ internal static partial class KilnApis
         "P:Kiln.GameTypes.Available=kiln.types", // table != null: Services.Get("kiln.types")
         "P:Kiln.Gameplay.Available=kiln.gameplay", // GameplayNative.T != null: Services.Get("kiln.gameplay")
         "P:Kiln.Hooks.Available=kiln.hooks", // HooksNative.T != null: Services.Get("kiln.hooks")
+        "P:Kiln.ItemCosts.StacksAvailable=items.costs.exact", // StacksOn(): Is("items.costs.exact")
+        "P:Kiln.ItemCosts.WearAvailable=items.costs.wear", // WearOn(): Is("items.costs.wear")
         "P:Kiln.Items.ArmorAvailable=items.gear.armor,kiln.items", // Can("items.gear.armor"); V8Scales != null: Services.Get("kiln.items")
         "P:Kiln.Items.Available=kiln.items", // Can("kiln.items")
         "P:Kiln.Items.CheckedMovesAvailable=items.move", // Can("items.move")
@@ -982,6 +984,7 @@ internal static partial class KilnApis
         "P:Kiln.Items.UpgradeAvailable=items.gear.upgrade", // Can("items.gear.upgrade")
         "P:Kiln.Knowledge.Available=kiln.knowledge", // KnowledgeNative.T != null: Services.Get("kiln.knowledge")
         "P:Kiln.MarkersLab.Available=kiln.markers.lab", // T != null: Services.Get("kiln.markers.lab")
+        "P:Kiln.NativeTaming.Available=taming.native", // Available(): Is("taming.native")
         "P:Kiln.NoClip.Available=rules.noclip", // Is("rules.noclip")
         "P:Kiln.Npcs.Available=npcspeech.bubble", // Is("npcspeech.bubble")
         "P:Kiln.PadInput.Available=kiln.ui.input", // returns false first when the table of kiln.ui.input is null
@@ -993,6 +996,9 @@ internal static partial class KilnApis
         "P:Kiln.Players.Available=kiln.players", // T != null: Services.Get("kiln.players")
         "P:Kiln.Progression.Available=kiln.progression", // T != null: Services.Get("kiln.progression")
         "P:Kiln.ReflectedResources.Available=assets.resources,kiln.assets,kiln.types", // via Kiln.GameTypes.Available; via Kiln.ResourceStore.Available
+        "P:Kiln.Registry.Registries.Available=kiln.registry,kiln.registry.live", // [CapabilityGuard("kiln.registry")]; [CapabilityGuard("kiln.registry.live")]
+        "P:Kiln.Registry.Registry.Available=kiln.registry,kiln.registry.live", // via Kiln.Registry.Registries.Available
+        "P:Kiln.Registry.RegistryViews.Available=kiln.registry.view", // [CapabilityGuard("kiln.registry.view")]
         "P:Kiln.Render.Available=kiln.ui", // via Kiln.UiNative.Available
         "P:Kiln.Rules.Available=kiln.rules", // RulesNative.T != null: Services.Get("kiln.rules")
         "P:Kiln.Saves.Available=kiln.saves", // SavesNative.T != null: Services.Get("kiln.saves")
@@ -1000,6 +1006,7 @@ internal static partial class KilnApis
         "P:Kiln.Settings.Ready=kiln.settings", // T != null: Services.Get("kiln.settings")
         "P:Kiln.Spawn.Available=kiln.spawn", // T != null: Services.Get("kiln.spawn")
         "P:Kiln.Spawn.WorldRunning=kiln.spawn", // T != null: Services.Get("kiln.spawn")
+        "P:Kiln.Taming.Available=taming.steps", // StepsOn(): Is("taming.steps")
         "P:Kiln.Teleport.Available=kiln.world", // WorldNative.T != null: Services.Get("kiln.world")
         "P:Kiln.Time.Available=kiln.time", // T != null: Services.Get("kiln.time")
         "P:Kiln.Time.CanSetSpeed=kiln.time", // via Kiln.Time.HasScale

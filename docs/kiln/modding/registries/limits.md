@@ -6,7 +6,7 @@ Limits the game's code holds as fixed numbers, not data: Kiln answers the game's
 
 Schema version 0.1.0, experimental (KILNX031: may change in any release until it is marked stable). C# entry type `Kiln.Registry.LimitsEntry`. What registries are, the stages, the conflict rules and how ids are made: [README](README.md).
 
-Edits per call: 4,096. One `OnRegistry` callback (one phase of one entry point) or one `Registry.Change` takes at most this many edits of this registry; a call with more is refused whole, with the reason in kiln.log and registry.json, and nothing of it applies (the other calls do). The default for a registry whose schema declares none (4,096).
+Edits per call: 4,096. One `OnRegistry` callback (one phase of one entry point) or one `Registries.Change` takes at most this many edits of this registry; a call with more is refused whole, with the reason in kiln.log and registry.json, and nothing of it applies (the other calls do). The default for a registry whose schema declares none (4,096).
 
 ## Ids
 
@@ -19,7 +19,7 @@ Applies: `now` = takes effect at the next use; `worldLoad` = takes effect when a
 
 | Field | Type | Applies | Ops | Since | Mapping | Joined client | About |
 |---|---|---|---|---|---|---|---|
-| `maxAltars` | int 1..255 | restart | number | 0.1.0 | mapped | restart | The most Flame Altars the game allows at any Flame level: its altar check answers the smaller of balance.altarsPerFlameLevel at the world's Flame level and this. The game's own is 16, so raise both to allow more. Past 16 the game's bases still count 16: altars past the 16th give build zones without the base features (comfort, base chests, survivor beds, animals, the journal), the network message of a world's zones counts them in one byte, and a player's game draws at most 32 zone borders at once. |
+| `maxAltars` | int 1..255 | restart | number | 0.1.0 | mapped | restart | The most Flame Altars the game allows at any Flame level: its altar check answers the smaller of balance.altarsPerFlameLevel at the world's Flame level and this. The game's own is 16, so raise both to allow more. The two are apart on purpose: the table is the progression (how many at each level), this is one ceiling over every level, and raising it past 16 is the choice to take what that costs, so a table edit (a relative one, add 5, too) never crosses 16 by itself; kiln.log says when the table asks for more than this allows. Past 16 the game's bases still count 16: altars past the 16th give build zones without the base features (comfort, base chests, survivor beds, animals, the journal), the network message of a world's zones counts them in one byte, and a player's game draws at most 32 zone borders at once. |
 | `giftingRange` | float m 0..1000000 | restart | number | 0.1.0 | mapped | restart | How far apart two players may be for one to give the other an item, in metres. The game's own is 50 m. The host checks the gift; a player's game uses it to offer the gift. |
 
 ## Entries

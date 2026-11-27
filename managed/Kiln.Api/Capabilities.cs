@@ -133,6 +133,16 @@ public sealed class RequiresCapabilityAttribute(string name) : Attribute
     public string Name { get; } = name;
 }
 
+/// <summary>Kiln's own (never a mod's: internal): a public static bool property whose true answer means these rows are on,
+/// where its code cannot show it (a transport the host installs, a managed backend). The analyzers' guard table (KILN121,
+/// tools/ApiScan CapabilityGuards.cs) reads it, so a mod that checks the property has asked for the rows. Since 0.2.0-dev.32.</summary>
+[AttributeUsage(AttributeTargets.Property, Inherited = false)]
+internal sealed class CapabilityGuardAttribute(params string[] rows) : Attribute
+{
+    /// <summary>The rows the property answers.</summary>
+    public string[] Rows { get; } = rows;
+}
+
 /// <summary>A backend without kiln.caps whose own switches stand over Kiln's managed rows (the test kit: a test's
 /// <c>Capabilities.Override</c>). Read by <see cref="Capabilities"/> only while no kiln.caps table is bound.</summary>
 internal interface ICapabilityOverrides

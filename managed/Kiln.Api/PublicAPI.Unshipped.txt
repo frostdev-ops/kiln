@@ -1,1 +1,7 @@
 #nullable enable
+[KILNX031]Kiln.RegistryContext.OffTick.get -> bool
+[KILNX031]Kiln.RegistryContext.Pass.get -> Kiln.RegistryPassKind
+[KILNX031]Kiln.RegistryPassKind
+[KILNX031]Kiln.RegistryPassKind.Point = 1 -> Kiln.RegistryPassKind
+[KILNX031]Kiln.RegistryPassKind.ReauthoredOffTick = 3 -> Kiln.RegistryPassKind
+[KILNX031]Kiln.RegistryPassKind.ReauthoredOnTick = 2 -> Kiln.RegistryPassKind

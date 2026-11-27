@@ -36,7 +36,7 @@ public sealed partial class BalanceEntry : IRegistryEntry
     [RegistryField("balance.flameLevelMax", RegistryApplies.Restart, JoinedClient = "restart")]
     public int FlameLevelMax => RegistryCells.Int(_c, BalanceFields.FlameLevelMax, _i);
 
-    /// <summary>Flame altars allowed at each flame level, one value per level from 0 to flameLevelMax. The game's code allows at most 16 whatever the table says; limits.maxAltars raises that (since dev.32). Edited one level at a time (altarsPerFlameLevel[i]).</summary>
+    /// <summary>Flame altars allowed at each flame level, one value per level from 0 to flameLevelMax. The game's code allows at most 16 whatever the table says; limits.maxAltars raises that (since dev.32): a level above limits.maxAltars allows limits.maxAltars, and kiln.log says so. Edited one level at a time (altarsPerFlameLevel[i]).</summary>
     [RegistryField("balance.altarsPerFlameLevel", RegistryApplies.Restart, JoinedClient = "restart")]
     public RegistryFixedList<int> AltarsPerFlameLevel => new(_c, BalanceFields.AltarsPerFlameLevel, static (c, i) => RegistryCells.Int(c, BalanceFields.AltarsPerFlameLevel, i), static (c, i, v) => RegistryCells.Set(c, BalanceFields.AltarsPerFlameLevel, i, v));
 

@@ -82,6 +82,16 @@ size_t apply(const stage::BootResource& rb, std::vector<stage::BootOutcome>* out
 // registry.json / kilnctl status: per value the game's own, the value taken, and whether its hook is in.
 json state();
 
+// ---- the altar rule's two values (dev.32 api-shape) ----
+// The game's altar check answers min(the world's Flame level's value of balance.altarsPerFlameLevel, a cap in its code): the
+// table is the progression (how many altars at each Flame level), the cap (limits.maxAltars, the game's own 16) one ceiling over
+// every level, and raising it is the explicit choice to go past the game's 16 with what that costs (altars past the 16th give
+// build zones without the base features, the zones' network message counts them in one byte, a player's game draws at most 32
+// zone borders). The two stay apart: a table edit, a relative one (add 5) included, never crosses 16 by itself. A table above
+// the cap in effect is a mod that raised one and not the other: kiln.log says so, with what to raise.
+// outcomes: a start's boot outcomes (the balance table's and limits' among them); game_cap: the game's own cap (0: unknown).
+std::vector<std::string> altar_notes(const std::vector<stage::BootOutcome>& outcomes, int64_t game_cap);
+
 // ---- the lab's proof (proof.cpp) ----
 // One value set as an answer for a moment (the producer's probe: no registry layer), and taken back. The hook is installed
 // for it when it is not in yet. false + *why: the hook cannot answer on this build.

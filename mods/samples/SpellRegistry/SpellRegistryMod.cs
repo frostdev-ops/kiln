@@ -6,7 +6,6 @@
 #pragma warning disable KILNX031
 using Kiln;
 using Kiln.Registry;
-using DataRegistry = Kiln.Registry.Registry;
 
 namespace SpellRegistry;
 
@@ -27,12 +26,12 @@ public sealed class SpellRegistryMod : Mod
             return;
         }
         var settings = Config.Register<Settings>().Value;
-        var registry = DataRegistry.For(context);
-        registry.Alter(view =>
+        var registry = Registries.For(context);
+        registry.Alter(stage =>
         {
-            var poisoned = view.Buffs["game:buff_5f425faf"];
+            var poisoned = stage.Buffs["game:buff_5f425faf"];
             poisoned.Duration = TimeSpan.FromSeconds(settings.PoisonedSeconds);
-            var cast = view.Abilities["game:attack_player_staff_fixedanim_fireball_fast"];
+            var cast = stage.Abilities["game:attack_player_staff_fixedanim_fireball_fast"];
             Log.Info($"Poisoned lasts {poisoned.Duration.TotalSeconds:0} s ({poisoned.Kind}, applied again: {poisoned.Stacking}); Fireball I's cast releases at {cast.Timing.Release.TotalSeconds:0.00} s");
         });
     }

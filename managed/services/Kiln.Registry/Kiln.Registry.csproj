@@ -2,7 +2,7 @@
   <!-- Kiln.Registry: Kiln's registries (items, recipes, loot, drops, balance, lootRules, randomLoot) as typed C# entries over Kiln-owned field names,
        generated from schema/registry/*.json by tools/registrygen/registrygen.py (Generated/*.g.cs; never edit those by
        hand), plus the stage, live-change and read API over them: Mod.OnRegistry with [RegistryEntryPoints], RegistryStage,
-       Registry.Change/Read and Registry.Ready (docs/kiln/modding/registries/README.md). Experimental (KILNX031).
+       Registries.Change/Read and Registries.Ready (docs/kiln/modding/registries/README.md). Experimental (KILNX031).
        Deployed to kiln/host/ and shared by every mod. -->
   <PropertyGroup>
     <RootNamespace>Kiln.Registry</RootNamespace>

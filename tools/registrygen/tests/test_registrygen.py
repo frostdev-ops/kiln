@@ -233,6 +233,75 @@ class SchemaChecks(unittest.TestCase):
         s["fields"]["parts"]["typeName"] = "RegistryId"
         self.assertTrue(any("RegistryId" in e for e in self.errors_of(s)))
 
+    def test_one_enum_serves_several_registries(self):
+        """dev.32 api-shape: one name for one set of values. A second registry's field names the first's enum (typeName) with
+        the same values, or the same plus the one C# reads as null (nullValue): the enum is declared once, in the first
+        registry's file, and the nullValue field is its nullable. Other values under the name are a second type: refused."""
+        s = copy.deepcopy(MINI)
+        s["fields"]["color"]["typeName"] = "Hue"
+        o = copy.deepcopy(MINI)
+        o["registry"], o["typeName"] = "others", "Other"
+        o["fields"] = {"tint": {"type": "enum", "values": ["none", "red", "blue"], "nullValue": "none", "typeName": "Hue",
+                                "applies": "now", "ops": "set"}}
+        t = Tree(s)
+        try:
+            rg.update_lock(t.root)        # things first in the lock: its file declares the enum
+            t.write(o, "others")
+            model = rg.load(t.root)
+            self.assertEqual(model.errors, [])
+            rg.update_lock(t.root)
+            out = rg.render(model, rg.read_lock(t.root))
+            things, others = out["managed/services/Kiln.Registry/Generated/Things.gen.cs"], out["managed/services/Kiln.Registry/Generated/Others.gen.cs"]
+            self.assertIn("public enum Hue", things)
+            self.assertNotIn("public enum Hue", others)
+            self.assertIn("/// <summary>The values of things.color and others.tint.</summary>", things)
+            self.assertIn('    internal static readonly string[] All = { "red", "blue" };', things)
+            self.assertIn('public Hue? Tint { get => RegistryCells.OptionalEnum(_c, OtherFields.Tint, _i, HueNames.All, "none") is int k ? (Hue)k : null; '
+                          'set => RegistryCells.SetOptionalEnum(_c, OtherFields.Tint, _i, HueNames.All, "none", (int?)value); }', others)
+            # the lock keeps the field's contract (its values, none included): nullValue is C#'s only
+            self.assertEqual(t.lock()["registries"]["others"]["fields"]["tint"]["values"], ["none", "red", "blue"])
+            o["fields"]["tint"]["values"] = ["none", "red", "green"]
+            t.write(o, "others")
+            self.assertTrue(any("Hue" in e and "twice" in e for e in rg.load(t.root).errors))
+            o["fields"]["tint"]["nullValue"] = "grey"
+            t.write(o, "others")
+            self.assertTrue(any("nullValue" in e for e in rg.load(t.root).errors))
+        finally:
+            t.close()
+
+    def test_cs_name_names_the_property_only(self):
+        """review of api-shape (owner 11-27): a field's C# property may have another name than the field (csName, C# only: the
+        data's name, the lock and the field catalog keep the field's), so a property that shipped with another type keeps its
+        name beside the new one (loot.fixedRarity is ItemLootEntry.Rarity; dev.31's FixedRarity stays, hand-written). It is a C#
+        name, of a leaf, and names no other property of the same type."""
+        s = copy.deepcopy(MINI)
+        s["fields"]["color"]["csName"] = "Hue"
+        s["fields"]["rows"]["of"]["fields"]["n"]["csName"] = "Number"
+        t = Tree(s)
+        try:
+            rg.update_lock(t.root)
+            model = rg.load(t.root)
+            self.assertEqual(model.errors, [])
+            cs = rg.render(model, rg.read_lock(t.root))["managed/services/Kiln.Registry/Generated/Things.gen.cs"]
+            self.assertIn('    [RegistryField("things.color", RegistryApplies.Now)]\n    public ThingColor Hue { get => ', cs)
+            self.assertIn('    [RegistryField("things.rows[].n", RegistryApplies.Now)]\n    public int Number { get => ', cs)
+            self.assertNotIn(" Color { get", cs)
+            self.assertIn("internal const int Color = ", cs)  # the field's id keeps the field's name
+            self.assertIn("color", t.lock()["registries"]["things"]["fields"])
+            self.assertNotIn("csName", json.dumps(t.lock()))
+        finally:
+            t.close()
+        for spec, why in ((dict(s["fields"]["color"], csName="hue"), "csName"), ):
+            bad = copy.deepcopy(MINI)
+            bad["fields"]["color"] = spec
+            self.assertTrue(any(why in e for e in self.errors_of(bad)), why)
+        clash = copy.deepcopy(MINI)
+        clash["fields"]["color"]["csName"] = "Size"     # the property of "size"
+        self.assertTrue(any("csName" in e and "Size" in e for e in self.errors_of(clash)))
+        group = copy.deepcopy(MINI)
+        group["fields"]["parts"]["csName"] = "Pieces"   # a struct's type and property follow its name
+        self.assertTrue(any("csName" in e for e in self.errors_of(group)))
+
     def test_game_member_names_are_refused(self):
         t = Tree(MINI)
         try:
@@ -507,6 +576,52 @@ class Outputs(unittest.TestCase):
         self.assertIn("Do not edit", md)
         self.assertIn("are reserved", md)
         self.assertIn("\x60game\x60 and \x60kiln\x60", md)
+
+    def test_value_lists_set_by_index_and_element_identities_are_given(self):
+        """dev.32 api-shape: a list of plain values sets an element by index (a data pack's tags[0]); a read-only leaf of a
+        list's elements (its identity) has a setter, for an element the callback appends (the stage refuses it on others)."""
+        s = copy.deepcopy(MINI)
+        s["fields"]["rows"]["of"]["fields"]["key"] = {"type": "ref", "registry": "things", "readOnly": True}
+        t = Tree(s)
+        try:
+            rg.update_lock(t.root)
+            cs = rg.render(rg.load(t.root), rg.read_lock(t.root))["managed/services/Kiln.Registry/Generated/Things.gen.cs"]
+            self.assertIn("public RegistryValueList<RegistryId> Tags => new(_c, ThingFields.Tags, static (c, i) => RegistryCells.Id(c, ThingFields.Tags, i), "
+                          "static (c, i, v) => RegistryCells.Set(c, ThingFields.Tags, i, v));", cs)
+            self.assertIn("public RegistryId Key { get => RegistryCells.Id(_c, ThingFields.RowsKey, _i); set => RegistryCells.Set(_c, ThingFields.RowsKey, _i, value); }", cs)
+            self.assertIn("public int Fixed => ", cs)  # a read-only field of the entry itself: no setter
+        finally:
+            t.close()
+
+    def test_section_select_takes_both_forms(self):
+        """ir.cpp selector_of reads "select" as a plain string or as {"id": ...} (the IR's schema and the samples use both):
+        the section's schema takes what the parser takes, so lint never refuses a working data pack's selector."""
+        s = json.loads(self.out["schema/registry-section.schema.json"])
+        forms = s["$defs"]["select"]["anyOf"]
+        self.assertIn({"type": "string", "minLength": 1}, forms)
+        obj = next(f for f in forms if f.get("type") == "object")
+        self.assertEqual(obj["required"], ["id"])
+        self.assertEqual(sorted(obj["properties"]), ["has", "hasNot", "id", "where"])
+
+    def test_section_checks_list_elements(self):
+        """A list field's list ops name its elements by its own schema (ir.cpp struct_of): an element's struct as a nested
+        object, as the C# types and the docs show it, or by the older dotted leaves; a name the element lacks is refused."""
+        s = json.loads(self.out["schema/registry-section.schema.json"])
+        things = s["$defs"]["things"]["$defs"]
+        checks = {c["if"]["properties"]["field"]["const"]: c["then"]["properties"]["list"]["$ref"] for c in things["edit"]["allOf"]}
+        self.assertEqual(checks, {"tags": "#/$defs/things/$defs/list.tags", "rows": "#/$defs/things/$defs/list.rows"})
+        ops = next(f for f in things["list.rows"]["anyOf"] if f.get("type") == "object")["properties"]
+        el = ops["append"]["items"]
+        self.assertFalse(el["additionalProperties"])
+        self.assertEqual(sorted(el["properties"]), ["inner", "inner.x", "n"])
+        self.assertEqual(el["properties"]["inner"], {"type": "object", "additionalProperties": False,
+                                                    "properties": {"x": {"type": "number", "minimum": 0, "maximum": 1}}})
+        self.assertEqual(el["properties"]["n"], {"type": "number", "minimum": 0, "maximum": 9})
+        self.assertEqual(ops["remove"]["items"], el)
+        tag = next(f for f in things["list.tags"]["anyOf"] if f.get("type") == "object")["properties"]["append"]["items"]
+        self.assertEqual(tag, {"type": "string", "pattern": ":"})
+        # an added entry's list values are its elements too
+        self.assertEqual(things["edit"]["properties"]["fields"]["properties"]["rows"]["items"], el)
 
     def test_section_add_ids(self):
         s = json.loads(self.out["schema/registry-section.schema.json"])

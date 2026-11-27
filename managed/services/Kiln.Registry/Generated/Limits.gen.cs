@@ -17,7 +17,7 @@ public sealed partial class LimitsEntry : IRegistryEntry
     /// <summary>The registry's name.</summary>
     public string Registry => "limits";
 
-    /// <summary>The most Flame Altars the game allows at any Flame level: its altar check answers the smaller of balance.altarsPerFlameLevel at the world's Flame level and this. The game's own is 16, so raise both to allow more. Past 16 the game's bases still count 16: altars past the 16th give build zones without the base features (comfort, base chests, survivor beds, animals, the journal), the network message of a world's zones counts them in one byte, and a player's game draws at most 32 zone borders at once.</summary>
+    /// <summary>The most Flame Altars the game allows at any Flame level: its altar check answers the smaller of balance.altarsPerFlameLevel at the world's Flame level and this. The game's own is 16, so raise both to allow more. The two are apart on purpose: the table is the progression (how many at each level), this is one ceiling over every level, and raising it past 16 is the choice to take what that costs, so a table edit (a relative one, add 5, too) never crosses 16 by itself; kiln.log says when the table asks for more than this allows. Past 16 the game's bases still count 16: altars past the 16th give build zones without the base features (comfort, base chests, survivor beds, animals, the journal), the network message of a world's zones counts them in one byte, and a player's game draws at most 32 zone borders at once.</summary>
     [RegistryField("limits.maxAltars", RegistryApplies.Restart, JoinedClient = "restart")]
     public int MaxAltars { get => RegistryCells.Int(_c, LimitsFields.MaxAltars, _i); set => RegistryCells.Set(_c, LimitsFields.MaxAltars, _i, value); }
 

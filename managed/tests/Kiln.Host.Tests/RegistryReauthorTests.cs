@@ -6,7 +6,7 @@ using Xunit;
 
 namespace Kiln.Host.Tests;
 
-// Registry.Reauthor off the world tick (dev.32 LOOT-2): with kiln-content's kiln.internal.registry v3 the re-authored pass runs on
+// Registries.Reauthor off the world tick (dev.32 LOOT-2): with kiln-content's kiln.internal.registry v3 the re-authored pass runs on
 // a worker thread of Kiln.Host's, its turn is prepared there and lands on the tick in one step (FakeRegistry's v3 stands in for
 // kiln-content; registry_live_reauthor_test covers the native side).
 public sealed class RegistryReauthorTests : ModsFixture
@@ -195,7 +195,7 @@ public sealed class RegistryReauthorTests : ModsFixture
         Settle(rig.Dispatch);
         Assert.Equal(22, rig.Native.Value);  // the request ran again, on the tick, and landed
         Assert.Equal(rig.Tick, threads[^1]); Assert.Equal(1, rig.Native.Installs); Assert.Equal(1, rig.Native.LayerCount);
-        Assert.False(rig.Native.Host.Has("OnRegistry WorldLoad (Registry.Reauthor)"), rig.Native.Host.Dump());
+        Assert.False(rig.Native.Host.Has("OnRegistry WorldLoad (Registries.Reauthor)"), rig.Native.Host.Dump());
         Assert.True(rig.Native.Host.Has("needs the tick thread: its passes run on the world tick"), rig.Native.Host.Dump());
         owner.Retire();
     }
@@ -257,7 +257,7 @@ public sealed class RegistryReauthorTests : ModsFixture
         rig.Dispatch.FlushLoads();  // the job starts; its pass waits inside the mod's code
         Assert.True(entered.Wait(10_000), "the pass runs on the worker");
         var waits = owner.BeginUnload();
-        Assert.NotNull(waits); Assert.Contains("Registry.Reauthor", waits);
+        Assert.NotNull(waits); Assert.Contains("Registries.Reauthor", waits);
         hold.Set();
         Assert.True(rig.Dispatch.ReauthorWork!.Wait(10_000));
         Assert.Null(owner.UnloadWaitsFor());
@@ -304,6 +304,169 @@ public sealed class RegistryReauthorTests : ModsFixture
         Settle(rig.Dispatch);
         Assert.Equal(3, passes); Assert.Equal(2, rig.Native.Installs);  // the first turn was stale; the pass ran again and landed
         Assert.Equal(63, rig.Native.Value); Assert.Equal(1, rig.Native.LayerCount);
+        owner.Retire();
+    }
+    // dev.32 api-shape: a pass says where it runs. A point's own pass (the world load's here): Point, on the tick. A pass
+    // Registries.Reauthor asked for, on Kiln's worker: ReauthoredOffTick (OffTick: tick-thread APIs are refused); one Kiln runs
+    // on the tick (its mod called one off it): ReauthoredOnTick.
+    [Fact(Timeout = 30_000)]
+    public async Task APassSaysWhereItRuns()
+    {
+        await Task.Yield();
+        using var rig = new Rig(this);
+        var owner = Owner(rig.Native, "leveler"); var seen = new List<(RegistryPassKind Pass, bool OffTick, bool Tick)>(); var needTick = false;
+        rig.Dispatch.Loaded(new WorldOnlyAuthor(c => {
+            if (c.Phase != RegistryPhase.Alter) return;
+            lock (seen) seen.Add((c.Pass, c.OffTick, Environment.CurrentManagedThreadId == rig.Tick));
+            if (needTick && c.OffTick) Game.AssertTickThread();  // refused off the tick: Kiln runs its passes on the tick from then on
+            Edit(c, 30 + seen.Count);
+        }), owner, Root, false);
+        rig.Dispatch.FlushLoads();
+        Assert.Null(RegistryRuntime.Reauthor!(owner, RegistryEntryPoint.WorldLoad));
+        Settle(rig.Dispatch);
+        needTick = true;
+        Assert.Null(RegistryRuntime.Reauthor!(owner, RegistryEntryPoint.WorldLoad));
+        Settle(rig.Dispatch);
+        Assert.Equal(new[] { (RegistryPassKind.Point, false, true), (RegistryPassKind.ReauthoredOffTick, true, false),
+                             (RegistryPassKind.ReauthoredOffTick, true, false), (RegistryPassKind.ReauthoredOnTick, false, true) }, seen);
+        // the two landed turns build registry.json off the tick: let them finish before the rig's native tables go
+        for (var i = 0; i < 200 && Volatile.Read(ref rig.Native.ReportsBuilt) < 2; ++i) await Task.Delay(20);
+        owner.Retire();
+    }
+    // dev.32 api-shape (LOOT-2 review's open finding): one re-author at a time holds across a world change too. A re-authored
+    // pass still on the worker when a new world loads keeps that mod's new world pass back until it ends, however long it
+    // takes: the two never run beside each other (a mod's pass state need not be thread-safe), and the old turn lands nothing.
+    [Fact(Timeout = 60_000)]
+    public async Task ANewWorldsPassWaitsForAReauthoredPassStillOnTheWorker()
+    {
+        await Task.Yield();
+        using var rig = new Rig(this);
+        var owner = Owner(rig.Native, "leveler"); var inside = 0; var most = 0; var passes = 0;
+        using var hold = new ManualResetEventSlim(true);
+        using var entered = new ManualResetEventSlim(false);
+        rig.Dispatch.Loaded(new WorldOnlyAuthor(c => {
+            if (c.Phase != RegistryPhase.Alter) return;
+            var now = Interlocked.Increment(ref inside);
+            lock (hold) most = Math.Max(most, now);
+            try
+            {
+                if (Interlocked.Increment(ref passes) == 2) { entered.Set(); hold.Wait(); }
+                Edit(c, 70 + Volatile.Read(ref passes));
+            }
+            finally { Interlocked.Decrement(ref inside); }
+        }), owner, Root, false);
+        rig.Dispatch.FlushLoads(); Assert.Equal(1, passes);
+        hold.Reset();
+        Assert.Null(RegistryRuntime.Reauthor!(owner, RegistryEntryPoint.WorldLoad));
+        rig.Dispatch.FlushLoads();  // the job starts; its pass waits inside the mod's code
+        Assert.True(entered.Wait(10_000), "the re-authored pass runs on the worker");
+        rig.Native.ChangeWorld(2);
+        rig.Dispatch.ReauthorWait = TimeSpan.FromMilliseconds(50);
+        int held;
+        try
+        {
+            rig.Dispatch.FlushLoads();  // the new world: the tick waits a moment, then goes on without this mod's pass
+            rig.Dispatch.FlushLoads();
+            held = Volatile.Read(ref passes);
+        }
+        finally { hold.Set(); }
+        Settle(rig.Dispatch);
+        Assert.Equal(2, held);  // held: the new world's pass did not run beside the worker's
+        Assert.Equal(3, passes); Assert.Equal(1, most);
+        Assert.Equal(0, rig.Native.Installs);  // the old world's turn landed nothing
+        Assert.Equal(73, rig.Native.Value);    // the new world's own pass
+        owner.Retire();
+    }
+    [RegistryEntryPoints(RegistryEntryPoint.ModLoad | RegistryEntryPoint.HotReload | RegistryEntryPoint.WorldLoad)]
+    private sealed class EveryPointAuthor(Action<RegistryContext> callback) : Mod
+    {
+        public override void OnRegistry(RegistryContext context) => callback(context);
+    }
+    private sealed class WorldInput { public int Count { get; set; } = 3; }
+    // review of api-shape: the hold covers a HotReload pass replayed at the new world too (review4 NS3: a replacing HotReload
+    // pass that read per-world settings runs again at the next bound world). That replay is the same mod's OnRegistry on the
+    // tick: with the mod's re-authored pass still on the worker it would run beside it, so it waits for it as the world pass does.
+    [Fact(Timeout = 60_000)]
+    public async Task AHotReloadReplayWaitsForAReauthoredPassStillOnTheWorker()
+    {
+        await Task.Yield();
+        WorldConfigs.Reset();
+        try
+        {
+            using var rig = new Rig(this);
+            WorldConfigs.Announce(Path.Combine(DataDir, "world-a"));
+            var inside = 0; var most = 0; var worlds = new List<string?>();
+            using var hold = new ManualResetEventSlim(true);
+            using var entered = new ManualResetEventSlim(false);
+            void Pass(RegistryContext c)
+            {
+                if (c.Phase != RegistryPhase.Alter) return;
+                var now = Interlocked.Increment(ref inside);
+                lock (worlds) most = Math.Max(most, now);
+                try
+                {
+                    if (c.EntryPoint == RegistryEntryPoint.HotReload)
+                    {
+                        lock (worlds) worlds.Add(c.World?.Id);
+                        Edit(c, 60 + Config.RegisterWorld<WorldInput>().Value.Count);  // per-world settings: replayed at the next world
+                    }
+                    else if (c.Pass == RegistryPassKind.ReauthoredOffTick) { entered.Set(); hold.Wait(); Edit(c, 80); }
+                    else Edit(c, 70);
+                }
+                finally { Interlocked.Decrement(ref inside); }
+            }
+            var old = Owner(rig.Native, "replayer");
+            rig.Dispatch.Loaded(new EveryPointAuthor(Pass), old, Root, false);
+            rig.Dispatch.FlushLoads();
+            old.Retire();
+            var replacement = Owner(rig.Native, "replayer");
+            rig.Dispatch.Loaded(new EveryPointAuthor(Pass), replacement, Root, true);
+            rig.Dispatch.FlushLoads();
+            Assert.Equal(new string?[] { "world-a" }, worlds);  // the replacing HotReload pass read world-a's settings
+            hold.Reset();
+            Assert.Null(RegistryRuntime.Reauthor!(replacement, RegistryEntryPoint.WorldLoad));
+            rig.Dispatch.FlushLoads();  // the job starts; its pass waits inside the mod's code on the worker
+            Assert.True(entered.Wait(10_000), "the re-authored pass runs on the worker");
+            rig.Native.ChangeWorld(2); WorldConfigs.Announce(Path.Combine(DataDir, "world-b"));
+            rig.Dispatch.ReauthorWait = TimeSpan.FromMilliseconds(50);
+            int heldMost;
+            try
+            {
+                rig.Dispatch.FlushLoads();  // the new world: neither the replay nor the world pass of this mod runs beside the worker
+                rig.Dispatch.FlushLoads();
+                lock (worlds) heldMost = most;
+            }
+            finally { hold.Set(); }
+            Settle(rig.Dispatch);
+            for (var i = 0; i < 5; ++i) rig.Dispatch.FlushLoads();
+            Assert.Equal(1, heldMost);  // never two of the mod's passes at once
+            Assert.Equal(1, most);
+            lock (worlds) Assert.Equal(new string?[] { "world-a", "world-b" }, worlds);  // the replay ran once the worker was done
+            replacement.Retire();
+        }
+        finally { WorldConfigs.Reset(); }
+    }
+    // review of api-shape: a landed turn's registry.json is built off the tick (up to five tries 100 ms apart), a call into
+    // kiln-content's tables. The dispatch's Dispose waits for such a build and none starts after it, so nothing calls a table
+    // its owner then frees: a rig's FakeRegistry freed under such a build crashed the Host test host at random (0xC0000005).
+    [Fact(Timeout = 30_000)]
+    public async Task NoReportBuildCallsTheTablesAfterDispose()
+    {
+        await Task.Yield();
+        using var rig = new Rig(this);
+        rig.Native.ReportMoves = 1000;  // every try finds the registry moved: the builder tries five times, 100 ms apart
+        var owner = Owner(rig.Native, "leveler");
+        rig.Dispatch.Loaded(new WorldOnlyAuthor(c => { if (c.Phase == RegistryPhase.Alter) Edit(c, 30); }), owner, Root, false);
+        rig.Dispatch.FlushLoads();
+        Assert.Null(RegistryRuntime.Reauthor!(owner, RegistryEntryPoint.WorldLoad));
+        Settle(rig.Dispatch);
+        Assert.Equal(1, rig.Native.Installs);
+        for (var i = 0; i < 200 && Volatile.Read(ref rig.Native.ReportBuilds) == 0; ++i) await Task.Delay(5);
+        Assert.True(Volatile.Read(ref rig.Native.ReportBuilds) > 0, "the turn's report build runs off the tick");
+        rig.Dispatch.Dispose();
+        var builds = Volatile.Read(ref rig.Native.ReportBuilds);
+        await Task.Delay(700);  // longer than the builder's tries
+        Assert.Equal(builds, Volatile.Read(ref rig.Native.ReportBuilds));  // no call into the tables after Dispose returned
         owner.Retire();
     }
     // The world ended while the pass ran: its turn is for that world and is not landed.

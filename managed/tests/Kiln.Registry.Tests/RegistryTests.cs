@@ -75,7 +75,9 @@ public class RegistryTests
             Assert.Equal(f.Applies, props![0].Attr.Applies);
             Assert.Equal(f.JoinedClient, props[0].Attr.JoinedClient);
             Assert.Contains(f.JoinedClient, new[] { "now", "worldLoad", "rejoin", "restart", "serverOnly", "localOnly", "unknown" });
-            Assert.Equal(f.ReadOnly || f.Type == RegistryFieldType.List, props[0].Prop.SetMethod is null);
+            // an element's identity (a drop entry's item) is read-only once made, so it has a setter for an appended element
+            var given = f.ReadOnly && f.Field.Contains("[]", StringComparison.Ordinal) && RegistrySchema.Find(f.Field[..f.Field.IndexOf("[]", StringComparison.Ordinal)])!.ReadOnly == false;
+            Assert.Equal((f.ReadOnly && !given) || f.Type == RegistryFieldType.List, props[0].Prop.SetMethod is null);
             if (f.Type == RegistryFieldType.List)
             {
                 var gen = props[0].Prop.PropertyType.GetGenericTypeDefinition();
@@ -229,7 +231,8 @@ public class RegistryTests
     [Fact]
     public void OnlyComposableListEditsExist()
     {
-        // no edit by index; values are appended to value lists, blank entries to entry lists
+        // no insert or removal by index (those never compose): values are appended to value lists, new entries (their fields in
+        // the append) to entry lists; an element is set by index as a data pack's "perks[0]" is
         foreach (var t in new[] { typeof(RegistryValueList<>), typeof(RegistryEntryList<>), typeof(RegistryFixedList<>) })
             Assert.DoesNotContain(t.GetMethods(), m => m.Name is "RemoveAt" or "Insert");
         Assert.DoesNotContain(typeof(RegistryValueList<>).GetMethods(), m => m.Name == "AppendNew");

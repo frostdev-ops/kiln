@@ -245,10 +245,16 @@ public sealed record ItemsResult(
     string Message,
     int GameError,
     int Steps,
-    bool DryRun)
+    bool DryRun) : IKilnResult
 {
     /// <summary>Something was given / taken (or would be, in a dry run).</summary>
     public bool Succeeded => Status is ItemsStatus.Done or ItemsStatus.Partial;
+    /// <summary>Everything requested was given / taken (<see cref="ItemsStatus.Done"/>), as every Kiln result's Ok says
+    /// (<see cref="IKilnResult"/>); a <see cref="ItemsStatus.Partial"/> give is not Ok (<see cref="Succeeded"/> counts it).
+    /// Since 0.2.0-dev.32.</summary>
+    public bool Ok => Status == ItemsStatus.Done;
+    /// <summary>Why it was not <see cref="Ok"/>: the status and the message; null when Ok. Since 0.2.0-dev.32.</summary>
+    public string? Reason => Ok ? null : Message.Length > 0 ? $"{Status}: {Message}" : Status.ToString();
     /// <summary>The status, the counts, the item and the entity, for logs.</summary>
     public override string ToString() =>
         $"{Status} {Done}/{Requested} x {Item} @ {Entity}{(DryRun ? " (dry run)" : "")}" + (Message.Length > 0 ? $": {Message}" : "");

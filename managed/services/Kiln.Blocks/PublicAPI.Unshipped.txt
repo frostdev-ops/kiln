@@ -35,8 +35,8 @@ static Kiln.SpeechPick.By(System.Func<Kiln.NpcLineContext!, int>! choose) -> Kil
 static Kiln.SpeechPick.InOrder.get -> Kiln.SpeechPick!
 static Kiln.SpeechPick.Random.get -> Kiln.SpeechPick!
 static Kiln.SpeechPick.Seeded(int seed) -> Kiln.SpeechPick!
-static Kiln.Npcs.Farewells(Kiln.EntityId npc) -> Kiln.NpcSpeech!
-static Kiln.Npcs.MenuLine(Kiln.EntityId npc) -> Kiln.NpcSpeech!
+static Kiln.Npcs.Farewells(Kiln.EntityId npc) -> Kiln.NpcLines!
+static Kiln.Npcs.MenuLine(Kiln.EntityId npc) -> Kiln.NpcLines!
 static Kiln.Npcs.MenuSay(Kiln.EntityId npc, Kiln.EntityId player, Kiln.UiText! text) -> Kiln.SpeechResult!
 static Kiln.Npcs.MenuSay(Kiln.EntityId npc, Kiln.EntityId player, string! text) -> Kiln.SpeechResult!
 Kiln.NpcTopic
@@ -210,3 +210,17 @@ static Kiln.TamingStepBlock.Tool(Kiln.ItemRef item, int wear = 1, bool allowBrea
 static Kiln.TamingStepBlock.Weaken(double maxHealthFraction) -> Kiln.TamingStepBlock!
 static Kiln.TamingStepBlock.operator !=(Kiln.TamingStepBlock? left, Kiln.TamingStepBlock? right) -> bool
 static Kiln.TamingStepBlock.operator ==(Kiln.TamingStepBlock? left, Kiln.TamingStepBlock? right) -> bool
+Kiln.NpcLines
+Kiln.NpcLines.Clear() -> void
+Kiln.NpcLines.Kind.get -> Kiln.NpcLineKind
+Kiln.NpcLines.ModId.get -> string!
+Kiln.NpcLines.Mode.get -> Kiln.SpeechMode
+Kiln.NpcLines.Npc.get -> Kiln.EntityId
+Kiln.NpcLines.Pick.get -> Kiln.SpeechPick!
+Kiln.NpcLines.Pick.set -> void
+Kiln.NpcLines.Priority.get -> int
+Kiln.NpcLines.Priority.set -> void
+Kiln.NpcLines.Refresh() -> void
+Kiln.NpcLines.Replace(System.Collections.Generic.IEnumerable<Kiln.UiText!>! lines) -> Kiln.SpeechResult!
+Kiln.NpcLines.Replace(params string![]! lines) -> Kiln.SpeechResult!
+override Kiln.NpcLines.ToString() -> string!

@@ -83,6 +83,16 @@ public sealed class RegistryChange
     }
 }
 
+/// <summary>The answer of <see cref="Registries.Reauthor"/>: Ok when the WorldLoad pass is queued, else why not (since
+/// 0.2.0-dev.32).</summary>
+/// <param name="Ok">The pass is queued (it runs on a later host tick).</param>
+/// <param name="Reason">Why it was not queued, in Kiln's words; null when Ok.</param>
+[Experimental("KILNX031")]
+public sealed record RegistryReauthorResult(bool Ok, string? Reason) : IKilnResult
+{
+    internal static readonly RegistryReauthorResult Queued = new(true, null);
+}
+
 /// <summary>A ready notification. The world token is Kiln-owned, never a native address.</summary>
 /// <param name="Phase">Which registry snapshot is ready: the game-start one or a world load's live application.</param>
 /// <param name="Generation">The registry generation now in force (1 at game start, one more at each application of the
@@ -91,21 +101,22 @@ public sealed class RegistryChange
 [Experimental("KILNX031")]
 public sealed record RegistryReady(RegistryReadyPhase Phase, ulong Generation, RegistryWorld? World);
 
-public static partial class Registry
+public static partial class Registries
 {
     private static readonly object ReadyGate = new();
     private static readonly List<(ModContext Owner, Action<RegistryReady> Handler)> Handlers = [];
     private static readonly Dictionary<ModContext, Action> ReadyRetirements = [];
     private static RegistryReady? _lastReady;
-    static Registry()
+    static Registries()
     {
         RegistryRuntime.Ready += Publish;
         if (RegistryRuntime.LastReady is { } ready) _lastReady = new(ready.Phase, ready.Generation, ready.World);
     }
-    /// <summary>The Host has the stage and live tables. Per-field availability is still reported by registry field capabilities.
-    /// Any thread.</summary>
+    /// <summary>The Host has the stage and live tables (capabilities <c>kiln.registry</c> and <c>kiln.registry.live</c>: the
+    /// analyzers' KILN121 takes a check of it as a check of both). Per-field availability is still reported by registry field
+    /// capabilities. Any thread.</summary>
     /// <returns>True when the registry back-end is there; false on a client without it, or before the host is up.</returns>
-    [AnyThread]
+    [AnyThread, CapabilityGuard("kiln.registry", "kiln.registry.live")]
     public static bool Available => RegistryRuntime.Available?.Invoke() == true;
     /// <summary>Raised after a complete stage/live application. A late subscriber gets a copied notification on its next tick.</summary>
     /// <remarks>Subscribe in <c>OnLoad</c> (a handler added from a game-start author throws <see cref="RegistryContextException"/>). The
@@ -182,15 +193,14 @@ public static partial class Registry
         var run = RegistryRuntime.Manual ?? throw new KilnUnavailableException("kiln.registry.live");
         return new(owner, run(owner, context => edits(For(context))));
     }
-    /// <summary>Authors this mod's declared <see cref="RegistryEntryPoint.WorldLoad"/> point again on the next host tick, for edits
-    /// made from settings or game state that changed (a config file, a player's level). The pass runs as Kiln runs the point at a
-    /// world load, and its new layers replace the ones that point made in this world.</summary>
-    /// <param name="point">The point to author again. Only <see cref="RegistryEntryPoint.WorldLoad"/> is authored again on request;
-    /// the mod must declare it (<see cref="RegistryEntryPointsAttribute"/>).</param>
-    /// <returns>True when the pass is queued (or will run anyway at the next world's load, when no world is loaded). False, with the
-    /// reason in kiln.log, when the mod declares no WorldLoad point, another point is asked for, the call is made inside an
-    /// <see cref="Mod.OnRegistry"/> callback (ask when settings or game state change, never from the pass), or the live back-end
-    /// is not there.</returns>
+    /// <summary>Authors this mod's declared <see cref="RegistryEntryPoint.WorldLoad"/> point again on the next host tick (the one
+    /// point Kiln authors again on request), for edits made from settings or game state that changed (a config file, a player's
+    /// level). The pass runs as Kiln runs the point at a world load, and its new layers replace the ones that point made in this
+    /// world.</summary>
+    /// <returns>Ok when the pass is queued (or will run anyway at the next world's load, when no world is loaded). Not Ok, with
+    /// the reason (also in kiln.log), when the mod declares no WorldLoad point (<see cref="RegistryEntryPointsAttribute"/>), the
+    /// call is made inside an <see cref="Mod.OnRegistry"/> callback (ask when settings or game state change, never from the
+    /// pass), or the live back-end is not there.</returns>
     /// <exception cref="InvalidOperationException">Called outside a loaded mod's callback.</exception>
     /// <exception cref="RegistryContextException">The mod retired.</exception>
     /// <exception cref="KilnUnavailableException">The capability <c>kiln.registry.live</c> is off.</exception>
@@ -201,23 +211,28 @@ public static partial class Registry
     /// <para>Precedence: the re-authored layers are committed after every other mod's, so they win over other mods' WorldLoad edits
     /// of the same fields (Final ones too) until those points are authored again; the pass reads those mods' edits as the values
     /// below it.</para>
-    /// <para>Timing and thread (since 0.2.0-dev.32): the pass runs on a worker thread of Kiln's, and its turn lands on the world tick
-    /// in one step (the new layers in, the earlier ones out, one write of the bytes that change). Read settings and game state
-    /// before asking and keep them for the pass: a tick-thread API called in it throws, and Kiln then runs that mod's re-authored
-    /// passes on the tick instead. One re-author runs at a time; requests made before the pass runs, or meanwhile, are one more pass
-    /// after it.</para>
+    /// <para>Timing and thread (since 0.2.0-dev.32): the pass runs on a worker thread of Kiln's (<see cref="RegistryContext.OffTick"/>
+    /// tells the callback), and its turn lands on the world tick in one step (the new layers in, the earlier ones out, one write of
+    /// the bytes that change). Read settings and game state before asking and keep them for the pass: a tick-thread API called in
+    /// it throws, and Kiln then runs that mod's re-authored passes on the tick instead. One re-author runs at a time; requests made
+    /// before the pass runs, or meanwhile, are one more pass after it, and a new world's pass waits for a re-authored one still
+    /// running.</para>
     /// <para>Call it on the tick thread, from inside the mod, where settings or game state change (a config change handler), never
     /// from <see cref="Mod.OnRegistry"/>.</para>
     /// </remarks>
     /// <example><code>
     /// // in OnLoad: follow the config at once, with no restart
-    /// Config.Register&lt;Settings&gt;().Changed += _ =&gt; Registry.Reauthor(RegistryEntryPoint.WorldLoad);
+    /// Config.Register&lt;Settings&gt;().Changed += _ =&gt;
+    /// {
+    ///     var r = Registries.Reauthor();
+    ///     if (!r.Ok) Log.Warn($"not authored again: {r.Reason}");
+    /// };
     /// </code></example>
     /// <seealso cref="Change"/>
     /// <seealso cref="RegistryEntryPointsAttribute"/>
     /// <seealso href="https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/registries/README.md">Registries: the modder's guide</seealso>
     [TickThreadOnly, RequiresCapability("kiln.registry.live")]
-    public static bool Reauthor(RegistryEntryPoint point)
+    public static RegistryReauthorResult Reauthor()
     {
         var owner = CallingMod();
         var run = RegistryRuntime.Reauthor ?? throw new KilnUnavailableException("kiln.registry.live");
@@ -225,10 +240,10 @@ public static partial class Registry
         // OnRegistry): it belongs where settings or game state change
         var why = RegistryContext.Current is not null
             ? "it is asked for outside OnRegistry, when settings or game state change; inside a pass it would run the pass again on every tick"
-            : run(owner, point);
-        if (why is null) return true;
-        owner.Log.Warn($"registry: Reauthor({point}) was not queued: {why}");
-        return false;
+            : run(owner, RegistryEntryPoint.WorldLoad);
+        if (why is null) return RegistryReauthorResult.Queued;
+        owner.Log.Warn($"registry: Reauthor (WorldLoad) was not queued: {why}");
+        return new(false, why);
     }
     /// <summary>Reads the resolved mapped view in an expiring, read-only context. Keep copied values, not entries.</summary>
     /// <param name="read">The reader: it receives a read-only <see cref="RegistryStage"/> of the data as it is now (the game's, with

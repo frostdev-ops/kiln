@@ -24,8 +24,8 @@
 
 ## ReviveCostBlock `0.2.26` — What a revive costs: so many of a plain stack item.
 - `ReviveCostBlock(ItemRef Item, int Count = 1)`
-- `Count { get; init; } -> int` — How many items: 1..999.
-- `Item { get; init; } -> ItemRef` — A plain stack item of the game or of a mod (not gear): an `ItemRef`, or its name as a string (`"Material_T1_Twigs"`).
+- `Count { get; init; } -> int` — 1..999.
+- `Item { get; init; } -> ItemRef` — A plain stack item of the game or of a mod (not gear).
 
 ## TamingBlock `0.2.26` — A taming: which creatures it tames, its steps in order (the last one tames), the timeouts, the refund policy, and the pet a tame makes.
 - `Creatures { get; init; } -> IReadOnlyList<PartRef<CreatureBlock>>` — The creatures it tames, each named as a `PetBlock.Creature` is (one reference type): a game creature by its...

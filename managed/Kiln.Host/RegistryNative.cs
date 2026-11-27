@@ -140,7 +140,7 @@ internal sealed unsafe class RegistryNative(IHostServices host)
         return NativeCalls.WithUtf8(registry, r => NativeCalls.WithUtf8(id, i => NativeCalls.WithUtf8(field, f =>
             Text((buffer, cap, length) => t->ReadPass(owner, r, i, f, buffer, cap, length)))));
     }
-    // ---- dev.32 LOOT-2: Registry.Reauthor off the world tick (kiln.internal.registry v3) ----
+    // ---- dev.32 LOOT-2: Registries.Reauthor off the world tick (kiln.internal.registry v3) ----
     /// <summary>A re-authored pass can run on a worker thread: kiln-content.dll publishes v3's preparation and landing.</summary>
     internal bool OffTickAvailable
     {

@@ -10,7 +10,7 @@ public sealed class RegistryMpTestMod : Mod
 {
     public override void OnRegistry(RegistryContext context)
     {
-        var registry = Kiln.Registry.Registry.For(context);
+        var registry = Kiln.Registry.Registries.For(context);
         if (context.EntryPoint == RegistryEntryPoint.GameStart)
         {
             registry.Alter(view => view.Balance.LevelCap = 60);
