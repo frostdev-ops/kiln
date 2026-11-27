@@ -135,6 +135,9 @@ body goes). Orders move the base lease (Follow, Stay) or add a `PetCombat` lease
 mount service, another owner) preempts the pet's leases without a loss; the broker resumes the base lease after the ride
 with a new transition sequence; an order during the ride commits with its lease waiting. A lease of the pet's that ends
 without its asking is lost control: the body is retired and the pet goes down (never left as a wild creature).
+What a body's setup and orders change in kiln.creatures (its faction, level and scale, an attack order's held target)
+is the defining mod's change, as every creature change is a mod's: Kiln.Pets makes it as that mod, and a pet no loaded
+mod defines gets no body (`BodyRefused`).
 
 Retiring a body quarantines it first (every lease, a rider's too, loses authority at once, its root is denied), gives a
 rider two steps to get off, then destroys it; the broker retires its rows when it sees the body gone. Every try of a

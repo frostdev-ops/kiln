@@ -92,10 +92,12 @@ internal sealed partial class GamePetWorld : IPetWorld
 
     // ---- bodies ----
 
-    /// <summary>A body's broker leases (GamePetMover reads the authority through it).</summary>
+    /// <summary>A body's broker leases (GamePetMover reads the authority through it) and its pet's definition id (its
+    /// orders are that definition's mod's changes).</summary>
     internal interface IHasControl
     {
         PetControl? Control { get; }
+        string Definition { get; }
     }
 
     private sealed class BodyTag : IHasControl
@@ -104,6 +106,7 @@ internal sealed partial class GamePetWorld : IPetWorld
         public bool HealthSet;
         public PetBodyRequest Request = null!;
         public PetControl? Control { get; set; }
+        public string Definition => Request.Definition.Id;
         public bool Quarantined;
         public ulong QuarantinedAt;
     }
@@ -114,6 +117,13 @@ internal sealed partial class GamePetWorld : IPetWorld
         if (!CanMakeBodies(out var off))
         {
             reason = off;
+            return null;
+        }
+        // the body's changes in kiln.creatures are its defining mod's, as every creature change is a mod's (this step runs
+        // no mod's code)
+        if (PetsRuntime.DefiningMod(request.Definition.Id) is not { } definer)
+        {
+            reason = $"BodyRefused: no loaded mod defines {request.Definition.Id} (a body's faction, level and scale are its defining mod's changes)";
             return null;
         }
         EntityId e;
@@ -160,10 +170,13 @@ internal sealed partial class GamePetWorld : IPetWorld
         // the players' side, at once (the guard's rows and the broker's lease come with packages 3 and 5)
         try
         {
-            var c = Creatures.Of(e);
-            c.Faction = Faction.PlayerAlly;
-            if (request.Creature.Variant is not null) c.Level = request.Level;
-            if (Math.Abs(request.Definition.Level.Scale - 1) > 1e-6) c.Scale = (float)request.Definition.Level.Scale;
+            PetsRuntime.As(definer, () =>
+            {
+                var c = Creatures.Of(e);
+                c.Faction = Faction.PlayerAlly;
+                if (request.Creature.Variant is not null) c.Level = request.Level;
+                if (Math.Abs(request.Definition.Level.Scale - 1) > 1e-6) c.Scale = (float)request.Definition.Level.Scale;
+            });
         }
         catch (Exception x) when (x is NotSupportedException or InvalidOperationException or ArgumentException)
         {
