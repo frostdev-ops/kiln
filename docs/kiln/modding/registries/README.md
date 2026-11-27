@@ -273,15 +273,18 @@ edits) lands in a few milliseconds where it took 0.5 s (and 0.6 to 2.1 s on a lo
 
 - Read your own settings and the game state you need (a player's level) **before** asking, in the event or tick handler
   that saw them change, and keep them in fields the pass reads. A tick-thread API called inside a re-authored pass throws
-  (`InvalidOperationException`, "... a re-authored registry pass (Registry.Reauthor) runs off it"); Kiln notices even when
-  the mod catches it, never lands that pass, runs it again on the world tick and from then on runs that mod's re-authored
-  passes on the tick (slower: the pass's own time is on the tick again; kiln.log says so once). APIs marked `[AnyThread]`
-  are fine (`Players.All`, `Progression.Get`: the last snapshot off the tick). The world-load pass itself still runs on the
-  world thread, as before.
+  (`InvalidOperationException`, "... a re-authored registry pass (Registry.Reauthor) runs off it"), whichever check it
+  has (the analyzers' KILN101 list: `Game.AssertTickThread`, the services' own checks). Kiln notices whether the mod
+  catches it or not, never lands that pass (nor logs it as the mod's fault), runs it again on the world tick and from
+  then on runs that mod's re-authored passes on the tick (slower: the pass's own time is on the tick again; kiln.log says so
+  once). APIs marked `[AnyThread]` are fine (`Players.All`, `Progression.Get`: the last snapshot off the tick). The
+  world-load pass itself still runs on the world thread, as before.
 - The pass reads the registry as it is when it starts. If the registry moves before its turn lands (another mod's change, a
-  data pack, a world's end), Kiln drops that turn and runs the pass again; after three such turns in a row the next pass
-  runs whole on the tick (the pass, its preparation and its landing in one step, at the cost re-authors had before
-  0.2.0-dev.32), so it always lands.
+  data pack, a world's end, or only what its edits bind to: a drop table the game loads meanwhile), Kiln drops that turn and
+  runs the pass again; after three such turns in a row the next pass runs whole on the tick (the pass, its preparation and
+  its landing in one step, nothing moving under it; at the cost re-authors had before 0.2.0-dev.32), so it always lands.
+- The mod's unload (a hot reload too) waits for a pass running on the worker: its `OnUnload` never runs beside its
+  `OnRegistry`, and once the unload began no pass of it starts (its earlier layers stay until the unload takes them back).
 
 **Coalescing.** Kiln runs one re-author at a time. Requests made while one runs (or before the next tick) become one more
 pass after it, never one each: a burst of requests (a settings file saved several times, a level-up and a join in the same
