@@ -1,20 +1,20 @@
 # Pets (Kiln.Pets)
 
-## PetBodyLostEvent `0.2.25` — A pet's body was gone without Kiln retiring it; the pet is down (never rebuilt by itself).
+## PetBodyLostEvent `0.2.26` — A pet's body was gone without Kiln retiring it; the pet is down (never rebuilt by itself).
 
-## PetBodyRetiredEvent `0.2.25` — A pet's body was removed from the world (dismiss, logout, release, down).
+## PetBodyRetiredEvent `0.2.26` — A pet's body was removed from the world (dismiss, logout, release, down).
 
-## PetBodyViewKey `0.2.25` — A pet body as the network names it: informational (to tell whether a pet has a body, and which one), never an entity to resolve or act on from a client.
+## PetBodyViewKey `0.2.26` — A pet body as the network names it: informational (to tell whether a pet has a body, and which one), never an entity to resolve or act on from a client.
 - `PetBodyViewKey(uint NetworkEntityId, ulong BodyGeneration)`
 - `BodyGeneration { get; init; } -> ulong` — The body's generation.
 - `NetworkEntityId { get; init; } -> uint` — The server's entity id of the body.
 
-## PetCaps `0.2.25` — How many pets of a definition there may be.
+## PetCaps `0.2.26` — How many pets of a definition there may be.
 - `LivePerCharacter { get; init; } -> int` — Live bodies of one character (of every definition) while summoning a pet of this definition, 1..16.
 - `LivePerWorld { get; init; } -> int` — Live bodies of this definition in the world, 1..256.
 - `RetainedPerCharacter { get; init; } -> int` — Records of this definition one character keeps (released ones not counted), 1..128.
 
-## PetChange `0.2.25` — One change of a pet: before and after, the request behind it and when it happened.
+## PetChange `0.2.26` — One change of a pet: before and after, the request behind it and when it happened.
 - `After { get; init; } -> PetSnapshot` — The pet after.
 - `Before { get; init; } -> PetSnapshot` — The pet before.
 - `Cause { get; init; } -> PetChangeCause` — Why the pet changed: a request, a lost body, a lethal hit, a logout, a revive channel's own course, ...
@@ -22,35 +22,35 @@
 - `ObservedStep { get; init; } -> ulong` — The server step it was observed at (a later delivery keeps it).
 - `OperationId { get; init; } -> Guid` — The request's operation id; empty when no request caused it.
 
-## PetChangeCause `0.2.25` — Why a pet changed.
+## PetChangeCause `0.2.26` — Why a pet changed.
 enum: Request, BodyLost, NativeLethal, ProtectionLost, Logout, WorldEnd, Login, Stats, Control, Channel, Unload
 
-## PetChangeEvent `0.2.25` — The base of every pet change event: subscribe to it for all of them, or to one kind below.
+## PetChangeEvent `0.2.26` — The base of every pet change event: subscribe to it for all of them, or to one kind below.
 - `Change { get; } -> PetChange` — The change: before, after, the request, the step.
 - `Owner { get; } -> CharacterKey` — The character that owns the pet.
 - `Pet { get; } -> PetId` — The pet that changed: its id (`PetChangeEvent.Change` holds the whole before and after).
 
-## PetCommandChangedEvent `0.2.25` — A pet's order or target changed.
+## PetCommandChangedEvent `0.2.26` — A pet's order or target changed.
 
-## PetCommit `0.2.25` — The save that holds a pet's state: what was serialized and committed.
+## PetCommit `0.2.26` — The save that holds a pet's state: what was serialized and committed.
 - `BundleHash { get; init; } -> string` — The sha256 of the committed record bundle (hex).
 - `StateRevision { get; init; } -> ulong` — The pet's `PetSnapshot.StateRevision` in the committed bytes.
 - `WorldEpoch { get; init; } -> ulong` — The save session it belongs to.
 - `WorldRevision { get; init; } -> uint` — The world file's revision (the mod data generation).
 - `WorldUnix { get; init; } -> uint` — The world file's time (Unix seconds); 0 when unknown.
 
-## PetControlChangedEvent `0.2.25` — One of a pet's leases on its body changed (the broker's states before and after).
+## PetControlChangedEvent `0.2.26` — One of a pet's leases on its body changed (the broker's states before and after).
 - `After { get; } -> ControlLeaseSnapshot` — The lease now.
 - `Before { get; } -> ControlLeaseSnapshot?` — The lease before (null: first seen).
 - `Owner { get; } -> CharacterKey` — Its owner.
 - `Pet { get; } -> PetId` — The pet.
 
-## PetCostDefinition `0.2.25` — A cost of so many items of one kind.
+## PetCostDefinition `0.2.26` — A cost of so many items of one kind.
 - `PetCostDefinition(ItemId Item, int Count)`
 - `Count { get; init; } -> int` — 1..999.
 - `Item { get; init; } -> ItemId` — A plain stack item (not gear).
 
-## PetDefinition `0.2.25` — A kind of pet, as a mod defines it (`Pets.Define`, or a `PetBlock` through Kiln.Blocks: both make this record).
+## PetDefinition `0.2.26` — A kind of pet, as a mod defines it (`Pets.Define`, or a `PetBlock` through Kiln.Blocks: both make this record).
 - `Caps { get; init; } -> PetCaps` — How many there may be.
 - `Creature { get; init; } -> string` — The creature the pet's body is, by its Kiln id: a game creature of the `creatures` registry...
 - `DisplayName { get; init; } -> string?` — The name owners read; null: the creature's own.
@@ -62,34 +62,34 @@ enum: Request, BodyLost, NativeLethal, ProtectionLost, Logout, WorldEnd, Login, 
 - `Revive { get; init; } -> PetRevivePolicy` — How it is revived.
 - `Targets { get; init; } -> PetTargetPolicy` — Who it may harm and who may harm it.
 
-## PetDefinitionChangedEvent `0.2.25` — A pet definition was registered or replaced (`Pets.Define`).
+## PetDefinitionChangedEvent `0.2.26` — A pet definition was registered or replaced (`Pets.Define`).
 - `After { get; } -> PetDefinition` — The definition now.
 - `Before { get; } -> PetDefinition?` — The definition it replaced; null for a new one.
 
-## PetDefinitionResult `0.2.25` — The answer of `Pets.Define`.
+## PetDefinitionResult `0.2.26` — The answer of `Pets.Define`.
 - `PetDefinitionResult(bool Ok, string? Reason, PetDefinition? Definition)`
 - `Definition { get; init; } -> PetDefinition?` — The registered definition.
 - `Ok { get; init; } -> bool` — True when the definition is registered (or the same one was already).
 - `Reason { get; init; } -> string?` — Why not: `DefinitionInUse` (another one under the id while its pets have bodies or revives), `CreatureUnknown`...
 
-## PetDismissedEvent `0.2.25` — A pet was dismissed.
+## PetDismissedEvent `0.2.26` — A pet was dismissed.
 
-## PetDownedEvent `0.2.25` — A pet went down: its combat body is gone (the event comes after that), what it became is the definition's (or `PetDowningEvent`'s) choice.
+## PetDownedEvent `0.2.26` — A pet went down: its combat body is gone (the event comes after that), what it became is the definition's (or `PetDowningEvent`'s) choice.
 
-## PetDownedOutcome `0.2.25` — What a pet becomes when it goes down.
+## PetDownedOutcome `0.2.26` — What a pet becomes when it goes down.
 enum: RecoveryAnchor, Absent, Release
 
-## PetDownedPolicy `0.2.25` — What a downed pet is.
+## PetDownedPolicy `0.2.26` — What a downed pet is.
 - `Outcome { get; init; } -> PetDownedOutcome` — Default `PetDownedOutcome.RecoveryAnchor`.
 
-## PetDowningEvent `0.2.25` — A pet is going down: its combat body is about to be retired.
+## PetDowningEvent `0.2.26` — A pet is going down: its combat body is about to be retired.
 - `Cause { get; } -> PetChangeCause` — Why it goes down (a lethal hit, a lost body, lost protection).
 - `Outcome { get; set; } -> PetDownedOutcome` — What it becomes: a recovery anchor where it fell, absent, or released.
 - `Pet { get; } -> PetSnapshot` — The pet before it goes down.
 
-## PetGrantedEvent `0.2.25` — A character was given a new pet (`Pets.Grant`).
+## PetGrantedEvent `0.2.26` — A character was given a new pet (`Pets.Grant`).
 
-## PetHudOptions `0.2.25` — Where and how the built-in pet bar draws, on this game only (never a server state).
+## PetHudOptions `0.2.26` — Where and how the built-in pet bar draws, on this game only (never a server state).
 - `PetHudOptions(bool Enabled = true, bool RecoveryMarkers = true, double AnchorX = 0.03, double AnchorY = 0.72, double WidthPixels = 220)`
 - `AnchorX { get; init; } -> double` — The bar's left edge, 0..1 of the screen width.
 - `AnchorY { get; init; } -> double` — The bar's top edge, 0..1 of the screen height.
@@ -97,35 +97,35 @@ enum: RecoveryAnchor, Absent, Release
 - `RecoveryMarkers { get; init; } -> bool` — Recovery anchors are marked in the world.
 - `WidthPixels { get; init; } -> double` — The bar's width at UI scale 1, 80..600.
 
-## PetHudOptionsChangedEvent `0.2.25` — The built-in bar's options changed (`PetsClient.Configure`).
+## PetHudOptionsChangedEvent `0.2.26` — The built-in bar's options changed (`PetsClient.Configure`).
 - `Options { get; } -> PetHudOptions` — The options now.
 
-## PetHudPolicy `0.2.25` — What the owner's built-in HUD shows of pets of this definition (each player's own game may still hide the whole bar, `PetHudOptions`; a mod may draw its own from...
+## PetHudPolicy `0.2.26` — What the owner's built-in HUD shows of pets of this definition (each player's own game may still hide the whole bar, `PetHudOptions`; a mod may draw its own from...
 - `Bar { get; init; } -> bool` — A row in the owner's pet bar.
 - `RecoveryMarker { get; init; } -> bool` — The recovery anchor's marker in the world.
 
-## PetId `0.2.25` — A pet's id: random, kept in its owner's record for ever, never an entity id.
+## PetId `0.2.26` — A pet's id: random, kept in its owner's record for ever, never an entity id.
 - `PetId()`
 - `PetId(Guid Value)`
 - `IsNone { get; } -> bool` — True for `PetId.None`.
 - `static None { get; } -> PetId` — No pet.
 - `Value { get; init; } -> Guid` — The id; `Guid.Empty` is none.
 
-## PetLevelMode `0.2.25` — Where a pet's level comes from.
+## PetLevelMode `0.2.26` — Where a pet's level comes from.
 enum: Fixed, OwnerAtTame, OwnerAtSummon
 
-## PetLevelPolicy `0.2.25` — A pet's level and size.
+## PetLevelPolicy `0.2.26` — A pet's level and size.
 - `Level { get; init; } -> int` — The level for `PetLevelMode.Fixed`: 1 up to the creature's highest level (at most 255).
 - `Mode { get; init; } -> PetLevelMode` — Where the level comes from.
 - `Scale { get; init; } -> double` — The body's uniform scale, 0.25..4 (1 as made).
 
-## PetLife `0.2.25` — Whether a pet is alive, down or gone.
+## PetLife `0.2.26` — Whether a pet is alive, down or gone.
 enum: Ready, Downed, Released
 
-## PetMovementMode `0.2.25` — How a pet's body moves while it follows.
+## PetMovementMode `0.2.26` — How a pet's body moves while it follows.
 enum: QueryInput, EngineGuard
 
-## PetMovementPolicy `0.2.25` — Follow distances, catch-up and their limits: the mod's choice for its pets.
+## PetMovementPolicy `0.2.26` — Follow distances, catch-up and their limits: the mod's choice for its pets.
 - `AllowCatchUp { get; init; } -> bool` — Whether a far or stuck pet is put next to its owner.
 - `CatchUpDistance { get; init; } -> double` — Farther than this many metres (10..160) the pet is put next to its owner on safe ground, when...
 - `FollowDistance { get; init; } -> double` — Metres from the owner where the pet stops, 1..10.
@@ -135,45 +135,45 @@ enum: QueryInput, EngineGuard
 - `RunDistance { get; init; } -> double` — Farther than this many metres the pet runs instead of walking: at least `PetMovementPolicy.FollowDistance`, at most 30.
 - `StuckSeconds { get; init; } -> double` — Seconds without progress (1..30) after which a stuck pet catches up, when `PetMovementPolicy.AllowCatchUp`.
 
-## PetOrder `0.2.25` — What a pet's owner asked of it.
+## PetOrder `0.2.26` — What a pet's owner asked of it.
 enum: Follow, Stay, Attack
 
-## PetOwnerView `0.2.25` — An owner's whole view of their pets, as one snapshot: what `PetsClient.Snapshot` holds.
+## PetOwnerView `0.2.26` — An owner's whole view of their pets, as one snapshot: what `PetsClient.Snapshot` holds.
 - `PetOwnerView(ulong WorldEpoch, ulong CharacterSession, ulong Sequence, IReadOnlyList<PetViewEntry> Entries)`
 - `CharacterSession { get; init; } -> ulong` — The owner's join (a fresh random token each time).
 - `Entries { get; init; } -> IReadOnlyList<PetViewEntry>` — The pets (at most 128).
 - `Sequence { get; init; } -> ulong` — Strictly increasing within the session.
 - `WorldEpoch { get; init; } -> ulong` — The server world session.
 
-## PetOwnerViewChangedEvent `0.2.25` — This game got a new view of its owner's pets.
+## PetOwnerViewChangedEvent `0.2.26` — This game got a new view of its owner's pets.
 - `View { get; } -> PetOwnerView` — The new view.
 
-## PetPresence `0.2.25` — Where a pet is in the world.
+## PetPresence `0.2.26` — Where a pet is in the world.
 enum: Absent, Live, RecoveryAnchor, Retiring
 
-## PetProtectionLostEvent `0.2.25` — Kiln could no longer protect a pet's body (a capability went away) and retired it.
+## PetProtectionLostEvent `0.2.26` — Kiln could no longer protect a pet's body (a capability went away) and retired it.
 
-## PetPvpMode `0.2.25` — Who players may fight through pets.
+## PetPvpMode `0.2.26` — Who players may fight through pets.
 enum: Off, ByModRule
 
-## PetRecordCommittedEvent `0.2.25` — A save committed a pet's state: its `PetSnapshot.DurableRevision` moved to the revision that save holds.
+## PetRecordCommittedEvent `0.2.26` — A save committed a pet's state: its `PetSnapshot.DurableRevision` moved to the revision that save holds.
 - `CapturedStateRevision { get; } -> ulong` — The revision the committed bytes hold.
 - `Commit { get; } -> PetCommit` — The save.
 - `Owner { get; } -> CharacterKey` — Its owner.
 - `Pet { get; } -> PetId` — The pet.
 - `PreviousDurableRevision { get; } -> ulong` — The durable revision before.
 
-## PetRecoveryAnchorChangedEvent `0.2.25` — A downed pet's recovery anchor appeared, moved or was hidden.
+## PetRecoveryAnchorChangedEvent `0.2.26` — A downed pet's recovery anchor appeared, moved or was hidden.
 
-## PetReleasedEvent `0.2.25` — A pet was released: its record is a tombstone.
+## PetReleasedEvent `0.2.26` — A pet was released: its record is a tombstone.
 
-## PetRequest `0.2.25` — A request that changes a pet: its operation id makes a retry the same request (its first answer is given back for 10 minutes), and an expected revision refuses a...
+## PetRequest `0.2.26` — A request that changes a pet: its operation id makes a retry the same request (its first answer is given back for 10 minutes), and an expected revision refuses a...
 - `PetRequest(Guid OperationId, ulong ExpectedStateRevision = 0)`
 - `ExpectedStateRevision { get; init; } -> ulong` — 0: any; otherwise the pet's `PetSnapshot.StateRevision` the request was made on (`StaleRevision` when it moved on).
 - `static New(ulong expectedStateRevision = 0) -> PetRequest` — A new request with a fresh operation id.
 - `OperationId { get; init; } -> Guid` — Unique per request; the same id with another request is `RequestConflict`.
 
-## PetResult `0.2.25` — The answer to a request: the outcome and the pet after it.
+## PetResult `0.2.26` — The answer to a request: the outcome and the pet after it.
 - `PetResult(bool Ok, string? Reason, PetSnapshot? Pet, Guid OperationId, IReadOnlyList<CostReceipt> Costs)`
 - `Costs { get; init; } -> IReadOnlyList<CostReceipt>` — The receipts (Kiln.Items' `CostReceipt`) of costs that were taken or may have been (committed or uncertain), also on...
 - `Ok { get; init; } -> bool` — True when the request did what it asked (or found it done: an idempotent repeat).
@@ -181,11 +181,11 @@ enum: Off, ByModRule
 - `Pet { get; init; } -> PetSnapshot?` — The pet after it (also after a refusal, when Kiln knows it).
 - `Reason { get; init; } -> string?` — Why not: `Busy`, `StaleRevision`, `RequestConflict`, `NotOwner`, `AlreadyReleased`, `Capacity`, `NoSafeGround`...
 
-## PetReviveCanceledEvent `0.2.25` — A revive channel was canceled (nothing was taken unless its receipt says so).
+## PetReviveCanceledEvent `0.2.26` — A revive channel was canceled (nothing was taken unless its receipt says so).
 
-## PetRevivedEvent `0.2.25` — A pet was revived: a new protected body.
+## PetRevivedEvent `0.2.26` — A pet was revived: a new protected body.
 
-## PetRevivePolicy `0.2.25` — How a downed pet is revived: the channel, its range, the health it comes back with, its cost and what cancels it.
+## PetRevivePolicy `0.2.26` — How a downed pet is revived: the channel, its range, the health it comes back with, its cost and what cancels it.
 - `Allowed { get; init; } -> bool` — False: a downed pet of this definition cannot be revived by `Pets.Revive` (the mod releases it, or revives it its...
 - `CancelOnMovement { get; init; } -> bool` — The owner moving farther than `PetRevivePolicy.MaxOwnerDisplacement` from where the channel began cancels it.
 - `CancelOnObservedOwnerDamage { get; init; } -> bool` — A hit, a fall or health lost by the owner during the channel cancels it.
@@ -195,15 +195,15 @@ enum: Off, ByModRule
 - `MaxOwnerDisplacement { get; init; } -> double` — Metres, 0.1..2.
 - `RangeMeters { get; init; } -> double` — Metres between the owner and the recovery anchor during the channel, 1..8.
 
-## PetReviveStartedEvent `0.2.25` — A revive channel started.
+## PetReviveStartedEvent `0.2.26` — A revive channel started.
 
-## PetRevivingEvent `0.2.25` — A revive is about to start: its cost was quoted and nothing has moved.
+## PetRevivingEvent `0.2.26` — A revive is about to start: its cost was quoted and nothing has moved.
 - `Cost { get; } -> PetCostDefinition?` — The quoted cost; null: free.
 - `OperationId { get; } -> Guid` — The revive's operation id (CancelRevive names it).
 - `Owner { get; } -> CharacterKey` — The owner.
 - `Pet { get; } -> PetSnapshot` — The downed pet before the channel.
 
-## Pets `0.2.25` — Pets: owned creatures that follow their owner, fight, go down and are revived.
+## Pets `0.2.26` — Pets: owned creatures that follow their owner, fight, go down and are revived.
 - `static CancelRevive(PlayerRef owner, PetId pet, Guid reviveOperation, PetRequest request) -> Task<PetResult>` — Cancels the revive `reviveOperation` names (never a later one).
 - `static Command(PlayerRef owner, PetId pet, PetOrder order, EntityRef target, PetRequest request) -> Task<PetResult>` — Orders a live pet: follow, stay, or attack `target` (needs `pets.fight`, and the pet's target rule must allow it...
 - `static Define(PetDefinition definition) -> PetDefinitionResult` — Registers a kind of pet as the calling mod's.
@@ -219,13 +219,13 @@ enum: Off, ByModRule
 - `static SetHostile(CharacterKey a, CharacterKey b, bool hostile) -> void` — Declares (true) or ends (false) a consensual hostility between two characters: for pets whose `PetTargetPolicy.Pvp`...
 - `static Summon(PlayerRef owner, PetId pet, PetRequest request) -> Task<PetResult>` — Brings the pet out: a Ready pet gets a protected body 2 to 4 m from its owner, at its kept health, following; a...
 
-## PetsClient `0.2.25` — This game's view of its owner's pets, as the server sends it, and the built-in pet bar.
+## PetsClient `0.2.26` — This game's view of its owner's pets, as the server sends it, and the built-in pet bar.
 - `static Configure(PetHudOptions options) -> void` — Sets where and whether the built-in bar draws (this game only; never a server state).
 - `static Options { get; } -> PetHudOptions` — The built-in bar's options on this game: the defaults until `PetsClient.Configure` sets others.
 - `static Snapshot { get; } -> PetOwnerView?` — The latest view, or null (none received, disconnected).
 - `static State { get; } -> PetViewState` — Whether `PetsClient.Snapshot` is current, stale (no keepalive for 3 s) or there is none.
 
-## PetSnapshot `0.2.25` — A pet as it is now: an immutable copy, never updated in place.
+## PetSnapshot `0.2.26` — A pet as it is now: an immutable copy, never updated in place.
 - `Body { get; init; } -> EntityRef` — The body while `PetSnapshot.Presence` is Live or Retiring; none otherwise.
 - `BodyGeneration { get; init; } -> ulong` — The body's generation (the broker's; 0: no body).
 - `Definition { get; init; } -> string` — The id of its `PetDefinition` (`my-mod:hound`).
@@ -250,21 +250,21 @@ enum: Off, ByModRule
 - `WantsSummoned { get; init; } -> bool` — The owner's wish that it be out: set by Summon, cleared by Dismiss, kept across logout (the next login summons it).
 - `WorldEpoch { get; init; } -> ulong` — The server world session its body belongs to (0: no body).
 
-## PetStatsChangedEvent `0.2.25` — A pet's level, health or maximum health changed.
+## PetStatsChangedEvent `0.2.26` — A pet's level, health or maximum health changed.
 
-## PetSummonedEvent `0.2.25` — A pet was summoned: a body (Ready) or its recovery anchor next to its owner (Downed).
+## PetSummonedEvent `0.2.26` — A pet was summoned: a body (Ready) or its recovery anchor next to its owner (Downed).
 
-## PetTargetPolicy `0.2.25` — Who a pet may harm and who may harm it.
+## PetTargetPolicy `0.2.26` — Who a pet may harm and who may harm it.
 - `static DefaultHostileFactions { get; } -> IReadOnlyList<Faction>` — Kiln's list of hostile factions: Fogger, Vukah, Scavenger, WildBeast, Skeleton, Cyclops, Drak, Ancients.
 - `HostileFactions { get; init; } -> IReadOnlyList<Faction>?` — The factions of unowned creatures a pet may fight.
 - `Pvp { get; init; } -> PetPvpMode` — Players and pets of other characters.
 
-## PetTransition `0.2.25` — What is happening to a pet right now.
+## PetTransition `0.2.26` — What is happening to a pet right now.
 enum: None, Spawning, Downing, Dismissing, Reviving, Releasing
 
-## PetTransitionChangedEvent `0.2.25` — A pet entered or left a transition (Spawning, Downing, Dismissing, Reviving, Releasing).
+## PetTransitionChangedEvent `0.2.26` — A pet entered or left a transition (Spawning, Downing, Dismissing, Reviving, Releasing).
 
-## PetViewEntry `0.2.25` — One pet in its owner's view: what a HUD needs, and nothing the owner may not see.
+## PetViewEntry `0.2.26` — One pet in its owner's view: what a HUD needs, and nothing the owner may not see.
 - `Body { get; init; } -> PetBodyViewKey?` — Its body; null while it has none.
 - `Current { get; init; } -> int` — Its health now (0 while it is down).
 - `Definition { get; init; } -> string` — The id of its definition (`my-mod:hound`).
@@ -285,8 +285,8 @@ enum: None, Spawning, Downing, Dismissing, Reviving, Releasing
 - `StateRevision { get; init; } -> ulong` — The pet's `PetSnapshot.StateRevision`: goes up with every change of its state.
 - `Transition { get; init; } -> PetTransition` — What is happening to it.
 
-## PetViewState `0.2.25` — Whether this game's view of its owner's pets is current.
+## PetViewState `0.2.26` — Whether this game's view of its owner's pets is current.
 enum: Disconnected, Current, Stale
 
-## PetViewStateChangedEvent `0.2.25` — This game's view went current, stale or away.
+## PetViewStateChangedEvent `0.2.26` — This game's view went current, stale or away.
 - `State { get; } -> PetViewState` — The state now.
