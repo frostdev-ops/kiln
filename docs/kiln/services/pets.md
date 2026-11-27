@@ -28,7 +28,8 @@ Author guide: [modding/pets.md](../modding/pets.md). Sample: `mods/samples/PetsS
 
 Every time on this page and in a definition (the revive channel, stuck and repath times, a new body's 5 s to get ready,
 the owner's view's rates) is seconds of the game's own world clock, whatever the server's step rate (a dedicated server
-steps 15 to 25 times a second). A paused world's clock stands still.
+steps 15 to 25 times a second). A paused world's clock stands still. The stuck and no-route times count each step at most
+0.25 s: a server stall (a long save, a loaded host) moves nothing, so it is no stuck time and teleports no pet.
 
 Not possible yet, with what it would take:
 
@@ -122,7 +123,8 @@ for this pet; the down itself cannot be refused. `PetDownedEvent` comes only aft
 - **Events:** every change is a `PetChangeEvent` (subscribe to the base for all): Granted, TransitionChanged, Summoned,
   Dismissed, CommandChanged, RecoveryAnchorChanged, BodyRetired, BodyLost, Downed, ReviveStarted, ReviveCanceled,
   Revived, Released, StatsChanged, ProtectionLost. Also `PetDowningEvent` (the outcome), `PetRevivingEvent` (cancelable),
-  `PetRecordCommittedEvent`, `PetControlChangedEvent` (the broker's lease states of a pet), `PetDefinitionChangedEvent`.
+  `PetRecordCommittedEvent`, `PetControlChangedEvent` (the broker's lease states of a pet: a body's final base lease, once
+  it is the pet's, comes first with `Before` null), `PetDefinitionChangedEvent`.
   Server tick thread, after the change settled; a handler's own request runs at the next step.
 
 ## Bodies, the broker and following
@@ -328,8 +330,9 @@ connection never wins), goes Stale after 3 s without one (the bar hides), and cl
 The built-in bar: at (0.03, 0.72) of the screen, 220 x UI scale wide, rows 24 x scale, at most 6 rows (live pets first,
 then anchors), name, health, Ready/Downed/Recovering and the channel's progress; recovery anchors as cyan world circles
 (UI markers only). Events: `PetOwnerViewChangedEvent`, `PetViewStateChangedEvent`, `PetHudOptionsChangedEvent` (client
-main thread). Disabling the bar changes nothing in the game. A vanilla client receives nothing and sees the bodies as the
-game's creatures; a mod commands pets from its own UI through its own channel (Kiln has no client command path).
+main thread). Disabling the bar changes nothing in the game. A vanilla client receives nothing (none is built for a game
+without Kiln or without `kiln:pets`) and sees the bodies as the game's creatures; a mod commands pets from its own UI
+through its own channel (Kiln has no client command path).
 
 ## Capabilities
 

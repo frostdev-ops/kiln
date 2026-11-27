@@ -48,7 +48,9 @@ The pet's id is `<mod id>:<name>` (`Was` keeps it through a rename). Without Kil
 { Id = "my-mod:hound", Creature = "game:enemy_wildbeast_wolf_earlygame" })`. A creature is always a Kiln id: never a
 template name or a GUID. Only enemy creatures that walk can be pets in this Kiln. A revive cost's item is checked once
 the game's content is ready: an item the game lacks (or gear) is your mod's error in kiln.log and the launcher, and that
-pet's revives are refused (`CostUnavailable`) with nothing taken.
+pet's revives are refused (`CostUnavailable`) with nothing taken. A dedicated server reads its item catalog only once its
+world runs, so there the item is found in the game's data (as loot tables find theirs); gear is told only where the
+catalog is readable (the SDK's bake, a game that hosts).
 
 ## Give, summon, order, revive, release
 
