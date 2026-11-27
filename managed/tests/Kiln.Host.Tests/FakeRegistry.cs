@@ -68,6 +68,9 @@ internal sealed unsafe class FakeRegistry : IDisposable
     internal readonly List<int> InstallThreads = [], PrepareThreads = [];
     /// <summary>The next install answers UNAVAILABLE with this stale (1: the pass's reads, 2: the preparation), once.</summary>
     internal uint NextStale;
+    /// <summary>review of LOOT-2: every install answers stale 2 (the bindings moved) unless asked to land anyway, and every
+    /// preparation off the tick thread answers stale 2 (a busy server's drop-table loads between its slices).</summary>
+    internal bool InstallStaleUnlessAnyway, PrepareStaleOffTick;
     private readonly Dictionary<ulong, (List<(ulong Owner, int Value)> Calls, List<ulong> Replaced, ulong Epoch)> _plans = [];
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
     private static ulong EpochNow() => Current.Epoch;
@@ -85,6 +88,7 @@ internal sealed unsafe class FakeRegistry : IDisposable
     {
         ++Current.Prepares; lock (Current.PrepareThreads) Current.PrepareThreads.Add(Environment.CurrentManagedThreadId);
         if (epoch != Current.Epoch) { *stale = 1; return KilnAbi.ErrUnavailable; }
+        if (Current.PrepareStaleOffTick && !Current.Host.IsTickThread) { *stale = 2; return KilnAbi.ErrUnavailable; }
         var plan = (new List<(ulong, int)>(), new List<ulong>(), epoch);
         for (nuint i = 0; i < count; ++i)
         {
@@ -100,6 +104,7 @@ internal sealed unsafe class FakeRegistry : IDisposable
         ++Current.Installs; Current.InstallThreads.Add(Environment.CurrentManagedThreadId);
         if (!Current._plans.Remove(ticket, out var plan)) return KilnAbi.ErrNotFound;
         if (Current.NextStale != 0) { *stale = Current.NextStale; Current.NextStale = 0; return KilnAbi.ErrUnavailable; }
+        if (Current.InstallStaleUnlessAnyway && (flags & KilnRegistryHostApi.InstallAnyway) == 0) { *stale = 2; return KilnAbi.ErrUnavailable; }
         if (plan.Epoch != Current.Epoch) { *stale = 1; return KilnAbi.ErrUnavailable; }
         for (var j = 0; j < plan.Replaced.Count; ++j)
         {

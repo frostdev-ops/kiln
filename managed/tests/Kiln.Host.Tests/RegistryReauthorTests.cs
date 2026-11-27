@@ -199,6 +199,43 @@ public sealed class RegistryReauthorTests : ModsFixture
         Assert.True(rig.Native.Host.Has("needs the tick thread: its passes run on the world tick"), rig.Native.Host.Dump());
         owner.Retire();
     }
+    // review of LOOT-2: a turn whose bindings keep moving before it lands (stale 2: a busy server's drop-table loads) counts
+    // toward the three stale turns in a row like one whose reads moved, so a later one runs whole on the tick and lands; it
+    // never loops without end.
+    [Fact(Timeout = 30_000)]
+    public async Task TurnsWhoseBindingsKeepMovingEndOnTheTick()
+    {
+        await Task.Yield();
+        using var rig = new Rig(this);
+        var owner = Owner(rig.Native, "leveler"); var passes = 0;
+        rig.Dispatch.Loaded(new WorldOnlyAuthor(c => { if (c.Phase == RegistryPhase.Alter) Edit(c, 80 + Interlocked.Increment(ref passes)); }), owner, Root, false);
+        rig.Dispatch.FlushLoads();
+        rig.Native.InstallStaleUnlessAnyway = true;
+        Assert.Null(RegistryRuntime.Reauthor!(owner, RegistryEntryPoint.WorldLoad));
+        Settle(rig.Dispatch);
+        Assert.Equal(1, rig.Native.LayerCount); Assert.Equal(80 + passes, rig.Native.Value);
+        Assert.True(passes <= 5, $"{passes} passes");
+        Assert.Equal(rig.Tick, rig.Native.InstallThreads[^1]);
+        owner.Retire();
+    }
+    // review of LOOT-2: preparations that keep coming back stale in their bindings (three tries each) are stale turns too, not
+    // "the registry cannot take the pass yet" with a back-off that ends in an error and drops the request.
+    [Fact(Timeout = 30_000)]
+    public async Task PreparationsThatKeepComingBackStaleEndOnTheTick()
+    {
+        await Task.Yield();
+        using var rig = new Rig(this);
+        var owner = Owner(rig.Native, "leveler"); var passes = 0;
+        rig.Dispatch.Loaded(new WorldOnlyAuthor(c => { if (c.Phase == RegistryPhase.Alter) Edit(c, 90 + Interlocked.Increment(ref passes)); }), owner, Root, false);
+        rig.Dispatch.FlushLoads();
+        rig.Native.PrepareStaleOffTick = true;
+        Assert.Null(RegistryRuntime.Reauthor!(owner, RegistryEntryPoint.WorldLoad));
+        Settle(rig.Dispatch);
+        Assert.Equal(1, rig.Native.LayerCount); Assert.Equal(90 + passes, rig.Native.Value); Assert.Equal(1, rig.Native.Installs);
+        Assert.Equal(rig.Tick, rig.Native.InstallThreads[^1]);
+        Assert.False(rig.Native.Host.Has("cannot take the pass yet"), rig.Native.Host.Dump());
+        owner.Retire();
+    }
     // The registry moved after the pass read it (another mod's commit): that turn is not landed and the pass runs again.
     [Fact(Timeout = 30_000)]
     public async Task AStaleTurnRunsThePassAgain()

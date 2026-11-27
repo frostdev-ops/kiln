@@ -390,8 +390,9 @@ internal sealed class RegistryDispatch(ModManager mods) : IDisposable
     // which also has kiln-content prepare the turn (parse, compose, bind, evaluate); the tick only lands it (the changes and
     // layers swap in, one write of the bytes that change), and registry.json is built off the tick after. Requests made while a
     // job runs make one more job when it ends (coalescing: a burst of requests is at most two passes). The pass reads the registry
-    // as it is when it starts; if the registry moved before its turn lands (another mod's change, a data pack, a write below), the
-    // pass runs again; three times in a row, and the next one runs whole on the tick. A mod whose pass calls a tick-thread API
+    // as it is when it starts; if the registry moved before its turn lands (another mod's change, a data pack, a write below, or
+    // only the bindings: a drop table loaded), the pass runs again; three times in a row, and the next one runs whole on the tick
+    // (kiln-content holds its lock through a preparation on the world thread, so it lands). A mod whose pass calls a tick-thread API
     // (refused off the tick) has its passes run on the tick from then on; Kiln still prepares their turns off it.
     private sealed class ReauthorJob
     {
@@ -435,7 +436,7 @@ internal sealed class RegistryDispatch(ModManager mods) : IDisposable
         if (again.Any(r => r.StaleReauthors >= 3))
         {
             // the registry moved under three turns in a row: this one runs whole on the tick (pass, preparation, landing in
-            // one step), so nothing can move under it and it lands
+            // one step; kiln-content holds its lock through a preparation on the world thread), so nothing moves under it and it lands
             Guarded(next, () => { RunPass(next); PrepareTurn(next); });
             Land(next, world);
             return;
@@ -549,7 +550,10 @@ internal sealed class RegistryDispatch(ModManager mods) : IDisposable
             }
             return;
         }
-        if (job.Transport is not null || (job.Rc != 0 && !(job.Rc == KilnAbi.ErrUnavailable && job.Stale == 1)))
+        // review of LOOT-2: a preparation that kept coming back stale (its bindings moved under each of its three tries: a busy
+        // server's drop-table loads) is a stale turn below, not Kiln's state that cannot take the pass (a back-off ending in an
+        // error that drops the request)
+        if (job.Transport is not null || (job.Rc != 0 && !(job.Rc == KilnAbi.ErrUnavailable && job.Stale is 1 or 2)))
         {
             // Kiln's own state (no world yet, a budget, a native error): asked again later, backing off (Apply's NS4 rule)
             var e = job.Transport ?? new KilnUnavailableException("kiln.registry", $"preparing the re-authored turn returned {job.Rc}");
@@ -573,7 +577,9 @@ internal sealed class RegistryDispatch(ModManager mods) : IDisposable
         {
             // the registry moved before the turn landed: the pass runs again (its reads are stale), or only the preparation
             var stale = landed.Stale == 2 ? "its preparation is stale" : "the registry moved since the pass read it";
-            foreach (var record in job.Records.Where(r => !job.Faults.ContainsKey(r))) record.StaleReauthors += landed.Stale == 1 ? 1 : 0;
+            // review of LOOT-2: both count toward the three in a row (stale 2 alone, uncounted, could run the pass again without
+            // end while the bindings keep moving); the fourth runs whole on the tick, where nothing moves under it
+            foreach (var record in job.Records.Where(r => !job.Faults.ContainsKey(r))) record.StaleReauthors += landed.Stale != 0 ? 1 : 0;
             mods.Host.Log(LogLevel.Debug, $"registry: Registry.Reauthor for {names}: {stale}; the pass runs again");
             Again(job.Records.Where(r => !job.Faults.ContainsKey(r)));
             return;
