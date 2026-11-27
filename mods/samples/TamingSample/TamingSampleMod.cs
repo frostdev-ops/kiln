@@ -29,8 +29,9 @@ public sealed class TamingSampleMod : Mod
         Blocks.Define("tame-wolf", new PetBlock { Creature = "game:enemy_wildbeast_wolf_earlygame", Name = "Tamed Wolf" });
         Context.Tick.Pre += (in TickInfo t) =>
         {
-            // the items registry ids resolve once the game's items are readable
-            if (_defined || t.Step % 25 != 0 || !Lifecycle.IsServerRunning || !Items.Available || !Taming.Available) return;
+            // a definition needs no world (Kiln.Taming loaded is enough), but the items registry ids in its JSON resolve only
+            // once the game's items are readable (a TamingBlock names items, the mod's own too, and needs no wait)
+            if (_defined || t.Step % 25 != 0 || !Items.Available) return;
             _defined = true;
             Taming.DefineJson(Wolf);
             Taming.Define(new TamingDefinition

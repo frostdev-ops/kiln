@@ -55,6 +55,8 @@ Rules for the JSON:
 - **A mod's own items** are named in C# by their `ItemId`.
 - **Errors:** an unknown field, a wrong type or an unknown item is an `ArgumentException` naming the exact path
   (`$.steps[1].count`), and nothing is registered.
+- **When:** a definition needs no world (a mod declares it in `OnLoad`), but these item ids resolve only once the game's
+  items are readable (`Items.Available`).
 
 ## Drive an attempt
 

@@ -29,17 +29,20 @@ public static class Taming
     public static bool Available => TamingCaps.StepsOn();
 
     /// <summary>Registers a taming as the calling mod's. The same definition again is fine; another one under the same id
-    /// replaces it unless attempts of it run (<c>DefinitionInUse</c>, an <see cref="InvalidOperationException"/>).</summary>
+    /// replaces it unless attempts of it run (<c>DefinitionInUse</c>, an <see cref="InvalidOperationException"/>). A
+    /// definition is data: a mod declares it when it loads, before any world runs (only the attempts need one); it holds
+    /// for every world of the process until the mod unloads.</summary>
     /// <exception cref="ArgumentException">A value is out of its range, or the id is not the calling mod's
     /// (<c>&lt;mod id&gt;:&lt;name&gt;</c>).</exception>
     /// <exception cref="InvalidOperationException">Not on the tick thread, the id is another mod's, or attempts of it run.</exception>
+    /// <exception cref="KilnUnavailableException">Kiln.Taming is not loaded (<c>kiln.taming</c>).</exception>
     [TickThreadOnly]
-    [RequiresCapability("taming.steps")]
+    [RequiresCapability("kiln.taming")]
     public static void Define(TamingDefinition definition)
     {
         ArgumentNullException.ThrowIfNull(definition);
         Services.RequireTickThread("Taming.Define");
-        TamingCaps.Require(Capability);
+        TamingCaps.Require(TamingCaps.Service);
         var mod = ModContext.CurrentMod?.Info.Id;
         if (mod is not null && !definition.Id.StartsWith(mod.ToLowerInvariant() + ":", StringComparison.Ordinal))
             throw new ArgumentException($"taming definition ids of mod {mod} start with \"{mod.ToLowerInvariant()}:\", not \"{definition.Id}\"", nameof(definition));
@@ -50,9 +53,11 @@ public static class Taming
     /// each as <see cref="Define"/> does. Item ids are the items registry's (<c>game:material_t1_wood_logs</c>) or an item
     /// id (<c>0xb59dfc2c</c>); creatures are creatures registry ids.</summary>
     /// <returns>The definitions registered.</returns>
-    /// <exception cref="ArgumentException">The JSON is not a taming, with the path of the first field that is wrong.</exception>
+    /// <exception cref="ArgumentException">The JSON is not a taming, with the path of the first field that is wrong (an item
+    /// id the game's items, not readable yet or not on this build, do not have: <c>ItemUnknown</c>; a mod's own items are
+    /// named by a <c>TamingBlock</c> of Kiln.Blocks).</exception>
     [TickThreadOnly]
-    [RequiresCapability("taming.steps")]
+    [RequiresCapability("kiln.taming")]
     public static IReadOnlyList<TamingDefinition> DefineJson(string json)
     {
         var defs = TamingJson.Read(json, TamingJson.GameItems);
@@ -62,11 +67,13 @@ public static class Taming
 
     /// <summary>The definition registered under <paramref name="id"/>, or null.</summary>
     [TickThreadOnly]
-    public static TamingDefinition? Definition(string id) => Engine("Taming.Definition").Definition(id);
+    [RequiresCapability("kiln.taming")]
+    public static TamingDefinition? Definition(string id) => DefinitionEngine("Taming.Definition").Definition(id);
 
     /// <summary>Every registered definition.</summary>
     [TickThreadOnly]
-    public static IReadOnlyList<TamingDefinition> Definitions => Engine("Taming.Definitions").Definitions;
+    [RequiresCapability("kiln.taming")]
+    public static IReadOnlyList<TamingDefinition> Definitions => DefinitionEngine("Taming.Definitions").Definitions;
 
     /// <summary>Starts an attempt of <paramref name="definition"/> by <paramref name="player"/> on
     /// <paramref name="target"/>: the target is claimed (another attempt on it is <c>Busy</c>), the pet's roster slot is held
@@ -123,6 +130,14 @@ public static class Taming
     [TickThreadOnly]
     [RequiresCapability("taming.steps")]
     public static TamingChoicesResult Choices(PlayerRef player, TameAttemptId attempt) => Engine("Taming.Choices").Choices(player, attempt);
+
+    // the definitions are data: Kiln.Taming loaded is all they need (a mod's OnLoad, no world yet)
+    private static TamingEngine DefinitionEngine(string api)
+    {
+        Services.RequireTickThread(api);
+        TamingCaps.Require(TamingCaps.Service);
+        return TamingRuntime.Engine;
+    }
 
     private static TamingEngine Engine(string api)
     {
