@@ -9,7 +9,12 @@ internal sealed class TamingFake : IKitFake
     public void Register() { }
     public void Start(KilnHarness harness) { }
     public void BeforeStep(KilnHarness harness, ulong step) { }
-    public void End(KilnHarness harness) => harness.TamingIfUsed?.End();
+    public void End(KilnHarness harness)
+    {
+        harness.TamingIfUsed?.End();
+        // the engine is process-wide: the one made without kiln.Taming (a definition outside a mod) goes with the harness too
+        TamingRuntime.Reset();
+    }
 
     public void AddCoverage(List<CoverageRow> rows) => rows.Add(new CoverageRow("Kiln.Taming (KilnHarness.Taming)", CoverageKind.RecordingFake,
         ["taming.steps"],

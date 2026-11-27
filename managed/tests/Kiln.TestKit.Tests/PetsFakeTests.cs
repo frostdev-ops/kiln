@@ -158,4 +158,19 @@ public sealed class PetsFakeTests
         var again = Settle(kiln, () => Kiln.Taming.Begin(who, wolf, def.Id, TamingRequest.New()));
         Assert.Equal(TamingRefusal.BodyGone, again.Refusal);
     }
+
+    [Fact]
+    public void What_a_harness_defined_outside_a_mod_is_not_in_the_next_one()
+    {
+        using (var first = new KilnHarness())
+        {
+            first.Step();
+            Assert.True(first.Run(() => Kiln.Pets.Define(new PetDefinition { Id = "kit-test:leftover", Creature = "game:enemy_wildbeast_wolf" })).Ok);
+            Assert.True(first.Run(() => Kiln.Taming.Define(new TamingDefinition { Id = "kit-test:leftover", Creatures = ["game:enemy_wildbeast_wolf"], Steps = [new WeakenStep(1)] })).Ok);
+        }
+        using var next = new KilnHarness();
+        next.Step();
+        Assert.Null(next.Run(() => Kiln.Pets.Definition("kit-test:leftover")));
+        Assert.Null(next.Run(() => Kiln.Taming.Definition("kit-test:leftover")));
+    }
 }

@@ -9,7 +9,14 @@ internal sealed class PetsFake : IKitFake
     public void Register() { }
     public void Start(KilnHarness harness) { }
     public void BeforeStep(KilnHarness harness, ulong step) { }
-    public void End(KilnHarness harness) => harness.PetsIfUsed?.End();
+    public void End(KilnHarness harness)
+    {
+        harness.PetsIfUsed?.End();
+        // Kiln.Pets' state is process-wide: what the harness left there (a definition made outside a mod, the world's
+        // roster) goes with it, whether or not the test used kiln.Pets (a mod's own definitions went at its unload)
+        PetsRuntime.StopForTests();
+        PetsRuntime.ResetForTests();
+    }
 
     public void AddCoverage(List<CoverageRow> rows) => rows.Add(new CoverageRow("Kiln.Pets (KilnHarness.Pets)", CoverageKind.RecordingFake,
         ["pets.records", "pets.summon", "pets.control", "pets.follow", "pets.fight", "pets.downed"],
