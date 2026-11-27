@@ -46,7 +46,9 @@ Or in `blocks/*.json`, section `pets`, the same fields:
 
 The pet's id is `<mod id>:<name>` (`Was` keeps it through a rename). Without Kiln.Blocks: `Pets.Define(new PetDefinition
 { Id = "my-mod:hound", Creature = "game:enemy_wildbeast_wolf" })`. A creature is always a Kiln id: never a template name
-or a GUID. Only enemy creatures that walk can be pets in this Kiln.
+or a GUID. Only enemy creatures that walk can be pets in this Kiln. A revive cost's item is checked once the game's
+content is ready: an item the game lacks (or gear) is your mod's error in kiln.log and the launcher, and that pet's revives
+are refused (`CostUnavailable`) with nothing taken.
 
 ## Give, summon, order, revive, release
 

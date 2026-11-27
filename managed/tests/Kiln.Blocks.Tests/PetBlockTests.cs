@@ -165,6 +165,42 @@ public sealed class PetBlockTests : IDisposable
         Assert.Equal(field, e.Field);
     }
 
+    // The SDK's bake compiles blocks against a catalog that is readable and lacks most items (31.19's PetsSample build:
+    // "revive.cost.item: the game has no item Material_T1_Twigs"); a game client's OnLoad has no items at all. An item name
+    // is checked once content is ready, as loot tables and furniture do, never refused while compiling.
+    [Fact]
+    public void A_cost_item_is_checked_once_content_is_ready_not_refused_while_compiling()
+    {
+        var real = PetCompiler.FindItem;
+        try
+        {
+            var block = new PetBlock { Creature = "game:enemy_wildbeast_wolf", Revive = new ReviveBlock { Cost = new ReviveCostBlock("Material_T1_Twigs", 3) } };
+            PetCompiler.FindItem = _ => null;
+            var missing = Mod("pets-cost-a");
+            Compiler.Lower(missing, "p", block).Low.CommitAfter();
+            var problems = new List<string>();
+            foreach (var check in missing.ReadyChecks.ToList()) check(problems.Add);
+            Assert.Contains("block pet p, revive.cost.item: the game has no item \"Material_T1_Twigs\"", Assert.Single(problems), StringComparison.Ordinal);
+
+            var late = Mod("pets-cost-b");
+            Compiler.Lower(late, "p", block).Low.CommitAfter();
+            PetCompiler.FindItem = n => n == "Material_T1_Twigs" ? (new ItemId(77), false) : null;
+            problems.Clear();
+            foreach (var check in late.ReadyChecks.ToList()) check(problems.Add);
+            Assert.Empty(problems);
+            Assert.Equal(77u, PetsRuntime.Definition("pets-cost-b:p")!.Revive.Cost!.Item.Value);
+
+            PetCompiler.FindItem = _ => (new ItemId(78), true);
+            var gear = Mod("pets-cost-c");
+            var e = Assert.Throws<BlockError>(() => Compiler.Lower(gear, "p", block));
+            Assert.Equal("revive.cost.item", e.Field);
+        }
+        finally
+        {
+            PetCompiler.FindItem = real;
+        }
+    }
+
     [Fact]
     public void A_renamed_pet_keeps_its_id()
     {

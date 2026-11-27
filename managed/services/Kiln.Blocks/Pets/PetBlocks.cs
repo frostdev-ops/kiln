@@ -114,16 +114,18 @@ internal static class PetCompiler
         }
 
         // the revive cost: an item of the game or of a mod, as a plain stack
+        // (an item not readable now is checked once content is ready, as loot tables do: the SDK's bake and a game client's
+        // OnLoad compile against a catalog without it)
         PetCostDefinition? cost = null;
+        (string Name, string Written)? lateItem = null;
         if (p.Revive.Cost is { } c)
         {
             if (c.Count is < 1 or > 999) throw new BlockError(ctx.Block, "revive.cost.count", $"{c.Count} is outside 1..999");
             var itemName = ctx.ItemName(c.Item, "revive.cost.item");
-            var itemId = ItemIdOf(itemName);
-            if (itemId is null && Items.Available) throw new BlockError(ctx.Block, "revive.cost.item", $"the game has no item \"{c.Item.Value}\"");
-            if (itemId is not null && Items.Lookup(itemName) is { IsGear: true }) throw new BlockError(ctx.Block, "revive.cost.item", $"\"{c.Item.Value}\" is gear; a revive costs a plain stack item");
-            cost = new PetCostDefinition(itemId ?? new ItemId(PendingItem), c.Count);
-            if (itemId is null) low.AfterCommit(() => LateCost(ctx.Mod, ctx.Block, id, itemName));
+            var found = FindItem(itemName);
+            if (found is { Gear: true }) throw new BlockError(ctx.Block, "revive.cost.item", $"\"{c.Item.Value}\" is gear; a revive costs a plain stack item");
+            cost = new PetCostDefinition(found?.Id ?? new ItemId(PendingItem), c.Count);
+            if (found is null) lateItem = (itemName, c.Item.Value);
         }
 
         var def = new PetDefinition
@@ -147,6 +149,12 @@ internal static class PetCompiler
             var result = Kiln.Pets.DefineAs(def, mod);
             if (!result.Ok) BlocksBridge.Log(LogLevel.Error, $"blocks: {mod}: {ctx.Block}: Pets.Define refused it: {result.Reason}");
         });
+        if (lateItem is { } late)
+        {
+            var owner = ctx.Mod;
+            var blockName = ctx.Block;
+            low.AfterCommit(() => BlockRuntime.AddReady(owner, problem => LateCost(owner, blockName, id, late.Name, late.Written, problem)));
+        }
         return new BlockHandle<PetBlock>(mod, name, BlockIds.Derive(mod, "pet", key), id, p);
     }
 
@@ -167,18 +175,29 @@ internal static class PetCompiler
         throw new BlockError(ctx.Block, "creature", $"no creature block \"{r.Name}\" (a game creature is named by its creatures registry id: \"game:<name>\")");
     }
 
-    /// <summary>A cost item that is not readable yet (a game client's OnLoad): resolved when the block is committed.</summary>
+    /// <summary>A cost item that is not readable yet (a game client's OnLoad, the SDK's bake): resolved at content ready.</summary>
     internal const uint PendingItem = uint.MaxValue;
 
-    private static ItemId? ItemIdOf(string name)
-    {
-        if (!Items.Available) return null;
-        return Items.Lookup(name) is { } i ? i.Id : null;
-    }
+    /// <summary>An item by name and whether it is gear; null while items are not readable or it is not there. Tests set
+    /// their own.</summary>
+    internal static Func<string, (ItemId Id, bool Gear)?> FindItem { get; set; } =
+        name => Items.Available && Items.Lookup(name) is { } i ? (i.Id, i.IsGear) : null;
 
-    private static void LateCost(ModBlocks mod, string block, string id, string itemName)
+    /// <summary>At content ready: the cost's item, or the mod's problem (the pending cost then refuses every revive of the
+    /// pet as CostUnavailable and takes nothing).</summary>
+    private static void LateCost(ModBlocks mod, string block, string id, string itemName, string written, Action<string> problem)
     {
-        if (ItemIdOf(itemName) is not { } item || Kiln.Pets.Definition(id) is not { } d) return;
-        Kiln.Pets.DefineAs(d with { Revive = d.Revive with { Cost = d.Revive.Cost! with { Item = item } } }, mod.Id);
+        if (FindItem(itemName) is not { } found)
+        {
+            problem($"block {block}, revive.cost.item: the game has no item \"{written}\" (its revives are refused as CostUnavailable)");
+            return;
+        }
+        if (found.Gear)
+        {
+            problem($"block {block}, revive.cost.item: \"{written}\" is gear; a revive costs a plain stack item (its revives are refused as CostUnavailable)");
+            return;
+        }
+        if (PetsRuntime.Definition(id) is not { } d) return;
+        Kiln.Pets.DefineAs(d with { Revive = d.Revive with { Cost = d.Revive.Cost! with { Item = found.Id } } }, mod.Id);
     }
 }

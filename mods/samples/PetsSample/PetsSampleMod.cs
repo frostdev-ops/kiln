@@ -23,7 +23,7 @@ public sealed class PetsSampleMod : Mod
 
         Events.On<PetDowningEvent>(e =>
         {
-            if (e.Pet.Definition != "pets-sample:hound") return;
+            if (e.Pet.Definition != "pets-sample:hound" || !Capabilities.Is("kiln.players")) return;
             // this mod's choice for its hounds: far from the owner, a downed hound goes for good
             var owner = Players.All.FirstOrDefault(p => CharacterData.KeyOf(p.Entity) == e.Pet.Owner);
             if (owner?.Position is { } at && e.Pet.RecoveryAnchor is { } spot && at.DistanceTo(spot) > 40) e.Outcome = PetDownedOutcome.Release;
