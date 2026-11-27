@@ -3,6 +3,7 @@
 // turn of the live back-end (one composition, one write of the bytes that change), and the turn a pass prepared off the world
 // thread lands on it in a few milliseconds. The real store and binders over the made-up memory of registry_live_test.cpp and
 // the loot tables of registry_live_transactions_test.cpp; no game process.
+#include <atomic>
 #include <thread>
 #define REGISTRY_LIVE_TRANSACTIONS_NO_MAIN
 #include "registry_live_transactions_test.cpp"
@@ -481,6 +482,63 @@ void a_prepared_turn_that_cannot_write_keeps_the_earlier_layers() {
           "the earlier pass's values stay");
     check(registry_live_revert(71, h1, &reply) == KILN_OK && at<float>(WORLD_AT + 4) == 0, "and its handle reverts them");
 }
+// review of LOOT-2: the preparation, a pass's reads and the report builder on their own threads while the world thread commits
+// and reverts another mod's change, publishes and lands. A landed turn writes the pass's value; one the registry moved past is
+// never written. registry_live_reauthor_tsan_test.sh runs this suite under ThreadSanitizer: any data race fails it.
+void a_preparation_races_the_world_thread() {
+    random_loot_world(); RegistryLiveReply reply;
+    const auto tick = std::this_thread::get_id();
+    g.in->on_world_thread = [tick](uint32_t) { return std::this_thread::get_id() == tick; };
+    uint64_t h = draft(71, "leveler", "[" + level_set + level(30) + "," + uncommon(50) + "]");
+    registry_live_commit(71, h, &reply);
+    const uint64_t world = registry_live_status().world;
+    std::atomic<bool> stop{false};
+    std::atomic<int> reads{0}, built{0};
+    std::thread reader([&] {  // a pass's reads, below its own layers, in its world
+        while (!stop.load()) {
+            std::string v;
+            if (registry_live_read("randomLoot", "game:world_509feadb_0", "level.value", &v, "leveler", world) == KILN_OK) ++reads;
+        }
+    });
+    std::thread reporter([&] {  // Kiln.Host's report builder after each landing
+        while (!stop.load()) { built += registry_live_build_report() ? 1 : 0; std::this_thread::yield(); }
+    });
+    int landed = 0, refused = 0;
+    for (int round = 0; round < 24; ++round) {
+        const int value = 40 + round;
+        uint64_t ticket = 0; KilnResult rc = KILN_ERR_UNAVAILABLE; uint32_t stale = 0;
+        const uint64_t epoch = registry_live_epoch();
+        std::thread worker([&] {
+            rc = registry_live_prepare({call(71, "leveler", "[" + level_set + level(value) + "," + uncommon(50 + round) + "]")}, {{71, h}}, epoch, &ticket, &stale);
+        });
+        if (round % 3 == 0) {  // another mod's change and its revert: what the pass read moves
+            const uint64_t other = draft(72, "other", R"([{"registry":"lootRules","select":"game:loot","field":"rarityWeights.epic","op":)" + std::to_string(20 + round) + "}]");
+            registry_live_commit(72, other, &reply);
+            registry_live_revert(72, other, &reply);
+        }
+        registry_live_publish();
+        worker.join();
+        if (rc != KILN_OK) { ++refused; check(stale == 1 || stale == 2, "a preparation the registry moved under says so"); continue; }
+        const float before = at<float>(WORLD_AT + 4);
+        const Landed l = install(ticket, round % 2 ? kRegistryInstallAnyway : 0);
+        if (l.rc == KILN_OK && !l.handles.empty() && l.handles[0]) {
+            h = l.handles[0], ++landed;
+            check(at<float>(WORLD_AT + 4) == static_cast<float>(value) && at<float>(TABLE_AT + 0x24) == static_cast<float>(50 + round),
+                  "a landed turn writes the pass's values");
+        } else {
+            ++refused;
+            check(at<float>(WORLD_AT + 4) == before, "a turn that did not land wrote nothing");
+        }
+        registry_live_publish();
+    }
+    stop = true;
+    reader.join(), reporter.join();
+    std::printf("raced: %d landed, %d stale or refused, %d reads, %d reports built off the tick\n", landed, refused, reads.load(), built.load());
+    check(landed > 0, "turns land between the world thread's own changes");
+    g.in->on_world_thread = [](uint32_t) { return true; };
+    registry_live_revert(71, h, &reply);
+    check(at<float>(WORLD_AT + 4) == 0 && at<float>(TABLE_AT + 0x24) == 40.26f, "and the last one reverts to the game's values");
+}
 // A landed turn whose report no worker built: the world tick builds it after kReportOwedMs.
 void an_owed_report_is_built_by_the_tick_in_the_end() {
     static uint64_t now = 1'000'000;
@@ -623,6 +681,7 @@ int main() {
         {"a_turn_is_prepared_off_the_world_thread", a_turn_is_prepared_off_the_world_thread},
         {"a_prepared_turn_that_cannot_write_keeps_the_earlier_layers", a_prepared_turn_that_cannot_write_keeps_the_earlier_layers},
         {"an_owed_report_is_built_by_the_tick_in_the_end", an_owed_report_is_built_by_the_tick_in_the_end},
+        {"a_preparation_races_the_world_thread", a_preparation_races_the_world_thread},
         {"a_full_reauthor_lands_within_the_tick_budget", a_full_reauthor_lands_within_the_tick_budget},
     };
     if (const char* only = std::getenv("KILN_TEST_ONLY")) {  // the -O2 cost build runs its budget case alone
