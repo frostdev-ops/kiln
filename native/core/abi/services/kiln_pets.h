@@ -79,7 +79,7 @@ typedef struct KilnPetSafetyBinding {
     KilnPetCharacterKey owner;     /* the owner character (a real character id) */
     uint64_t character_session;    /* the owner's session (diagnostics) */
     KilnEntity owner_entity;       /* the owner's player entity now; 0 while offline */
-    uint32_t hostile_factions;     /* bit n: unowned creatures of faction n are fair targets (never 7, 8, 11) */
+    uint32_t hostile_factions;     /* bit n: unowned creatures of faction n are fair targets (never 7, 8, 11, 12) */
     uint32_t pvp;                  /* KILN_PET_PVP_* */
     uint32_t reserved;             /* 0 */
 } KilnPetSafetyBinding;

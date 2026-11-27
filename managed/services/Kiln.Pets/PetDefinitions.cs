@@ -107,7 +107,8 @@ public sealed record PetTargetPolicy
     /// <summary>Players and pets of other characters. Default <see cref="PetPvpMode.Off"/>.</summary>
     public PetPvpMode Pvp { get; init; } = PetPvpMode.Off;
     /// <summary>The factions of unowned creatures a pet may fight. Null: Kiln's list (<see cref="DefaultHostileFactions"/>).
-    /// A creature with a player's components is never in it, whatever its faction.</summary>
+    /// Player, AutomatedPlayer, PlayerAlly and FarmAnimal are never in it (refused); a creature with a player's components
+    /// is never a fair target, whatever its faction.</summary>
     public IReadOnlyList<Faction>? HostileFactions { get; init; }
 
     /// <summary>Kiln's list of hostile factions: Fogger, Vukah, Scavenger, WildBeast, Skeleton, Cyclops, Drak, Ancients.</summary>
@@ -266,8 +267,8 @@ internal static class PetDefinitionRules
         if (!Enum.IsDefined(t.Pvp)) return ("targets.pvp", $"{t.Pvp} is not a PvP mode");
         if (t.HostileFactions is { } list)
             foreach (var f in list)
-                if (f is Faction.Player or Faction.AutomatedPlayer or Faction.PlayerAlly or Faction.None || (byte)f >= 32 || !Enum.IsDefined(f))
-                    return ("targets.hostileFactions", $"{f} cannot be a hostile faction (players, their allies and no faction never are)");
+                if (f == Faction.None || (byte)f >= 32 || !Enum.IsDefined(f) || (PetTargetRule.NeverFair >> (byte)f & 1u) != 0)
+                    return ("targets.hostileFactions", $"{f} cannot be a hostile faction (players, their allies, farm animals and no faction never are)");
         return null;
     }
 

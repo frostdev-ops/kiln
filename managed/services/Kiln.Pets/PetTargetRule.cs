@@ -6,7 +6,9 @@ namespace Kiln;
 
 internal static class PetTargetRule
 {
-    private const uint NeverFair = (1u << 7) | (1u << 8) | (1u << 11) | (1u << 12);
+    /// <summary>Factions never fair (Player, AutomatedPlayer, PlayerAlly, FarmAnimal): kiln.pets' native kNeverFair, which
+    /// also refuses a binding whose hostile mask names one. Pets.Define checks a definition's list against it.</summary>
+    internal const uint NeverFair = (1u << 7) | (1u << 8) | (1u << 11) | (1u << 12);
 
     internal static (CharacterKey, CharacterKey) Pair(CharacterKey a, CharacterKey b) =>
         string.CompareOrdinal(a.Text, b.Text) <= 0 ? (a, b) : (b, a);

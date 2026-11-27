@@ -171,6 +171,24 @@ public sealed class DefinitionTests : IDisposable
         Assert.True(Pets.DefineAs(Wolf() with { Revive = new PetRevivePolicy { Cost = new PetCostDefinition(new ItemId(5), 3) } }, "mod-a").Ok);
     }
 
+    // review of dev.32 pets: Define took FarmAnimal as a hostile faction while kiln.pets' native bind refuses a mask with
+    // the players' side or farm animals in it, so every summon of such a pet failed ProtectionRefused
+    [Fact]
+    public void A_hostile_list_the_native_guard_would_refuse_is_refused_at_define()
+    {
+        var e = Assert.Throws<ArgumentException>(() => Pets.DefineAs(Wolf() with { Targets = new PetTargetPolicy { HostileFactions = [Faction.FarmAnimal] } }, "mod-a"));
+        Assert.Contains("targets.hostileFactions", e.Message, StringComparison.Ordinal);
+        const uint nativeNeverFair = (1u << 7) | (1u << 8) | (1u << 11) | (1u << 12);   // pets_safety.cpp kNeverFair
+        foreach (var f in Enum.GetValues<Faction>())
+        {
+            var d = Wolf() with { Targets = new PetTargetPolicy { HostileFactions = [f] } };
+            bool ok;
+            try { ok = Pets.DefineAs(d, "mod-a").Ok; }
+            catch (ArgumentException) { ok = false; }
+            if (ok) Assert.Equal(0u, d.Targets.HostileMask & nativeNeverFair);
+        }
+    }
+
     [Fact]
     public void The_hostile_mask_is_the_factions_bits()
     {
