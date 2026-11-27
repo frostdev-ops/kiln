@@ -333,6 +333,12 @@ BAD_NAMES = [
     (re.compile(r"(?i)(^|/)(assets-local|editor-assets|admin-assets)/"), "art made from the game"),
     (re.compile(r"(?i)(^|/)\.env$"), "an env file"),
     (re.compile(r"(?i)(^|/)(updater|authenticode)\.(key|env)$"), "a release key or credentials"),
+    # lab-only parts (dev.32): kiln-labbot (bot players, native/services/labbot) and the labbot-test mod (their control
+    # channel, mods/tests/labbot-test) go to lab servers only (tools/deploy-server.sh, policy "any"); no player's bundle,
+    # server pack, SDK or sample may carry them, in any archive ("!" separates an archive from a file in it)
+    (re.compile(r"(?i)(^|[/!])kiln-labbot\.(dll|pdb)$"), "kiln-labbot, the lab-only bot player service (lab servers only)"),
+    (re.compile(r"(?i)(^|[/!])labbot-test/"), "the labbot-test mod (lab servers only)"),
+    (re.compile(r"(?i)(^|[/!])LabBotTest\.(dll|pdb)$"), "the labbot-test mod's assembly (lab servers only)"),
 ]
 BAD_BYTES = [
     # the build machine's home folder (from the environment, so this file does not match itself)

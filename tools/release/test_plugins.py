@@ -28,6 +28,9 @@ spec.loader.exec_module(pl)
 spec = importlib.util.spec_from_file_location("notices", HERE / "lib" / "notices.py")
 notices = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(notices)
+spec = importlib.util.spec_from_file_location("release", HERE / "lib" / "release.py")
+release = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(release)
 
 BOTH = ["server", "client"]
 COMPONENTS = {
@@ -352,6 +355,73 @@ class WiringTests(unittest.TestCase):
     def test_enshwick_notice_wiring(self):
         self.assertIn("--enshwick-src", (HERE / "release.sh").read_text())
         self.assertIn("def enshwick_entries", (HERE / "lib" / "notices.py").read_text())
+
+
+class LabOnlyReleaseScanTests(unittest.TestCase):
+    """The release's last gate (checks.sh: release.py scan over every file and archive of the release folder) refuses the
+    lab-only parts in any artifact, however it got there: kiln-labbot (bot players, native/services/labbot) and the
+    labbot-test mod (mods/tests/labbot-test, their control channel). stage.sh leaves them out of the runtime bundle and
+    deploy-server.sh deploys them to labs only; this check holds for the server packs, the SDK and every nested archive too
+    (review-int, dev.32 beta 1)."""
+
+    def scan(self, files):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d) / "release"
+            for rel, data in files.items():
+                if rel.endswith(".zip"):
+                    p = root / rel
+                    p.parent.mkdir(parents=True, exist_ok=True)
+                    with zipfile.ZipFile(p, "w") as z:
+                        for inner, body in data.items():
+                            if inner.endswith(".zip"):  # one archive inside another (the SDK holding a bundle)
+                                buf = Path(d) / "inner.zip"
+                                with zipfile.ZipFile(buf, "w") as zi:
+                                    for n, b in body.items():
+                                        zi.writestr(n, b)
+                                z.write(buf, inner)
+                            else:
+                                z.writestr(inner, body)
+                else:
+                    p = root / rel
+                    p.parent.mkdir(parents=True, exist_ok=True)
+                    p.write_bytes(data)
+            s = release.Scanner([], d)
+            for rel in release.release_files(str(root)):
+                s.scan_file(str(root / rel), rel)
+            return s.problems
+
+    def test_kiln_labbot_in_a_bundle_is_refused(self):
+        problems = self.scan({"kiln-runtime-0.2.0.zip": {"core/kiln/services/kiln-labbot.dll": b"MZ fixture",
+                                                          "core/kiln/services/kiln-labbot.pdb": b"pdb",
+                                                          "core/kiln/services/kiln-world.dll": b"MZ fixture"}})
+        self.assertEqual(len([p for p in problems if "kiln-labbot" in p]), 2, problems)
+        self.assertTrue(all("lab" in p for p in problems), problems)
+
+    def test_labbot_test_mod_in_a_server_pack_is_refused(self):
+        problems = self.scan({"server/kiln-server-pack.zip": {"kiln/mods/labbot-test/kiln.mod.json": b"{}",
+                                                              "kiln/mods/labbot-test/LabBotTest.dll": b"MZ fixture",
+                                                              "kiln/mods/kiln-admin/Kiln.Admin.dll": b"MZ fixture"}})
+        self.assertTrue(any("labbot-test/kiln.mod.json" in p for p in problems), problems)
+        self.assertTrue(any("LabBotTest.dll" in p for p in problems), problems)
+        self.assertFalse(any("Kiln.Admin" in p for p in problems), problems)
+
+    def test_lab_only_parts_nested_or_loose_are_refused(self):
+        problems = self.scan({"sdk/kiln-sdk.zip": {"bundle/kiln-runtime.zip": {"kiln/services/kiln-labbot.dll": b"MZ fixture"}},
+                              "samples/LabBotTest.zip": {"LabBotTest.dll": b"MZ fixture"},
+                              "kiln-labbot.dll": b"MZ fixture"})
+        self.assertTrue(any("kiln-runtime.zip!kiln/services/kiln-labbot.dll" in p for p in problems), problems)
+        self.assertTrue(any(p.startswith("samples/LabBotTest.zip!LabBotTest.dll") for p in problems), problems)
+        self.assertTrue(any(p.startswith("kiln-labbot.dll") for p in problems), problems)
+
+    def test_what_players_get_about_lab_bots_is_not_refused(self):
+        # the public API (Kiln.Players' LabBots refuses where kiln.labbot is not loaded), its reference pages, the docs that
+        # name the lab tools, sigdb's symbol definitions and the ABI header are not the lab-only parts
+        problems = self.scan({"kiln-runtime-0.2.0.zip": {"core/kiln/host/Kiln.Players.dll": b"MZ fixture",
+                                                          "sigdb-server/kiln/sigdb/symbols/server.d/labbot.json": b"{}"},
+                              "sdk/api/api/Kiln.LabBots.html": b"<html>LabBots</html>",
+                              "sdk/docs/modding/testing.md": b"tools/labbot and mods/tests/labbot-test on a lab server",
+                              "sdk/include/services/kiln_labbot.h": b"/* kiln.labbot */"})
+        self.assertEqual(problems, [])
 
 
 class EnshwickPinTests(unittest.TestCase):
