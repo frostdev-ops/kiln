@@ -14,6 +14,8 @@
     <InternalsVisibleTo Include="Kiln.Blocks" />
     <InternalsVisibleTo Include="Kiln.Blocks.Tests" />
     <InternalsVisibleTo Include="Kiln.Contract.Tests" />
+    <!-- Kiln.Pets' body setup and orders on a fake table: they write as the pet's defining mod -->
+    <InternalsVisibleTo Include="Kiln.Pets.Tests" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" Private="false" />

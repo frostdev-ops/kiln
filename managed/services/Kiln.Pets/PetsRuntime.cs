@@ -8,7 +8,10 @@ namespace Kiln;
 internal static partial class PetsRuntime
 {
     private static readonly object Gate = new();
-    private static readonly Dictionary<string, (PetDefinition Definition, string? Mod)> Defs = new(StringComparer.Ordinal);
+    // by id: the definition, its mod's id, and that mod's context when it was the one running at Define (weak: never keeps
+    // an unloaded mod alive)
+    private static readonly Dictionary<string, (PetDefinition Definition, string? Mod, WeakReference<ModContext>? Context)> Defs =
+        new(StringComparer.Ordinal);
     private static readonly Queue<KilnEvent> PendingEvents = new();
     private static IDisposable? _tick;
     private static int _tickGeneration = -1;
@@ -49,7 +52,9 @@ internal static partial class PetsRuntime
                 before = have.Definition;
             }
             else before = null;
-            Defs[d.Id] = (d, mod);
+            var running = ModContext.CurrentMod is { } c && string.Equals(c.Info.Id, mod, StringComparison.OrdinalIgnoreCase)
+                ? new WeakReference<ModContext>(c) : null;
+            Defs[d.Id] = (d, mod, running ?? (before is not null && have.Mod == mod ? have.Context : null));
             PendingEvents.Enqueue(new PetDefinitionChangedEvent(before, d));
         }
         if (note is not null) Log(LogLevel.Info, $"Kiln.Pets: pet {d.Id}: {note}");
@@ -71,6 +76,35 @@ internal static partial class PetsRuntime
             foreach (var id in ids) Defs.Remove(id);
         }
         if (ids.Count > 0) Roster?.Unload(ids);
+    }
+
+    /// <summary>The loaded mod that defined <paramref name="id"/>, or null (none is loaded, or no mod defined it). Kiln.Pets
+    /// makes and orders that pet's bodies as this mod: Kiln.Creatures keeps every change a mod's (a layer it reverts when
+    /// the mod unloads), and Kiln.Pets' own step runs no mod's code.</summary>
+    internal static ModContext? DefiningMod(string id)
+    {
+        string mod;
+        WeakReference<ModContext>? seen;
+        lock (Gate)
+        {
+            if (!Defs.TryGetValue(id, out var d) || d.Mod is null) return null;
+            (mod, seen) = (d.Mod, d.Context);
+        }
+        if (seen is not null && seen.TryGetTarget(out var known) && known.Alive) return known;
+        if (ModContext.CurrentMod is { Alive: true } current && string.Equals(current.Info.Id, mod, StringComparison.OrdinalIgnoreCase))
+            return current;
+        try { return Mods.Get(mod)?.Info is { } info ? ModContext.FindLive(info) : null; }
+        catch (Exception e) when (e is NotSupportedException or InvalidOperationException) { return null; }
+    }
+
+    /// <summary>Runs <paramref name="action"/> as <paramref name="mod"/> (tick thread), as Kiln.Blocks runs a creature
+    /// block's brain; null: as whoever runs now.</summary>
+    internal static void As(ModContext? mod, Action action)
+    {
+        var previous = ModContext.CurrentMod;
+        if (mod is not null) ModContext.CurrentMod = mod;
+        try { action(); }
+        finally { ModContext.CurrentMod = previous; }
     }
 
     internal static PetDefinition? Definition(string id)

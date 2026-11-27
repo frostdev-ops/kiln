@@ -13,6 +13,9 @@ internal sealed class GamePetMover : IPetMover
 
     private static PetControl? Control(PetBody b) => b.Tag is GamePetWorld.IHasControl h ? h.Control : null;
 
+    // what the order changes in kiln.creatures (the held target) is the pet's defining mod's
+    private static ModContext? Definer(PetBody b) => b.Tag is GamePetWorld.IHasControl h ? PetsRuntime.DefiningMod(h.Definition) : null;
+
     public bool CanDrive(PetBody body) => Control(body)?.CanDrive ?? false;
     public bool Fighting(PetBody body) => Control(body)?.Fighting ?? false;
 
@@ -124,9 +127,12 @@ internal sealed class GamePetMover : IPetMover
     {
         try
         {
-            var c = Creatures.Of(body.Entity.Id);
-            c.PreferTarget(target, 30);
-            c.Command.Attack(target);
+            PetsRuntime.As(Definer(body), () =>
+            {
+                var c = Creatures.Of(body.Entity.Id);
+                c.PreferTarget(target, 30);
+                c.Command.Attack(target);
+            });
         }
         catch (Exception e) when (e is NotSupportedException or InvalidOperationException or ArgumentException) { }
     }
