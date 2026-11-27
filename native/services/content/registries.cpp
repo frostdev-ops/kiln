@@ -177,8 +177,11 @@ bool schemas(std::string* why) {
     if (!build_schema("keen::LootSettingsResource", {"tags", "specialLootItemLabelsId"}, &Tables.schema, &err)) {
         LOGW("random loot tables off: %s", err.c_str());
         Tables.schema = Schema{};
-    } else if (field_offset("keen::DefaultLootSettingsResource", "modifier") != field_offset("keen::LootSettingsResource", "modifier") ||
+    } else if ((!derives_from("keen::DefaultLootSettingsResource", "keen::LootSettingsResource") &&
+                field_offset("keen::DefaultLootSettingsResource", "modifier") != field_offset("keen::LootSettingsResource", "modifier")) ||
                type_size("keen::DefaultLootSettingsResource") < Tables.schema.size) {
+        // a label table is a scene table plus its id: on the current builds it derives from it (its modifier is inherited, which
+        // field_offset does not see, so comparing the two offsets alone turned every random loot table off)
         LOGW("random loot tables off: the label tables do not start like the scene tables on this build");
         Tables.schema = Schema{};
     }
@@ -404,10 +407,13 @@ void build_loot_tables(uintptr_t lreg) {
         const uint32_t user_stride = type_size("keen::LootContainerResource");
         const Field* user_index = nullptr;
         const Field* user_node = nullptr;
+        Schema node;  // nodeId is a member of the chest's base type (keen::LootNodeResource, at its start): the schema flattens own members only
         if (users_at >= 0 && user_stride && build_schema("keen::LootContainerResource", {}, &users, &why)) {
             user_index = users.find("lootSettingsIndex");
             user_node = users.find("nodeId");
-            if (!user_node) user_node = users.find("nodeId.value");
+            if (!user_node && derives_from("keen::LootContainerResource", "keen::LootNodeResource") &&
+                build_schema("keen::LootNodeResource", {}, &node, &why) && user_index && node.size <= user_index->offset)
+                user_node = node.find("nodeId");
         }
         for (const Src& src : srcs) {
             const int64_t member = field_offset(src.type, "lootSettings");
