@@ -81,6 +81,7 @@ test("the Configs page: two removed mods, Clear all asks first, then the files g
   await expect(option(page, "big-stacks")).toBeVisible();
   await option(page, "beastmaster").click();
   await expect(page.getByText("beastmaster is not installed.")).toBeVisible();
+  await expect(page.getByRole("switch").first()).toBeDisabled(); // the form is drawn (and read-only) before the picture
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/configs-orphans-page.png` });
   await testInfo.attach("configs-orphans-page", { body: await page.screenshot(), contentType: "image/png" });
 
