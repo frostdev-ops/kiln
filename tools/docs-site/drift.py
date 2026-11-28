@@ -26,7 +26,8 @@ Five checks, run together by default (tools/check.sh, stage `drift`; no build ne
 
   stale     tools/docs-site/drift-stale.txt lists what the pages must not say any more, a fact the code now contradicts (a fake
             that exists, a call shape that changed): a regular expression (Python, case-sensitive; (?i) for case), a file
-            glob and what is true instead, tab-separated. A line of a checked page that matches is a finding, with that text.
+            glob and what is true instead, tab-separated. A line of a checked page, or a /// line of a managed source (the XML
+            docs: the API site's and IntelliSense's text; not tests, bin or obj), that matches is a finding, with that text.
             A line without the text, or a pattern that does not compile, is an error.
 
 tools/docs-site/drift-allow.txt lists the known false positives (sample names, csproj names, deliberate "do not do this"
@@ -736,12 +737,26 @@ def stale_rules(root):
     return rules, errors
 
 
+def xml_doc_sources(root):
+    """managed/**/*.cs but tests, bin and obj: their /// lines are the XML docs."""
+    out = []
+    for p in sorted((Path(root) / "managed").rglob("*.cs")):
+        parts = set(p.relative_to(root).parts)
+        if parts & {"bin", "obj", "tests"} or any(x.endswith(".Tests") for x in parts):
+            continue
+        out.append(p)
+    return out
+
+
 def check_stale(root, files):
     rules, errors = stale_rules(root)
     out = [Finding("stale", STALE, 0, "", e) for e in errors]
-    for f in files:
+    for f in list(files) + (xml_doc_sources(root) if rules else []):
         path = rel(root, f)
+        cs = f.suffix == ".cs"
         for n, line in enumerate(f.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+            if cs and not line.lstrip().startswith("///"):
+                continue
             for _, rx, text, glob, true in rules:
                 if fnmatch.fnmatch(path, glob):
                     m = rx.search(line)

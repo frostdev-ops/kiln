@@ -7,3 +7,5 @@ Reauthor\(RegistryEntryPoint	*	Registries.Reauthor() takes no entry point (only 
 "caps"\s*:	*	a pet definition's limits are "limits" in blocks JSON since 0.2.0-dev.32 (PetLimits); "caps" is a per-block error
 Of\(PlayerRef[^\n]*(?:throws|ArgumentException)	*	Pets.Of(PlayerRef) of a player not in game (or with no character here) is an empty list; only PlayerRef.None throws
 World\.Teleport\b	*	there is no World.Teleport: Teleport.To moves an entity (Kiln.Players' LabBots too)
+Chat\.Whisper\b	*	there is no Chat.Whisper: Chat.Tell(player, text) writes to one player
+Players\.Get\(	*	there is no Players.Get: Players.Find(entity) or Players.Find(name) gives a Player

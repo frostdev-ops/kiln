@@ -276,6 +276,12 @@ class Stale(Case):
         self.assertIn("three tab-separated cells expected", out)
         self.assertIn("the pattern does not compile", out)
 
+    def test_xml_docs_are_read_but_not_code_or_tests(self):
+        self.repo.write("managed/Kiln.Api/Bots.cs", "/// moves with <c>World.Teleport</c>\nvar x = World.Teleport;\n")
+        self.repo.write("managed/tests/Kiln.Api.Tests/T.cs", "/// World.Teleport in a test\n")
+        code, found, _ = self.stale("World\\.Teleport\\b\t*\tTeleport.To\n", "fine\n")
+        self.assertEqual([(f.path, f.line) for f in found], [("managed/Kiln.Api/Bots.cs", 1)])
+
     def test_no_list_is_no_finding(self):
         self.repo.doc("no pet fake\n")
         code, found, _ = self.repo.run("stale")
