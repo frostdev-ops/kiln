@@ -5,12 +5,18 @@
 #include <cstring>
 #include <vector>
 
+#include "services/kiln_caps.h"
+#include "services/kiln_markers.h"
+
 namespace kmk {
 
 namespace {
 constexpr uint64_t kHeaderBytes = 0x28;  // data pointer, count, capacity, growth callback, allocator word
 
 int64_t fixed(double v) { return static_cast<int64_t>(std::llround(v * 4294967296.0)); }
+
+// [a, a + an) and [b, b + bn) do not overlap
+bool apart(uint32_t a, uint32_t an, uint32_t b, uint32_t bn) { return a + an <= b || b + bn <= a; }
 
 bool same_rows(const uint8_t* data, const MapLayout& l, uint64_t base, uint64_t n, const std::vector<uint8_t>& written) {
     if (written.size() != n * l.entry_size) return false;
@@ -23,7 +29,16 @@ std::vector<uint8_t> g_written;
 
 bool MapLayout::valid() const {
     return header > 0 && capacity > 0 && capacity <= 0x4000 && entry_size >= 0x38 && entry_size <= 0x400 && position + 16 <= entry_size &&
-           z + 8 <= entry_size && type + 4 <= entry_size && visibility < entry_size;
+           z + 8 <= entry_size && type + 4 <= entry_size && visibility < entry_size && (!label || has_label());
+}
+
+bool MapLayout::has_label() const {
+    if (!label || label + 16 > entry_size || label_hash + 8 > entry_size || label % 8 || label_hash % 8) return false;
+    if (!apart(label, 16, label_hash, 8)) return false;
+    const uint32_t fields[][2] = {{position, 16}, {z, 8}, {type, 4}, {visibility, 1}};
+    for (const auto& f : fields)
+        if (!apart(label, 16, f[0], f[1]) || !apart(label_hash, 8, f[0], f[1])) return false;
+    return true;
 }
 
 ListState read_list(const uint8_t* ui, const MapLayout& l, uint64_t* count, uint64_t* room) {
@@ -49,6 +64,12 @@ void encode_entry(uint8_t* e, const MapLayout& l, const MapRow& row) {
     std::memcpy(e + l.z, &z, 8);
     std::memcpy(e + l.type, &row.type, 4);
     e[l.visibility] = 2;
+    if (row.text && row.text_len && l.has_label()) {  // issue 160: the text view the game's name resolver takes first
+        const uint64_t p = reinterpret_cast<uintptr_t>(row.text);
+        std::memcpy(e + l.label, &p, 8);
+        std::memcpy(e + l.label + 8, &row.text_len, 8);
+        std::memcpy(e + l.label_hash, &row.text_hash, 8);
+    }
 }
 
 uint32_t append_rows(uint8_t* ui, const MapLayout& l, const MapRow* rows, uint32_t n, Appended* last, ListState* state) {
@@ -101,6 +122,33 @@ uint32_t rewrite_kept(uint8_t* ui, const MapLayout& l, const MapKeep& keep, uint
     *state = ListState::Ok;
     if (!epoch || keep.epoch != epoch || keep.rows.empty()) return 0;
     return append_rows(ui, l, keep.rows.data(), static_cast<uint32_t>(keep.rows.size()), last, state);
+}
+
+uint64_t label_hash(const char* p, size_t n) {
+    uint64_t h = 0xcbf29ce484222325ull;
+    for (size_t i = 0; i < n; ++i) {
+        h ^= static_cast<uint64_t>(static_cast<int64_t>(static_cast<signed char>(p[i])));
+        h *= 0x100000001b3ull;
+    }
+    return h;
+}
+
+MapRow map_row(double x, double y, double z, uint32_t icon, uint32_t label_mode, std::string_view text, bool text_on) {
+    MapRow r{x, y, z, icon};
+    if (label_mode == KILN_MARKER_LABEL_NATIVE_TOOLTIP && text_on && !text.empty()) {
+        r.text = text.data();
+        r.text_len = text.size();
+        r.text_hash = label_hash(text.data(), text.size());
+    }
+    return r;
+}
+
+TextRow map_text_row(bool map_on, bool text_guards, uint32_t guard_reason, const char* guard_text) {
+    if (!text_guards) return TextRow{KILN_CAP_UNAVAILABLE, guard_reason, guard_text};
+    if (!map_on)
+        return TextRow{KILN_CAP_UNAVAILABLE, KILN_CAP_REASON_SERVICE_MISSING,
+                       "needs markers.map: the text goes into the tooltip of the marker's native map icon"};
+    return TextRow{KILN_CAP_AVAILABLE, KILN_CAP_REASON_NONE, ""};
 }
 
 }  // namespace kmk

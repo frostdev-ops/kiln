@@ -11,11 +11,15 @@
 //
 // Entry encoding (MapLabel.None, v1): the whole entry zeroed, the position as signed 64-bit 32.32 metres at +position
 // (x, y) and +z, the marker type id at +type, visibility 2 (shown) at +visibility. Entity, marker loca id and both text
-// views stay zero: the native compass cannot reach an id-0 entry and no tooltip is promised.
+// views stay zero: the native compass cannot reach an id-0 entry. MapLabel.NativeTooltip with markers.map_text on
+// (GitHub issue 160) adds the entry's text view: +label the record's text {pointer, u64 length} in kiln.markers' arena,
+// +label_hash its hash as the game computes it. The game's name resolver takes that view before anything else, so it is
+// the tooltip's title (docs/re/map.md, "The tooltip's name").
 #ifndef KILN_MARKERS_MAP_LIST_H
 #define KILN_MARKERS_MAP_LIST_H
 #include <cstddef>
 #include <cstdint>
+#include <string_view>
 #include <vector>
 
 namespace kmk {
@@ -28,12 +32,20 @@ struct MapLayout {
     uint32_t z = 0;
     uint32_t type = 0;
     uint32_t visibility = 0;
-    bool valid() const;        // offsets inside the entry, sizes the measured ones
+    uint32_t label = 0;        // the text view {const char*, u64 length} (markers/entry.label); 0: no text is written
+    uint32_t label_hash = 0;   // its hash, u64 (markers/entry.label_hash)
+    bool valid() const;        // offsets inside the entry, sizes the measured ones; a text layout when label is set
+    bool has_label() const;    // label set, the view and the hash inside the entry and apart from every other field
 };
 
 struct MapRow {
     double x, y, z;
     uint32_t type;
+    // MapLabel.NativeTooltip with the text on (issue 160): the record's text in kiln.markers' arena (never moved or freed
+    // while the process lives) and its hash; empty: the entry's text view stays zero, as for MapLabel.None.
+    const char* text = nullptr;
+    uint64_t text_len = 0;
+    uint64_t text_hash = 0;
 };
 
 enum class ListState { Ok, BadHeader };
@@ -80,6 +92,25 @@ struct MapKeep {
 // step's Post wrote them, or the step's clear did not run) are written over in place, never twice. Returns the rows
 // written; nothing kept for this epoch writes nothing and leaves *state Ok.
 uint32_t rewrite_kept(uint8_t* ui, const MapLayout& l, const MapKeep& keep, uint64_t epoch, Appended* last, ListState* state);
+
+// ---- the tooltip text (GitHub issue 160) ------------------------------------------------------------------------------
+// The game's hash of a text view (client 0x316830, 0x308970, 0x11b0fb0): a wrapping 64-bit FNV-1a over each byte
+// sign-extended (MOVSX), seed 0xcbf29ce484222325, multiplier 0x100000001b3.
+uint64_t label_hash(const char* p, size_t n);
+
+// The row a client row puts in the map list: its position and icon, and its text when its map label is NativeTooltip,
+// the text is not empty and text_on (markers.map_text). `text` must outlive the row (the arena's bytes do).
+MapRow map_row(double x, double y, double z, uint32_t icon, uint32_t label_mode, std::string_view text, bool text_on);
+
+// markers.map_text on a game client: on exactly when markers.map is on and the tooltip text's guards hold
+// (markers.map_tooltip_text resolved, its layout the measured one). Off with the guards' reason and words, else naming
+// markers.map. `guard_text` must outlive the result.
+struct TextRow {
+    uint32_t state;   // KILN_CAP_*
+    uint32_t reason;  // KILN_CAP_REASON_*
+    const char* text;
+};
+TextRow map_text_row(bool map_on, bool text_guards, uint32_t guard_reason, const char* guard_text);
 
 }  // namespace kmk
 #endif
