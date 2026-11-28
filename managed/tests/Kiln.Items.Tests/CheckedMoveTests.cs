@@ -1,15 +1,14 @@
 // SPDX-License-Identifier: MIT
-// Items.MoveChecked and Items.CheckedMovesAvailable (0.2.0-dev.31.30, experimental in 31.x: KILNX033; asked for by
-// Flamebound Ledger) offline, over a made-up kiln.items v3 table: what the call refuses itself, and what it hands
-// kiln.items. The checks inside the inventory transaction are native/services/items/tests/move_test.cpp
-// (checked_move_test); the game's side is the mod's lab fixture.
+// Items.MoveChecked and Items.CheckedMovesAvailable (0.2.0-dev.31.30, mod API 0.2.28; asked for by Flamebound Ledger)
+// offline, over a made-up kiln.items v3 table: what the call refuses itself, and what it hands kiln.items. The checks
+// inside the inventory transaction are native/services/items/tests/move_test.cpp (checked_move_test); the game's side
+// is the mod's lab fixture.
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Kiln;
 using Kiln.TestKit;
 using Xunit;
-#pragma warning disable KILNX033  // experimental in 31.x (0.2.0-dev.31.30): the members under test
 
 namespace Kiln.ItemsTests;
 

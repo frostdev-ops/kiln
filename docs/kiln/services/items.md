@@ -282,10 +282,9 @@ a player wears: for example, `Items.Unequip(player, EquipmentSlot.ArmourHead)` (
 `Items.Equip`. Moving
 between two slots of one chest is not offered.
 
-**Checked moves** (since 0.2.0-dev.31.30, asked for by Flamebound Ledger; experimental in 31.x,
-[KILNX033](../modding/analyzers.md#kilnx033), and normal API in 0.2.0-dev.32). `Items.Move` names its source by slot number,
-so a request made on an old view (a drag and drop from a terminal's list, a request sent twice) moves whatever is in that
-slot when it runs. `Items.MoveChecked(from, expected, to, count, destination)` moves `count` items of `expected` (an
+**Checked moves** (since 0.2.0-dev.31.30, mod API 0.2.28, asked for by Flamebound Ledger). `Items.Move` names its source
+by slot number, so a request made on an old view (a drag and drop from a terminal's list, a request sent twice) moves
+whatever is in that slot when it runs. `Items.MoveChecked(from, expected, to, count, destination)` moves `count` items of `expected` (an
 `InventorySlot` from `Items.Read`) only while that slot still holds what the read saw: the item and the count, and for gear
 the same item entity with the same stamp (`expected.Ref`). With `destination` (a slot of `to` from a read), that slot must
 still hold what it held (empty: still empty), and the whole count lands there or nothing moves; without one, Kiln chooses
@@ -300,7 +299,8 @@ transaction, in the step it runs, so nothing changes between the check and the m
 - `Items.CheckedMovesAvailable`, the way a mod detects the feature: capability `items.move`, the kiln_items program
   running, and a kiln.items that has checked moves (an older runtime: false, and `MoveChecked` is `Unavailable` saying to
   update Kiln). Gear also needs `items.instances` (without it no read carries a stamp: `Unavailable`). A Kiln older than
-  0.2.0-dev.31.30 has neither member: a mod that loads there too finds them by reflection.
+  0.2.0-dev.31.30 has neither member and refuses a mod that asks for mod API 0.2.28; a mod that loads there too builds
+  against an older MDK and finds them by reflection.
 - C: set `KILN_ITEMS_MOVE_CHECKED` on a STACK move and pass a `KilnItemsCheckedMoveRequest` (`size` at least its sizeof)
   with the two `KilnItemsSlotWitness`; an older kiln.items refuses the flag. `status2` reports `KILN_ITEMS_HAS_CHECKED_MOVE`
   in `reserved`.

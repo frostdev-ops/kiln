@@ -13,8 +13,8 @@ public sealed class TablesTests
     // Creative effects (0.2.0-dev.31.2, Kiln.Rules): missing from the table until its regeneration for 0.2.0-dev.31.14
     [InlineData("M:Kiln.Creative.Effects(Kiln.EntityId)")]
     [InlineData("M:Kiln.Creative.SetEffect(Kiln.EntityId,System.String,System.Boolean)")]
-    // Items.MoveChecked (0.2.0-dev.31.30, experimental in 31.x: KILNX033): Services.RequireTickThread, missing until the
-    // table's regeneration in its review
+    // Items.MoveChecked (0.2.0-dev.31.30, mod API 0.2.28): Services.RequireTickThread, missing until the table's
+    // regeneration in its review
     [InlineData("M:Kiln.Items.MoveChecked(Kiln.EntityId,Kiln.InventorySlot,Kiln.EntityId,System.Int32,Kiln.InventorySlot)")]
     public void Tick_thread_members(string id) => Assert.Contains(id, KilnApis.TickThread);
 
@@ -67,7 +67,7 @@ public sealed class TablesTests
     [InlineData("P:Kiln.Crosshair.Available", "kiln.client.crosshair")]    // => CrosshairNative.Members != null && Capabilities.Is(...)
     [InlineData("P:Kiln.Crosshair.Available", "client.crosshair")]
     [InlineData("P:Kiln.PadInput.Available", "kiln.ui.input")]             // UiNative.Input == null: false
-    [InlineData("P:Kiln.Items.CheckedMovesAvailable", "items.move")]       // => Can(Caps.Move) && ... (0.2.0-dev.31.30, KILNX033)
+    [InlineData("P:Kiln.Items.CheckedMovesAvailable", "items.move")]       // => Can(Caps.Move) && ... (0.2.0-dev.31.30)
     public void Capability_guards(string property, string row) =>
         Assert.Contains(KilnApis.CapabilityGuards, g => g.StartsWith(property + "=", StringComparison.Ordinal) && g.Substring(property.Length + 1).Split(',').Contains(row));
 

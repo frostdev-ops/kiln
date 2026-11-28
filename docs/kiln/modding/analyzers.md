@@ -787,29 +787,6 @@ new; the registry stage that reads and edits through them is not wired yet. The 
 A registry leaves experimental when its schema is marked stable; until then field names and types can still change. The
 guide: [registries/README.md](registries/README.md).
 
-<a id="kilnx033"></a>
-## KILNX033: checked moves in 31.x
-**What.** The code calls `Items.MoveChecked` or `Items.CheckedMovesAvailable` ([checked moves](inventory.md#checked-moves))
-with a 0.2.0-dev.31.x MDK. They came in 0.2.0-dev.31.30, a patch that keeps mod API 0.2.26, so a mod's `apiVersion`
-cannot ask for them: in 31.x they are `[Experimental("KILNX033")]`, and the compiler reports the call as an error. In
-0.2.0-dev.32 they are normal API and need no opt-in.
-
-**Since when.** 0.2.0-dev.31.30.
-
-**Fix.** Opt in once in the mod's project file (and its test project):
-
-```xml
-<PropertyGroup>
-  <NoWarn>$(NoWarn);KILNX033</NoWarn>
-</PropertyGroup>
-```
-
-Detect the feature through `Items.CheckedMovesAvailable`: ask it before `Items.MoveChecked` (false while moves are off).
-On a Kiln older than 0.2.0-dev.31.30 neither member exists, and a direct call fails there with `MissingMethodException`.
-A mod that also loads on an older Kiln looks `CheckedMovesAvailable` and `MoveChecked` up by reflection and takes a
-missing member as false, as Flamebound Ledger does; a mod that needs them requires the newer Kiln in its manifest
-(`"dependencies": { "kiln": ">=0.2.0-dev.31.30" }`, see [manifest.md](manifest.md#requiring-a-particular-kiln-dev-release)).
-
 ---
 
 <a id="kiln194"></a>

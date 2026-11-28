@@ -45,13 +45,10 @@
                    0.2.0-dev.29, where 17b shipped whole and its types became normal API
          KILNX031  Kiln's registries (Kiln.Registry: the generated entry types and the field catalog) until the registry
                    stage is wired and each registry is marked stable (docs/kiln/modding/registries/README.md)
-         KILNX033  checked moves in 31.x (Kiln.Items' MoveChecked and CheckedMovesAvailable, since 0.2.0-dev.31.30): new
-                   API in a 31.x patch that keeps mod API 0.2.26; normal API in 0.2.0-dev.32 (KILNX032 is taken there, by Kiln.Gate)
        In use today: KILNX001 on lab and test members in Kiln.Creatures, Kiln.Items, Kiln.Players, Kiln.Quests,
        Kiln.Rules, Kiln.Saves, Kiln.Skills and Kiln.Vfx; KILNX002 on Kiln.Client's SteamGuard and Kiln.Network's
-       SteamGuardRelay; KILNX031 on Kiln.Registry's types and Kiln.RegistryApplies; KILNX033 on Kiln.Items' MoveChecked
-       and CheckedMovesAvailable. A mod that calls such API has to opt in
-       with NoWarn for the id. -->
+       SteamGuardRelay; KILNX031 on Kiln.Registry's types and Kiln.RegistryApplies. A mod that calls such API has to opt
+       in with NoWarn for the id. -->
   <PropertyGroup Condition="Exists('$(MSBuildProjectDirectory)/PublicAPI.Shipped.txt')">
     <KilnPublicApi>true</KilnPublicApi>
     <!-- "The record is wrong": public API without a line (RS0016), a line without its API (RS0017), a constructor that
