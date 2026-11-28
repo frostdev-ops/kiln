@@ -28,6 +28,10 @@ Get the launcher from [frostdev.io](https://frostdev.io/kiln/download), [GitHub 
 
 Get help with mods and servers, share what you make and follow new releases on the [Kiln Discord](https://discord.gg/7pjr8SMTfU).
 
+## Support Kiln
+
+Kiln is free and open source. If it helps you, you can support its development on [Ko-fi](https://ko-fi.com/frostdev_ops).
+
 ## Docs
 - [Wiki](https://frostdev.io/kiln/wiki)
 - [Writing mods](docs/kiln/modding/README.md)
