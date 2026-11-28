@@ -24,6 +24,7 @@ public sealed class Stacks : Mod
 {
     public override void OnRegistry(RegistryContext context)
     {
+        if (!Kiln.Registry.Registries.Available) return;                      // kiln.registry: the host's registry transport
         var registry = Kiln.Registry.Registries.For(context);
         registry.Alter(stage =>
         {
@@ -31,7 +32,7 @@ public sealed class Stacks : Mod
             foreach (var weapon in stage.Items.Select("game:weapon_t1_*"))
                 if (weapon.HasDamage) weapon.Power = weapon.Power * 2;
         });
-        if (context.EntryPoint == RegistryEntryPoint.GameStart)
+        if (context.EntryPoint == RegistryEntryPoint.GameStart && Capabilities.Is("registry.items.add"))   // adding has its own row
             registry.Add(stage => stage.Items.AddLike(new("my-mod:stout_logs"), new("game:material_t1_wood_logs"), item => item.MaxStack = 100));
     }
 }

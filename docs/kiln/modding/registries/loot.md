@@ -56,7 +56,8 @@ registry.Alter(stage =>
     foreach (var entry in stage.Loot.Select("game:material_t1_*")) entry.Stack.Max += 1;
     stage.Loot["game:material_t1_wood_logs"].Rarities = RegistryRarities.Epic | RegistryRarities.Legendary;
 });
-registry.Alter(stage => stage.Loot.Remove("game:material_t1_twigs"));     // GameStart only
+if (Capabilities.Is("registry.loot.remove"))                              // removing has its own row; GameStart only
+    registry.Alter(stage => stage.Loot.Remove("game:material_t1_twigs"));
 ```
 
 `stage.Loot` is a `RegistryEntries<ItemLootEntry>`. `Stack` is a group (`Min`, `Max`, `Scalable`, `MaxScaled`), `Rarities` a flags

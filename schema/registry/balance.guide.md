@@ -22,6 +22,7 @@ public sealed class Levels : Mod
 {
     public override void OnRegistry(RegistryContext context)
     {
+        if (!Kiln.Registry.Registries.Available) return;                      // kiln.registry: the host's registry transport
         var registry = Kiln.Registry.Registries.For(context);
         registry.Alter(stage =>
         {

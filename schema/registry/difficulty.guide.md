@@ -18,6 +18,7 @@ public sealed class WiderBounds : Mod
 {
     public override void OnRegistry(RegistryContext context)
     {
+        if (!Kiln.Registry.Registries.Available) return;                      // kiln.registry: the host's registry transport
         Kiln.Registry.Registries.For(context).Alter(stage =>
         {
             var bounds = stage.Difficulty.EnemyDamageFactor;

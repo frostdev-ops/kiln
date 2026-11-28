@@ -10,6 +10,7 @@ public sealed class Stacks : Mod
 {
     public override void OnRegistry(RegistryContext context)
     {
+        if (!Kiln.Registry.Registries.Available) return;                      // kiln.registry: the host's registry transport
         var registry = Kiln.Registry.Registries.For(context);
         registry.Alter(stage => stage.Items["game:material_t1_wood_logs"].MaxStack = 500);
     }
@@ -26,12 +27,14 @@ namespace DocSnippets.docs_modding_registries_README_2
         {
             if (!Kiln.Registry.Registries.Available) return;
             var registry = Kiln.Registry.Registries.For(context);
-#line 211 "docs/kiln/modding/registries/README.md"
+#line 212 "docs/kiln/modding/registries/README.md"
 if (context.EntryPoint == RegistryEntryPoint.GameStart)
 {
-    registry.Add(stage => stage.Items.AddLike(new("my-mod:logs"), new("game:material_t1_wood_logs"),
-        item => item.MaxStack = 100));
-    registry.Alter(stage => stage.Loot.Remove("game:material_t1_wood_logs"));
+    if (Capabilities.Is("registry.items.add"))                                // adding and removing have their own rows
+        registry.Add(stage => stage.Items.AddLike(new("my-mod:logs"), new("game:material_t1_wood_logs"),
+            item => item.MaxStack = 100));
+    if (Capabilities.Is("registry.loot.remove"))
+        registry.Alter(stage => stage.Loot.Remove("game:material_t1_wood_logs"));
 }
 #line default
         }
@@ -44,7 +47,8 @@ namespace DocSnippets.docs_modding_registries_README_3
     {
         public async Task Run()
         {
-#line 272 "docs/kiln/modding/registries/README.md"
+#line 275 "docs/kiln/modding/registries/README.md"
+if (!Kiln.Registry.Registries.Available) return;                              // kiln.registry.live: the host's back-end
 var change = Kiln.Registry.Registries.Change(stage =>
     stage.Items["game:material_t1_wood_logs"].MaxStack = 500);
 if (!change.Result.Ok) Log.Warn(change.Result.Reason ?? "registry change not applied");
@@ -59,14 +63,19 @@ if (!reverted.Ok) Log.Warn(reverted.Reason ?? "registry revert not applied");
 namespace DocSnippets.docs_modding_registries_README_4
 {
     public sealed class Settings { public int Level { get; set; } = 1; }
-#line 359 "docs/kiln/modding/registries/README.md"
+#line 363 "docs/kiln/modding/registries/README.md"
 [RegistryEntryPoints(RegistryEntryPoint.WorldLoad)]
 public sealed class Leveler : Mod
 {
-    public override void OnLoad() => Config.Register<Settings>().Changed += _ => Kiln.Registry.Registries.Reauthor();
+    public override void OnLoad() => Config.Register<Settings>().Changed += _ =>
+    {
+        if (!Kiln.Registry.Registries.Available) return;                      // kiln.registry.live: the host's back-end
+        var again = Kiln.Registry.Registries.Reauthor();
+        if (!again.Ok) Log.Warn($"not authored again: {again.Reason}");
+    };
     public override void OnRegistry(RegistryContext context)
     {
-        if (context.Phase != RegistryPhase.Alter) return;
+        if (context.Phase != RegistryPhase.Alter || !Kiln.Registry.Registries.Available) return;
         var r = Kiln.Registry.Registries.For(context);
         var w = r.LootRules.RarityWeights;      // the values below this mod: the game's, or other mods' edits
         w.Legendary = w.Legendary * 4;          // never stacks: each pass reads below its own last edit

@@ -10,6 +10,7 @@ public sealed class BuildAnywhere : Mod
 {
     public override void OnRegistry(RegistryContext context)
     {
+        if (!Kiln.Registry.Registries.Available) return;                      // kiln.registry: the host's registry transport
         Kiln.Registry.Registries.For(context).Alter(stage =>
         {
             stage.World.NoBuildZones.Clear();

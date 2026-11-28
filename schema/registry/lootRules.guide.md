@@ -16,11 +16,13 @@ public sealed class Leveler : Mod
 {
     public override void OnLoad() => Config.Register<Settings>().Changed += _ =>
     {
+        if (!Kiln.Registry.Registries.Available) return;                      // kiln.registry.live: the host's back-end
         var r = Kiln.Registry.Registries.Reauthor();
         if (!r.Ok) Log.Warn($"not authored again: {r.Reason}");
     };
     public override void OnRegistry(RegistryContext context)
     {
+        if (!Kiln.Registry.Registries.Available) return;                      // kiln.registry: the host's registry transport
         if (context.Phase != RegistryPhase.Alter) return;
         var w = Kiln.Registry.Registries.For(context).LootRules.RarityWeights;   // the values below this mod's own edit
         w.Legendary = w.Legendary * 4;                                          // never stacks: each pass reads below its own last edit

@@ -122,6 +122,7 @@ public sealed class Stacks : Mod
 {
     public override void OnRegistry(RegistryContext context)
     {
+        if (!Kiln.Registry.Registries.Available) return;                      // kiln.registry: the host's registry transport
         var registry = Kiln.Registry.Registries.For(context);
         registry.Alter(stage => stage.Items["game:material_t1_wood_logs"].MaxStack = 500);
     }
@@ -210,9 +211,11 @@ results remain snapshots. A resolved `Registries.Read(stage => ...)` frame is ex
 ```csharp
 if (context.EntryPoint == RegistryEntryPoint.GameStart)
 {
-    registry.Add(stage => stage.Items.AddLike(new("my-mod:logs"), new("game:material_t1_wood_logs"),
-        item => item.MaxStack = 100));
-    registry.Alter(stage => stage.Loot.Remove("game:material_t1_wood_logs"));
+    if (Capabilities.Is("registry.items.add"))                                // adding and removing have their own rows
+        registry.Add(stage => stage.Items.AddLike(new("my-mod:logs"), new("game:material_t1_wood_logs"),
+            item => item.MaxStack = 100));
+    if (Capabilities.Is("registry.loot.remove"))
+        registry.Alter(stage => stage.Loot.Remove("game:material_t1_wood_logs"));
 }
 ```
 
@@ -269,6 +272,7 @@ clients do not acquire Kiln registry views merely by joining a Kiln server.
 Inside a loaded mod callback on the active world's thread:
 
 ```csharp
+if (!Kiln.Registry.Registries.Available) return;                              // kiln.registry.live: the host's back-end
 var change = Kiln.Registry.Registries.Change(stage =>
     stage.Items["game:material_t1_wood_logs"].MaxStack = 500);
 if (!change.Result.Ok) Log.Warn(change.Result.Reason ?? "registry change not applied");
@@ -359,10 +363,15 @@ Loot Rarity Leveler (Kiln) uses it for its live settings and the character level
 [RegistryEntryPoints(RegistryEntryPoint.WorldLoad)]
 public sealed class Leveler : Mod
 {
-    public override void OnLoad() => Config.Register<Settings>().Changed += _ => Kiln.Registry.Registries.Reauthor();
+    public override void OnLoad() => Config.Register<Settings>().Changed += _ =>
+    {
+        if (!Kiln.Registry.Registries.Available) return;                      // kiln.registry.live: the host's back-end
+        var again = Kiln.Registry.Registries.Reauthor();
+        if (!again.Ok) Log.Warn($"not authored again: {again.Reason}");
+    };
     public override void OnRegistry(RegistryContext context)
     {
-        if (context.Phase != RegistryPhase.Alter) return;
+        if (context.Phase != RegistryPhase.Alter || !Kiln.Registry.Registries.Available) return;
         var r = Kiln.Registry.Registries.For(context);
         var w = r.LootRules.RarityWeights;      // the values below this mod: the game's, or other mods' edits
         w.Legendary = w.Legendary * 4;          // never stacks: each pass reads below its own last edit
