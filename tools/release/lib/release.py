@@ -340,6 +340,11 @@ BAD_NAMES = [
     (re.compile(r"(?i)(^|[/!])labbot-test/"), "the labbot-test mod (lab servers only)"),
     (re.compile(r"(?i)(^|[/!])LabBotTest\.(dll|pdb)$"), "the labbot-test mod's assembly (lab servers only)"),
 ]
+# The release's corresponding source (source/kiln-<version>-src.tar.gz, git archive of the commit) holds the labbot-test
+# mod's source folder (mods/tests/labbot-test) like every other test mod: source nobody runs, so the folder rule does not
+# apply inside it. The built parts (kiln-labbot.dll/.pdb, LabBotTest.dll/.pdb) are refused there too.
+SOURCE_ARCHIVE = re.compile(r"^source/[^/!]+-src\.tar\.gz!")
+SOURCE_ALLOWED = {"the labbot-test mod (lab servers only)"}
 BAD_BYTES = [
     # the build machine's home folder (from the environment, so this file does not match itself)
     (re.compile(re.escape(os.path.expanduser("~").encode()) + rb"(?![\w.-])"), "a home path"),
@@ -419,7 +424,10 @@ class Scanner:
             self.bad(where, "game data (a KFC container)")
 
     def scan_name(self, where):
+        in_source = SOURCE_ARCHIVE.match(where) is not None
         for rx, what in BAD_NAMES:
+            if in_source and what in SOURCE_ALLOWED:
+                continue
             if rx.search(where):
                 self.bad(where, what)
 

@@ -8,12 +8,14 @@ check; Enshwick's loader build refuses a checkout that is not the pinned commit.
 """
 import hashlib
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
 import re
 import shutil
 import subprocess
+import tarfile
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -368,7 +370,15 @@ class LabOnlyReleaseScanTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d) / "release"
             for rel, data in files.items():
-                if rel.endswith(".zip"):
+                if rel.endswith(".tar.gz"):  # the release's source/ archives (release.sh: git archive of the commit)
+                    p = root / rel
+                    p.parent.mkdir(parents=True, exist_ok=True)
+                    with tarfile.open(p, "w:gz") as t:
+                        for inner, body in data.items():
+                            ti = tarfile.TarInfo(inner)
+                            ti.size = len(body)
+                            t.addfile(ti, io.BytesIO(body))
+                elif rel.endswith(".zip"):
                     p = root / rel
                     p.parent.mkdir(parents=True, exist_ok=True)
                     with zipfile.ZipFile(p, "w") as z:
@@ -422,6 +432,22 @@ class LabOnlyReleaseScanTests(unittest.TestCase):
                               "sdk/docs/modding/testing.md": b"tools/labbot and mods/tests/labbot-test on a lab server",
                               "sdk/include/services/kiln_labbot.h": b"/* kiln.labbot */"})
         self.assertEqual(problems, [])
+
+    def test_the_corresponding_source_archive_is_not_refused(self):
+        # source/kiln-<version>-src.tar.gz is git archive of the commit: it holds mods/tests/labbot-test and
+        # native/services/labbot as source (every release since dev.32 does), which is no lab part anyone runs; a built
+        # lab part there, or the source folder of the mod outside the source archive, is still refused
+        src = "source/kiln-0.2.0-dev.32-src.tar.gz"
+        problems = self.scan({src: {"kiln-0.2.0-dev.32/mods/tests/labbot-test/LabBotTestMod.cs": b"class LabBotTestMod {}",
+                                    "kiln-0.2.0-dev.32/mods/tests/labbot-test/kiln.mod.json": b"{}",
+                                    "kiln-0.2.0-dev.32/native/services/labbot/labbot.cpp": b"// kiln-labbot"}})
+        self.assertEqual(problems, [])
+        problems = self.scan({src: {"kiln-0.2.0-dev.32/mods/tests/labbot-test/bin/LabBotTest.dll": b"MZ fixture",
+                                    "kiln-0.2.0-dev.32/native/build/bin/services/kiln-labbot.dll": b"MZ fixture"},
+                              "samples/labbot-test/kiln.mod.json": b"{}"})
+        self.assertTrue(any(p.startswith(src + "!") and "LabBotTest.dll" in p for p in problems), problems)
+        self.assertTrue(any(p.startswith(src + "!") and "kiln-labbot.dll" in p for p in problems), problems)
+        self.assertTrue(any(p.startswith("samples/labbot-test/kiln.mod.json") for p in problems), problems)
 
 
 class EnshwickPinTests(unittest.TestCase):
