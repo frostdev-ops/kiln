@@ -327,7 +327,8 @@ KilnResult Server::send(KilnOwner owner, KilnEntity recipient, const KilnMarkerS
     Record rec;
     std::string_view key;
     if (const char* why = validate_spec(*spec, &rec, &key)) return bad_arg(r, "%s", why);
-    if (rec.label_mode == KILN_MARKER_LABEL_NATIVE_TOOLTIP) return off(r, "markers.map_text");
+    // MapLabel.NativeTooltip (issue 160): the server has no map of its own; each link takes it when its HELLO offered MapText
+    // with the map (accepted_mask), and every other player is refused for this spec (compatible): nothing is drawn partly
     uint64_t serial = 0;
     if (spec->follow) {
         if (!env_.resolve_follow) return off(r, "markers.anchors.server");
@@ -922,8 +923,9 @@ void Server::bad(Link& l, uint64_t now, const char* why) {
 
 uint32_t Server::accepted_mask(const Link& l) const {
     uint32_t m = l.caps & (wire::kCapCompass | wire::kCapWorld | wire::kCapFollowPoses);
-    if (l.map_ok) m |= l.caps & wire::kCapMap;
-    return m;  // MapText (the native tooltip) is not part of v1
+    // MapText (issue 160): the client's markers.map_text is on; it goes into a map entry, so it needs the map as well
+    if (l.map_ok) m |= l.caps & (wire::kCapMap | wire::kCapMapText);
+    return m;
 }
 
 void Server::decide_catalog(Link& l) {

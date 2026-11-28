@@ -208,6 +208,9 @@ int main() {
             CHECK(row_is("markers.catalog", KILN_CAP_AVAILABLE, KILN_CAP_REASON_NONE));
             CHECK(row_is("markers.send", KILN_CAP_PENDING, KILN_CAP_REASON_SESSION));
             CHECK(row_is("markers.local", KILN_CAP_UNAVAILABLE, KILN_CAP_REASON_WRONG_SIDE));
+            // issue 160: the native map tooltip is a client's; a server sends NativeTooltip markers through markers.send
+            CHECK(row_is("markers.map_text", KILN_CAP_UNAVAILABLE, KILN_CAP_REASON_WRONG_SIDE));
+            CHECK(F.rows["markers.map_text"].text.find("markers.send") != std::string::npos);
             CHECK_EQ(F.registered.size(), 2u);
             catalog_warms_up();
         });
@@ -245,6 +248,8 @@ int main() {
             CHECK_EQ(F.resources_waits, 1);
             CHECK(row_is("markers.catalog", KILN_CAP_AVAILABLE, KILN_CAP_REASON_NONE));
             CHECK(row_is("markers.local", KILN_CAP_AVAILABLE, KILN_CAP_REASON_NONE));
+            // issue 160: a client's markers.map_text is the surfaces' (with markers.map; a stand-in here), not the glue's
+            CHECK(F.rows.count("markers.map_text") == 0);
             catalog_warms_up();
         });
     run_case(
