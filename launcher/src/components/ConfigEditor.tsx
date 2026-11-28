@@ -6,7 +6,7 @@
 // with a Clear (and a Clear all for the group) that moves the files into the settings backups after a confirmation.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FileCog, Search, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as api from "../api/commands";
 import type { ConfigDocument, ConfigFileInfo, ConfigTarget, Json } from "../api/commands";
 import { qk } from "../api/hooks";
@@ -45,6 +45,10 @@ export function ConfigEditor({ target, readOnly, initial }: { target: ConfigTarg
   });
   // a confirmation for files the list no longer has (it was read again) closes
   useEffect(() => { if (confirm && !confirm.every((n) => orphaned.some((f) => f.file === n))) setConfirm(null); });
+  // the confirmation sits above the list: a bin far down a long list (the window scrolled to it, as on the Deck's screen)
+  // brings it into view, else Clear seems to do nothing
+  const confirmBox = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (confirm) confirmBox.current?.scrollIntoView?.({ block: "nearest" }); }, [confirm]);
 
   if (files.isLoading) return <Skeleton lines={4} />;
   if (files.error) return <EmptyState icon={<FileCog />} title={t("configEditor.unavailable")} hint={errorText(files.error)} />;
@@ -67,16 +71,18 @@ export function ConfigEditor({ target, readOnly, initial }: { target: ConfigTarg
   return (
     <div className="k-stack">
       {confirm && (
-        <Banner tone="warn" title={confirm.length === 1 ? t("configEditor.orphans.confirmOne", { name: configName(orphaned.find((f) => f.file === confirm[0]) ?? { mod: null, file: confirm[0] }) }) : t("configEditor.orphans.confirmAll")}
-          actions={<>
-            <Button size="s" variant="danger-fill" loading={clear.isPending} onClick={() => clear.mutate(confirm)}>{t("configEditor.orphans.confirmAction")}</Button>
-            <Button size="s" disabled={clear.isPending} onClick={() => setConfirm(null)}>{t("common.cancel")}</Button>
-          </>}>
-          {t("configEditor.orphans.confirmBody")}
-          <ul className="k-remove-list" aria-label={t("configEditor.files")}>
-            {confirm.map((n) => <li key={n}><span className="k-mono">{n}</span></li>)}
-          </ul>
-        </Banner>
+        <div ref={confirmBox}>
+          <Banner tone="warn" title={confirm.length === 1 ? t("configEditor.orphans.confirmOne", { name: configName(orphaned.find((f) => f.file === confirm[0]) ?? { mod: null, file: confirm[0] }) }) : t("configEditor.orphans.confirmAll")}
+            actions={<>
+              <Button size="s" variant="danger-fill" loading={clear.isPending} onClick={() => clear.mutate(confirm)}>{t("configEditor.orphans.confirmAction")}</Button>
+              <Button size="s" disabled={clear.isPending} onClick={() => setConfirm(null)}>{t("common.cancel")}</Button>
+            </>}>
+            {t("configEditor.orphans.confirmBody")}
+            <ul className="k-remove-list" aria-label={t("configEditor.files")}>
+              {confirm.map((n) => <li key={n}><span className="k-mono">{n}</span></li>)}
+            </ul>
+          </Banner>
+        </div>
       )}
       <div className="k-grid" style={{ gridTemplateColumns: "240px minmax(0, 1fr)" }}>
         <Card flush>

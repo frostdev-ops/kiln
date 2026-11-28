@@ -129,6 +129,27 @@ test("Clear on one entry takes that file only", async ({ page }) => {
   await expect.poll(() => cleared(page)).toEqual(["new-items.json", "emf/beastmaster.ini"]);
 });
 
+test("on the Deck's screen, Clear on a file far down a long list scrolls its confirmation into view", async ({ page }) => {
+  // review of 0.2.0-dev.31.31: the confirmation strip sits above the list; a bin far down the list (the window scrolled
+  // to it) asked out of sight, so Clear looked as if it did nothing
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await desktop(page);
+  await page.evaluate(() => {
+    const m = (window as unknown as { __kilnMock: { addConfig: (t: { profile: string }, f: string, mod: string) => void } }).__kilnMock;
+    for (let i = 1; i <= 14; i++) m.addConfig({ profile: "ember-run" }, `gone-${String(i).padStart(2, "0")}.json`, `gone-${String(i).padStart(2, "0")}`);
+  });
+  await row(page, "Beastmaster").getByRole("button", { name: "More for Beastmaster" }).click();
+  await page.getByRole("menuitem", { name: "Configs", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Configs" });
+  await expect(dialog.getByText(GROUP)).toBeVisible();
+  await dialog.getByRole("button", { name: "Clear the settings of gone-14" }).click();
+  const banner = dialog.getByRole("status").filter({ hasText: "Clear the settings of gone-14?" });
+  await expect(banner).toBeInViewport();
+  await expect(banner.getByRole("button", { name: "Clear", exact: true })).toBeInViewport();
+  await banner.getByRole("button", { name: "Cancel" }).click();
+  expect(await cleared(page)).toEqual([]);
+});
+
 test("a mod that is only switched off is installed: its config is not marked, and the backend refuses to clear it", async ({ page }) => {
   await desktop(page);
   await row(page, "Beastmaster").getByRole("switch", { name: "Beastmaster" }).click();

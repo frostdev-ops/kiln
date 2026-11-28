@@ -2521,6 +2521,10 @@ if (typeof window !== "undefined") (window as unknown as { __kilnMock?: unknown 
   openedPaths: () => [...openedPaths],
   settingsRemoved: () => [...settingsRemoved],
   configsCleared: () => [...configsCleared],
+  /** One more config file in a target's folder (tests: a long Configs list); `mod`: the mod its snapshot names. */
+  addConfig: (target: ConfigTarget, file: string, mod: string | null) => {
+    configFolder(target).set(file, { text: "{}", values: {}, schema: null, mod, kind: file.startsWith("emf/") ? "emf" : "kiln", modified: "2026-11-04T09:00:00Z" });
+  },
   planCommand: (cmd: string, plan: CommandPlan) => { (commandPlans[cmd] ??= []).push(plan); },
   openGate: (name: string) => { const g = gateOf(name); g.open = true; g.waiters.splice(0).forEach((w) => w()); },
   planActivation: (report: Pick<Activation, "retained" | "keptFiles" | "warnings">) => { activationPlan = report; },
