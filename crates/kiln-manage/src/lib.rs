@@ -120,6 +120,7 @@ pub mod quick;
 pub mod kept;
 pub mod settings_files;
 pub mod mod_settings;
+pub mod config_orphans;
 pub(crate) mod durable;
 pub mod engine_mods;
 pub mod emf_deps;

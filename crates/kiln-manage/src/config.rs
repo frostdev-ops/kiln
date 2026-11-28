@@ -141,6 +141,11 @@ pub struct ConfigFileInfo {
     pub has_schema: bool,
     pub mod_version: Option<String>,
     pub modified: Option<String>,
+    /// (0.2.0-dev.31.30) The file belongs to a mod that is not installed anywhere (not in the profile, on or off, not in
+    /// the Library, not in a game folder): [`crate::config_orphans`]. Only `config_list` for a profile says it; false
+    /// whenever the file's mod is not known for sure.
+    #[serde(default)]
+    pub orphaned: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -181,6 +186,11 @@ fn safe_rel(file: &str) -> Result<PathBuf> {
         return Err(Error::invalid(format!("'{file}' is not a config file name (relative, '/' separated, no '..')")));
     }
     Ok(file.split('/').collect())
+}
+
+/// [`safe_rel`] for a caller outside this module (a file name from a window): the name is fine, or Invalid.
+pub(crate) fn check_file_name(file: &str) -> Result<()> {
+    safe_rel(file).map(|_| ())
 }
 
 /// Writes `<path>.<pid>.<n>.tmp` next to the file (created new: a name of its own for every write), flushes it, renames
@@ -320,7 +330,7 @@ pub fn list(config_dir: &Path) -> Result<Vec<ConfigFileInfo>> {
         let path = config_dir.join(&file);
         if file == NATIVE_STATE {
             out.push(ConfigFileInfo { file, mod_id: None, kind: "native".into(), has_schema: false, mod_version: None,
-                modified: modified(&path) });
+                modified: modified(&path), orphaned: false });
             continue;
         }
         let snap = read_snapshot(config_dir, &file).ok().flatten();
@@ -338,6 +348,7 @@ pub fn list(config_dir: &Path) -> Result<Vec<ConfigFileInfo>> {
             has_schema: snap.is_some(),
             mod_version: snap.and_then(|s| s.mod_version),
             modified: modified(&path),
+            orphaned: false,
         });
     }
     let mut snaps = Vec::new();
@@ -355,6 +366,7 @@ pub fn list(config_dir: &Path) -> Result<Vec<ConfigFileInfo>> {
             has_schema: true,
             mod_version: s.mod_version.clone(),
             modified: None,
+            orphaned: false,
         });
     }
     out.sort_by(|a, b| a.file.cmp(&b.file));

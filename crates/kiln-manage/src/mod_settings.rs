@@ -34,7 +34,7 @@ pub const BACKUP_DIR: &str = "mod-settings";
 /// The record in each backup folder.
 pub const BACKUP_RECORD: &str = "removed.json";
 /// Kiln's own files in a config folder: never a mod's, whatever its id.
-const KILN_OWN: [&str; 13] = ["native", "kiln", "network", "chat", "permissions", "keybinds", "rules", "compat-rules", "tk-boot",
+pub(crate) const KILN_OWN: [&str; 13] = ["native", "kiln", "network", "chat", "permissions", "keybinds", "rules", "compat-rules", "tk-boot",
     "tk-config", "menus-client", "menus-server", "config-sync"];
 /// The kinds whose mods write Kiln's config files (`<configDir>/<id>.json`): Kiln.Api, native mods through
 /// KILN_PATH_CONFIG, plugins, and Shroudtopia's host config API.
@@ -113,6 +113,91 @@ pub fn remove_with(
         return Ok(report);
     }
     let backup = backup(dirs, kind, id, &items)?;
+    report.backup = Some(backup.display().to_string());
+    for item in &items {
+        match take_out(item) {
+            Ok(true) => report.removed.push(item.label()),
+            Ok(false) => {}
+            Err(e) => report.notes.push(format!("{} stays: {} (a copy is in {})", item.label(), e.message, backup.display())),
+        }
+    }
+    Ok(report)
+}
+
+/// The Configs window's "Clear settings" (0.2.0-dev.31.30): takes the config files of mods that are not installed out of
+/// a profile's config folder (`files`, as `config_list` names them: each with its schema snapshot), after a copy into
+/// `<data>/backups/mod-settings/config-<profile>-<time>/` (the folder Remove's "its settings too" uses, laid out the same
+/// way: `profiles/<pid>/config/...`, and `removed.json`).
+///
+/// Refused as a whole, with nothing touched: a name that leaves the config folder (Invalid), a profile that is not there
+/// (NotFound), a file that is not there (NotFound), a file that is not an orphan right now (Conflict: its mod is
+/// installed, in the profile on or off, in the Library or in a game folder, or the file is Kiln's own, or nobody's we
+/// know), a place the launcher could not read to tell (Conflict), and a running game (GameRunning). So an installed mod's
+/// config is never touched, whatever the caller sends. The answer is [`SettingsRemoval`]: what went, where the copy is.
+pub fn clear_orphans(dirs: &DataDirs, profile_id: &str, files: &[String]) -> Result<SettingsRemoval> {
+    let mut finder = crate::proc::Finder::default();
+    clear_orphans_with(dirs, profile_id, files, &mut |dir, exe| finder.find(dir, exe))
+}
+
+/// [`clear_orphans`] with the process lookup given (`find(game folder, exe name)`), for tests.
+pub fn clear_orphans_with(
+    dirs: &DataDirs,
+    profile_id: &str,
+    files: &[String],
+    find: &mut dyn FnMut(&Path, &str) -> Result<Option<crate::proc::ProcessInfo>>,
+) -> Result<SettingsRemoval> {
+    let mut want: Vec<&str> = Vec::new();
+    for f in files {
+        crate::config::check_file_name(f)?;
+        if !want.contains(&f.as_str()) {
+            want.push(f);
+        }
+    }
+    if want.is_empty() {
+        return Ok(SettingsRemoval::default());
+    }
+    crate::profile::get(dirs, profile_id)?;
+    for g in &client_games(dirs)? {
+        if crate::profile::running_process_with(&g.path, &g.exe, &mut *find)?.is_some() {
+            return Err(Error::new(ErrorCode::GameRunning, "Close Enshrouded first: the game may be reading the settings."));
+        }
+    }
+    let cfg = dirs.profile(profile_id).join("config");
+    let mut list = if cfg.is_dir() { crate::config::list(&cfg)? } else { Vec::new() };
+    let installed = crate::config_orphans::Installed::read(dirs, profile_id);
+    if let Some(why) = installed.incomplete() {
+        return Err(Error::new(ErrorCode::Conflict, format!("Kiln cannot tell which mods are installed ({why}): nothing was cleared.")));
+    }
+    crate::config_orphans::mark(&mut list, &installed);
+    let mut mods: Vec<String> = Vec::new();
+    for f in &want {
+        let Some(info) = list.iter().find(|i| i.file == *f) else {
+            return Err(Error::not_found(format!("No config {f} in this profile.")));
+        };
+        if !info.orphaned {
+            return Err(Error::new(ErrorCode::Conflict, format!("{f} is not the settings of a mod that is gone: it stays.")));
+        }
+        if let Some(id) = crate::config_orphans::owner_of(info) && !mods.contains(&id) {
+            mods.push(id);
+        }
+    }
+    let base = PathBuf::from("profiles").join(tag(profile_id)).join("config");
+    let mut items = Vec::new();
+    for f in &want {
+        let snapshot = format!("{}/{}", crate::config::SCHEMA_DIR, Path::new(f).with_extension("json").to_string_lossy().replace('\\', "/"));
+        for rel in [f.to_string(), snapshot] {
+            let path = cfg.join(&rel);
+            if std::fs::symlink_metadata(&path).is_ok_and(|m| m.is_file()) {
+                items.push(Item { path, root: dirs.root.clone(), what: What::File, backup: base.join(&rel) });
+            }
+        }
+    }
+    let mut report = SettingsRemoval::default();
+    if items.is_empty() {
+        return Ok(report);
+    }
+    let folder = format!("config-{}", tag(profile_id));
+    let backup = backup_as(dirs, &folder, "config", profile_id, &mods, &items)?;
     report.backup = Some(backup.display().to_string());
     for item in &items {
         match take_out(item) {
@@ -287,7 +372,13 @@ impl Cfg<'_> {
 
 /// Copies every item into a new backup folder and writes its record, durably, before anything is removed.
 fn backup(dirs: &DataDirs, kind: ModKind, id: &str, items: &[Item]) -> Result<PathBuf> {
-    let base = dirs.backups().join(BACKUP_DIR).join(format!("{}-{}-{}", kind.as_str(), tag(id), crate::util::ts_compact(crate::util::now_unix())));
+    backup_as(dirs, &format!("{}-{}", kind.as_str(), tag(id)), kind.as_str(), id, &[], items)
+}
+
+/// [`backup`] in `<data>/backups/mod-settings/<name>-<time>/`; `kind` and `id` are what the record says was removed (a
+/// mod's, or `config` and a profile's id for [`clear_orphans`], which also names the `mods` it belongs to).
+fn backup_as(dirs: &DataDirs, name: &str, kind: &str, id: &str, mods: &[String], items: &[Item]) -> Result<PathBuf> {
+    let base = dirs.backups().join(BACKUP_DIR).join(format!("{name}-{}", crate::util::ts_compact(crate::util::now_unix())));
     let to = (1..).map(|n| if n == 1 { base.clone() } else { crate::util::with_suffix(&base, &format!("-{n}")) })
         .find(|p| std::fs::symlink_metadata(p).is_err()).expect("a free name");
     std::fs::create_dir_all(&to).map_err(io_at(&to, "creating"))?;
@@ -306,9 +397,11 @@ fn backup(dirs: &DataDirs, kind: ModKind, id: &str, items: &[Item]) -> Result<Pa
         if let What::Entry(key) = &item.what { r["entry"] = serde_json::json!(format!("mods.{key}")); }
         record.push(r);
     }
-    let text = serde_json::to_string_pretty(&serde_json::json!({
-        "format": 1, "kind": kind.as_str(), "id": id, "removed": crate::util::now_rfc3339(), "items": record,
-    }))?;
+    let mut doc = serde_json::json!({ "format": 1, "kind": kind, "id": id, "removed": crate::util::now_rfc3339(), "items": record });
+    if !mods.is_empty() {
+        doc["mods"] = serde_json::json!(mods);
+    }
+    let text = serde_json::to_string_pretty(&doc)?;
     std::fs::write(to.join(BACKUP_RECORD), text + "\n").map_err(io_at(&to, "writing the record in"))?;
     crate::durable::flush_contents(&to)?;
     Ok(to)
