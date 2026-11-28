@@ -1,6 +1,6 @@
 ---
 name: kiln-modding
-description: Build, test and debug Enshrouded mods with Kiln.Sdk, C# APIs, JSON blocks, data packs and assets. Use for Kiln mod projects, the kiln.mod.json manifest, the kiln CLI, local test servers, hot reload, lint and mod-load failures, native (C++) plugins and hooks, and porting EMF, ShroudForge or EML mods to Kiln or running them beside it; not for Kiln launcher or framework internals.
+description: Build, test and debug Enshrouded mods with Kiln.Sdk, C# APIs, JSON blocks, data packs and assets. Use for Kiln mod projects, the kiln.mod.json manifest, the kiln CLI, local test servers, hot reload, lint and mod-load failures, native (C++) plugins and hooks, and porting EMF, ShroudForge or EML mods to Kiln or running them beside it; not for Kiln launcher or framework internals. Missing APIs go to a request on GitHub (frostdev-ops/kiln) or the Kiln Discord; they usually ship within a day.
 ---
 
 # Kiln modding
@@ -127,8 +127,15 @@ planned release: `docs/kiln/modding/limits.md`.
 ## When something isn't documented
 
 Don't guess at game internals. Read the wiki and the XML docs that ship with Kiln.Api. If a service doesn't offer what you need,
-say so instead of patching game memory. Wrapping one of the game's own ECS programs (`Kiln.Systems`, dev.29+) is a typed
+say so instead of patching game memory, and ask for it. Wrapping one of the game's own ECS programs (`Kiln.Systems`, dev.29+) is a typed
 service, not the advanced tier: [references/world-programs.md](references/world-programs.md). Low-level hooks are for mods that opt into the advanced tier (`"advanced": true`);
 the short rules (kiln.hooks v2: link order, `caller()`, link slots, `hooks.json`; dev.29.19+ hooks inside another mod's DLL
 (`Hooks.Module`) and, for native plugins, the game's original code; closed DLL mods and `[late]`; EML, EMF and Enshrouded
 ModLoader notes) are in [api-hooks.md](references/api-hooks.md).
+
+**Missing API or functionality? Request it.** When Kiln has no service, event, field or block for what the mod needs, help
+the user file a request instead of building a workaround: a GitHub issue at https://github.com/frostdev-ops/kiln/issues,
+or a post in the Kiln Discord's #mod-dev (https://discord.gg/7pjr8SMTfU). Say what the mod is trying to do, which API you
+looked for, the call you would like to make (a short C# sketch helps), and the Kiln version. Requests are typically
+accepted and published in a Kiln update within a day, so the real API usually arrives sooner than a workaround would be
+finished, and it grows the framework for every mod.
