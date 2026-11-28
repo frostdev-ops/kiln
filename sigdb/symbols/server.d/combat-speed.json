@@ -1,0 +1,216 @@
+{
+  "format": 1,
+  "side": "server",
+  "comment": "kiln.combat.speed (Kiln's action speed, mod API 0.2.28) on enshrouded_server.exe (server 26430253, f0d824be...). The sites are the ones the Combat And Attack Tweaks author documented for beta.6, verified statically in docs/re/action-speed.md: every pattern matches once, each return-address anchor's rel32 names the hooked helper, and the frame constants are fixed values the captures must equal, so another build refuses the feature instead of hooking the wrong place.",
+  "symbols": {
+    "speed/SeqServerRet": {
+      "comment": "actor_simulation_start's call chain: the routine its update calls (client 0x219EE0, server 0x36E80) calls the per-actor sequence advance (speed/SeqAdvance) once, here; this is the return address. The rel32 hole defines SeqAdvance, so the clock site below is pinned to the helper this program reaches. kiln.combat.speed tells the authority and prediction runs of this program apart by its kiln.world wraps, not by this address (docs/re/action-speed.md).",
+      "find": [
+        {
+          "pattern": "4C 8B C3 48 8B D5 E8 {speed/SeqAdvance:rel32} 48 81 C4 18 02 00 00 5F 5E 5D 5B",
+          "offset": 11
+        }
+      ]
+    },
+    "speed/SeqClock": {
+      "comment": "CATT site 02. The dedicated server's sequence advance: rax points to the elapsed nanoseconds, rbx = the row accessor, rsi = the ActionSequence (base register of mov rax, [rsi + seq.time]); rdi is the delta the next instruction loads, not the sequence.",
+      "find": [
+        {
+          "scope": {
+            "symbol": "speed/SeqAdvance",
+            "size": 128
+          },
+          "pattern": "48 8B 38 33 DB 48 8B {speed/seq.modrm:d8} {speed/seq.time:d32} 49 B9 FF FF FF FF FF FF FF 7F"
+        }
+      ]
+    },
+    "speed/GraphServerRet": {
+      "comment": "CATT site 07. server_update_animation_graph_2's update (client 0x34A6E0, server 0x109D40) calls the graph binding wrapper (speed/GraphWrap) once; this is the return address. It runs in the server world and in a client's prediction storage.",
+      "find": [
+        {
+          "pattern": "E8 {speed/GraphWrap:rel32} 41 B8 70 00 00 00 48 8D 55 B0 48 8B CE E8 ?? ?? ?? ?? 41 B8 D7 BE 90 14 84 C0",
+          "offset": 5
+        }
+      ]
+    },
+    "@speed/GraphServerActor": {
+      "comment": "server_update_animation_graph_2 keeps the row's entity (world/CurrentEntityId) at [rbp + graph.server_actor] (disp8, negative: 0x84 = -0x7C) before it binds the graph",
+      "find": [
+        {
+          "pattern": "E8 {world/CurrentEntityId:rel32} 8B 08 48 8B 45 C0 89 4D {speed/graph.server_actor:d8}"
+        }
+      ]
+    },
+    "speed/GraphBind": {
+      "comment": "CATT site 06. Inside the wrapper, after the graph instance lookup: rax = the live graph instance, about to be passed on (with the input payload, rsi, and the state id, [rsp + 0x50]) to the instance's input copy. The caller's rbp frame is intact.",
+      "find": [
+        {
+          "scope": {
+            "symbol": "speed/GraphWrap",
+            "size": 96
+          },
+          "pattern": "44 8B 44 24 50 48 8B D6 48 8B C8 E8 ?? ?? ?? ?? 48 8B 5C 24 38 48 8B 74 24 40 48 83 C4 20 5F"
+        }
+      ]
+    },
+    "speed/GraphEval": {
+      "comment": "CATT site 09. The graph evaluator's entry (a job: client 0x947120 calls it with r8b = 0 and xmm3 = the prepared elapsed seconds): rcx = the instance GraphBind saw; on the first pass (r8b == 0) it caches xmm3 at [rcx + graph.delta_cache] and later passes reuse it.",
+      "find": [
+        {
+          "pattern": "48 89 4C 24 08 55 53 56 57 41 57 48 8D AC 24 00 FE FF FF 48 81 EC 00 03 00 00"
+        }
+      ]
+    },
+    "@speed/GraphEval.cache": {
+      "comment": "the evaluator stores xmm3 into the instance only when r8b is 0 (movss [rcx + delta_cache], xmm3), else it loads the cached value: scaling xmm3 on the first pass scales both",
+      "find": [
+        {
+          "scope": {
+            "symbol": "speed/GraphEval",
+            "size": 64
+          },
+          "pattern": "45 0F B6 F8 48 8B F2 48 8B F9 45 84 C0 75 0A F3 0F 11 99 {speed/graph.delta_cache:d32}"
+        }
+      ]
+    },
+    "speed/BowTiming": {
+      "comment": "CATT site 10. server_player_ranged_weapon (client 0x2EBC70, server 0xD7C10) builds the held ranged weapon's keen::ranged_weapon::WeaponParameters at [rbp + bow.params] (speed/BowParams returns it in rax) and copies them on: the selected instruction is the first after the builder. r12 = the program's row accessor. The ranged state machine (client 0x478490) latches the parameters only on a state change, so a draw in progress keeps the durations it started with.",
+      "find": [
+        {
+          "pattern": "48 8D 8D {speed/bow.params:d32} E8 {speed/BowParams:rel32} 48 8B 4D 00 0F 10 00 0F 11 85 38 02 00 00 0F 10 48 10 0F 11 8D 48 02 00 00",
+          "offset": 12
+        }
+      ]
+    },
+    "speed/HandSlots": {
+      "comment": "CATT site 11 (sampler, not used yet). server_update_animation_graph_slots_2 (client 0x34AC90, server 0x10A2F0) at the end of a row, before world/IterNext: r15 = the row accessor, [rsp + 0x48] = the finished slots buffer (validity mask +0, root origin +8, 48-byte slots from +0x20; 8 right hand, 9 left hand).",
+      "find": [
+        {
+          "pattern": "41 B8 50 00 00 00 48 8D 54 24 30 49 8B CF E8 {world/IterNext:rel32} 84 C0 0F 85 ?? ?? ?? ?? 0F 28 BC 24 70 01 00 00 0F 28 B4 24 80 01 00 00"
+        }
+      ]
+    },
+    "speed/SlotToWorld": {
+      "comment": "CATT site 12 (sampler, not used yet). uint8 (WorldPose* out, const slot matrix*, const root origin*): one animation slot to world space with the actor's root origin.",
+      "find": [
+        {
+          "pattern": "48 89 5C 24 10 48 89 74 24 18 48 89 7C 24 20 55 48 8B EC 48 83 EC 60 F2 0F 10 0A 49 8B F0"
+        }
+      ]
+    },
+    "speed/ColliderCreate": {
+      "comment": "CATT site 13 (sampler, not used yet). sequence_event_collider (client 0x3F7100, server 0x1983A0), creation branch, the call that creates the collider: edx = the impact entity, r8d = the source actor.",
+      "find": [
+        {
+          "pattern": "E8 ?? ?? ?? ?? E9 ?? ?? ?? ?? 48 8B CE E8 ?? ?? ?? ?? 48 8B 4D B8 4C 8D 44 24 70 48 8B 53 08 0F 57 C9"
+        }
+      ]
+    },
+    "speed/ColliderMove": {
+      "comment": "CATT site 14 (sampler, not used yet). The same program's existing-collider branch, the call that moves and casts it.",
+      "find": [
+        {
+          "pattern": "E8 ?? ?? ?? ?? 48 8B D8 48 8B 45 D8 48 39 58 08 0F 84 ?? ?? ?? ?? 48 8B 4D 00 48 85 C9 74 ??"
+        }
+      ]
+    },
+    "speed/CastShape": {
+      "comment": "CATT site 15 (sampler, not used yet). ColliderSystem's shape cast (physics object at +0x1A0): (system, impact, source actor, shape type, ShapeRef*, PosePair*).",
+      "find": [
+        {
+          "pattern": "48 83 EC 48 48 8B 89 A0 01 00 00 48 85 C9 74 ?? 48 8B 44 24 70 0F 10 00 48 8B 44 24 78 48 89 44 24 28"
+        }
+      ]
+    },
+    "speed/ContactWriter": {
+      "comment": "CATT site 16 (sampler, not used yet). The cast's contact writer before it reads the list count at [r13 + 8] (list: pointer, count, capacity, grow callback).",
+      "find": [
+        {
+          "pattern": "49 8B 55 08 4C 8B A5 C8 00 00 00 48 FF C2 49 3B 55 10 76 ?? 49 8B 45 18 48 85 C0 0F 84 ?? ?? ?? ??"
+        }
+      ]
+    },
+    "speed/ImpactContacts": {
+      "comment": "CATT site 17 (sampler, not used yet). The impact preparation impact_prepare calls (client 0x123EA50, server 0x995930): rsi = the impact, its contact stream at +0xC0 is filled, filtering and damage have not run. The stock instruction here tests bit 1 (0x02) of [rsi + 0x1F3].",
+      "find": [
+        {
+          "pattern": "FF 50 10 48 8D 4D BF E8 ?? ?? ?? ?? F6 86 F3 01 00 00 02 4C 89 AC 24 B8 00 00 00",
+          "offset": 12
+        }
+      ]
+    },
+    "speed/CollisionBackend": {
+      "comment": "CATT site 18 (sampler, not used yet). The backend getter: cmp byte [rip + disp32], 0 / sete al / ret. Kiln calls the getter rather than reading the byte; the byte is at the 7-byte instruction's end + disp32 (client 0x283F334, server 0x14DB314), not + 6 (beta.6's reading).",
+      "find": [
+        {
+          "pattern": "80 3D ?? ?? ?? ?? 00 0F 94 C0 C3 CC CC CC CC"
+        }
+      ]
+    }
+  },
+  "constants": {
+    "speed/seq.time": {
+      "value": 384
+    },
+    "speed/graph.server_actor": {
+      "value": 132
+    },
+    "speed/graph.delta_cache": {
+      "value": 1356
+    },
+    "speed/bow.params": {
+      "value": 432
+    },
+    "speed/seq.modrm": {
+      "value": 134
+    }
+  },
+  "features": {
+    "combat.action_speed": {
+      "comment": "kiln.combat.speed: the action sequence clock and the animation graph delta of a player's classified action (docs/kiln/services/combat.md, Action speed). The runs are told apart by kiln.world wraps.",
+      "symbols": [
+        "speed/SeqServerRet",
+        "speed/SeqAdvance",
+        "speed/SeqClock",
+        "speed/GraphServerRet",
+        "speed/GraphWrap",
+        "@speed/GraphServerActor",
+        "speed/GraphBind",
+        "speed/GraphEval",
+        "@speed/GraphEval.cache",
+        "world/CurrentEntityId"
+      ],
+      "constants": [
+        "speed/seq.modrm",
+        "speed/seq.time",
+        "speed/graph.server_actor",
+        "speed/graph.delta_cache"
+      ]
+    },
+    "combat.bow_timing": {
+      "comment": "kiln.combat.speed: a bow's fresh, skill-adjusted charge and fire durations divided by the Bow rate",
+      "symbols": [
+        "speed/BowTiming",
+        "speed/BowParams",
+        "world/CurrentEntityId"
+      ],
+      "constants": [
+        "speed/bow.params"
+      ]
+    },
+    "combat.melee_sampling": {
+      "comment": "the high-speed melee contact sampler's sites, resolved and tracked by sigport; kiln.combat.speed does not hook them in this release (its capability says so)",
+      "symbols": [
+        "speed/HandSlots",
+        "speed/SlotToWorld",
+        "speed/ColliderCreate",
+        "speed/ColliderMove",
+        "speed/CastShape",
+        "speed/ContactWriter",
+        "speed/ImpactContacts",
+        "speed/CollisionBackend",
+        "world/IterNext"
+      ]
+    }
+  }
+}
