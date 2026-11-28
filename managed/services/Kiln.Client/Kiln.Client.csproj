@@ -10,6 +10,8 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" Private="false" />
+    <!-- GameInputSample.HeldKind is a Kiln.ActionKind -->
+    <ProjectReference Include="../Kiln.Combat/Kiln.Combat.csproj" Private="false" />
   </ItemGroup>
   <ItemGroup>
     <!-- BuildingInputTests: the binding's layout (BuildingInputNative) against kiln_client.h -->
