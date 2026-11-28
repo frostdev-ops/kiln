@@ -74,7 +74,7 @@ public static unsafe partial class Abilities
     /// sequence's consume event runs, a fraction of a second later (<see cref="ItemUseResult.Started"/>). Server, tick
     /// thread, between steps (a tick handler, an event handler, a scheduled task); not in a native handler or attachment,
     /// which runs inside the world's step. Since 0.2.0-dev.30.3 (mod API 0.2.13).</summary>
-    /// <param name="player">The player character (<c>Players.Get(..).Entity</c>).</param>
+    /// <param name="player">The player character (<c>Players.Find(..)!.Entity</c>).</param>
     /// <param name="slot">A slot of the player's inventories (<see cref="InventorySlot.Slot"/> of <see cref="Items.Read"/>).</param>
     /// <returns>What happened; every outcome but <see cref="ItemUseResult.Started"/> changes nothing.</returns>
     /// <exception cref="ArgumentException"><paramref name="player"/> or <paramref name="slot"/> is none.</exception>

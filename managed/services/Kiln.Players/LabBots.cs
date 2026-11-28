@@ -92,7 +92,7 @@ public sealed record LabBotStatus(bool Available, int Bots, int Groups, ulong Pu
 /// client. A bot is a player the dedicated server hosts itself: the game's own login, character, spawn, rights, saves and
 /// logout run for it, so Players, CharacterData, chat commands and kiln.net see a player like any other. It has no
 /// network connection (what the server sends it goes nowhere) and it moves only when something moves it
-/// (<c>World.Teleport</c> of its <see cref="LabBotInfo.Entity"/>). Its name picks its character and account: a bot that
+/// (<c>Teleport.To</c> of its <see cref="LabBotInfo.Entity"/>). Its name picks its character and account: a bot that
 /// joins again under the same name is the same character on that world.
 /// <para>Lab servers only: capability <c>labbot.join</c> needs kiln.json's policy <c>"any"</c> and kiln.net's lab port
 /// (<c>labPort</c> in <c>kiln/config/network.json</c>). No Steam account, ticket or password is used. A mod's bots drop

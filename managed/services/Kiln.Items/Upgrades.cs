@@ -39,7 +39,7 @@ public static unsafe partial class Items
     /// <c>items.gear.durability</c> for a durability rule other than <see cref="DurabilityRule.Keep"/>).</exception>
     /// <example><code>
     /// UpgradeResult r = await Items.UpgradeRarity(player, Items.Held(player), rule);
-    /// if (!r.Ok) Chat.Whisper(player, $"Not upgraded: {r.Reason}");
+    /// if (!r.Ok) Chat.Tell(player, $"Not upgraded: {r.Reason}");
     /// </code></example>
     [ServerOnly]
     [TickThreadOnly]
