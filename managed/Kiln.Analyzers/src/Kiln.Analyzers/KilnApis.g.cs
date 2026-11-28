@@ -35,6 +35,11 @@ internal static partial class KilnApis
         "M:Kiln.Abilities.UseItem(Kiln.EntityId,Kiln.SlotId)", // Abilities.UseItem(EntityId, SlotId): Game.AssertTickThread
         "M:Kiln.AbilityCast.Impact(System.String,System.Nullable{Kiln.WorldPosition},Kiln.ImpactConfigs)", // AbilityCast.Impact(string, WorldPosition?, ImpactConfigs?): via Abilities.RunImpact(string, WorldPosition, ImpactOptions?)
         "M:Kiln.AbilityCast.PlaySequence(System.Guid,System.Boolean)", // AbilityCast.PlaySequence(Guid, bool): via Abilities.PlaySequence(EntityId, Guid, bool)
+        "M:Kiln.ActionSpeed.Clear(Kiln.EntityId)", // ActionSpeed.Clear(EntityId): via ActionSpeedState.ClearPlayer(EntityId)
+        "M:Kiln.ActionSpeed.Clear(Kiln.EntityId,Kiln.ActionKind)", // ActionSpeed.Clear(EntityId, ActionKind): via ActionSpeedState.Write(string, ActionKind, EntityId?, double?)
+        "M:Kiln.ActionSpeed.ClearDefault(Kiln.ActionKind)", // ActionSpeed.ClearDefault(ActionKind): via ActionSpeedState.Write(string, ActionKind, EntityId?, double?)
+        "M:Kiln.ActionSpeed.Set(Kiln.EntityId,Kiln.ActionKind,System.Double)", // ActionSpeed.Set(EntityId, ActionKind, double): via ActionSpeedState.Write(string, ActionKind, EntityId?, double?)
+        "M:Kiln.ActionSpeed.SetDefault(Kiln.ActionKind,System.Double)", // ActionSpeed.SetDefault(ActionKind, double): via ActionSpeedState.Write(string, ActionKind, EntityId?, double?)
         "M:Kiln.AffixPoolHandle.Roll(Kiln.ItemInstanceRef,System.Random,System.Boolean)", // AffixPoolHandle.Roll(ItemInstanceRef, Random?, bool): via Affixes.Roll(ItemInstanceRef, AffixPoolHandle, Random?, bool)
         "M:Kiln.Affixes.Active(Kiln.EntityId)", // Affixes.Active(EntityId): Services.RequireTickThread
         "M:Kiln.Affixes.Add(Kiln.ItemInstanceRef,System.String,System.Int32,System.Nullable{System.Double},System.Random)", // Affixes.Add(ItemInstanceRef, string, int, double?, Random?): via AffixRuntime.Guarded<T>(string, Func<InstanceKey<AffixData>, T>)
