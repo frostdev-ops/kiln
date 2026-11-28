@@ -3057,9 +3057,9 @@
     "saved": "Enregistré",
     "revert": "Rétablir",
     "orphans": {
-      "group": "Non installés : conservés au cas où vous les rajoutez",
+      "group": "Non installés : conservés au cas où vous les rajouteriez",
       "badge": "Non installé",
-      "hint": "{name} n'est pas installé. Ses paramètres sont conservés au cas où vous le rajoutez. Ils sont en lecture seule ici : les modifications ne servent à rien tant que le mod n'est pas revenu.",
+      "hint": "{name} n'est pas installé. Ses paramètres sont conservés au cas où vous le rajouteriez. Ils sont en lecture seule ici : les modifications ne servent à rien tant que le mod n'est pas revenu.",
       "clear": "Effacer les paramètres",
       "clearAll": "Tout effacer",
       "clearFor": "Effacer les paramètres de {name}",
