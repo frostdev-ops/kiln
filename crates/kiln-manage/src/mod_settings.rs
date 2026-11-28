@@ -210,7 +210,7 @@ pub fn clear_orphans_with(
     let backup = backup_as(dirs, &folder, "config", profile_id, &mods, &items)?;
     report.backup = Some(backup.display().to_string());
     for group in groups {
-        // a file that could not go keeps its snapshot (review of 0.2.0-dev.31.31): without it the file would be nobody's,
+        // a file that could not go keeps its snapshot (review of 0.2.0-dev.31.30): without it the file would be nobody's,
         // listed with the installed files and no longer clearable; with it, it stays marked and Clear can run again
         let mut stuck = false;
         for item in &items[group] {

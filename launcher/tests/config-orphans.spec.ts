@@ -130,7 +130,7 @@ test("Clear on one entry takes that file only", async ({ page }) => {
 });
 
 test("on the Deck's screen, Clear on a file far down a long list scrolls its confirmation into view", async ({ page }) => {
-  // review of 0.2.0-dev.31.31: the confirmation strip sits above the list; a bin far down the list (the window scrolled
+  // review of 0.2.0-dev.31.30: the confirmation strip sits above the list; a bin far down the list (the window scrolled
   // to it) asked out of sight, so Clear looked as if it did nothing
   await page.setViewportSize({ width: 1280, height: 800 });
   await desktop(page);

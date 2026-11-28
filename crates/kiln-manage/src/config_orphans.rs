@@ -54,7 +54,7 @@ impl Installed {
     }
 
     /// [`Installed::read`] for the mods of some files (`ids`, [`owner_of`]): the places are read in order (the profile,
-    /// the Library, then each known game) only while one of `ids` is still missing (review of 0.2.0-dev.31.31). A game
+    /// the Library, then each known game) only while one of `ids` is still missing (review of 0.2.0-dev.31.30). A game
     /// folder is a scan of all its mods folders, and `config_list` runs on every Mods page and every focus of the window,
     /// so a profile whose files' mods the profile or the Library names reads no game folder. What it says of `ids` is
     /// what [`Installed::read`] says.
@@ -127,7 +127,7 @@ impl Installed {
                     }
                 }
                 Ok(None) => {}
-                // the folders Kiln kept there are named in it (review of 0.2.0-dev.31.31: it was skipped)
+                // the folders Kiln kept there are named in it (review of 0.2.0-dev.31.30: it was skipped)
                 Err(e) => skip(&mut out, format!("the profile.json of {} could not be read: {}", g.path.display(), e.message)),
             }
         }
@@ -162,7 +162,7 @@ pub fn owner_of(f: &ConfigFileInfo) -> Option<String> {
     if second.is_none() && stem_of(first).is_some_and(|s| crate::mod_settings::KILN_OWN.contains(&lower(&s).as_str())) {
         return None;
     }
-    // EMF's own files in its folder (review of 0.2.0-dev.31.31), whatever a snapshot says: `emf_core.ini`, EMF's core
+    // EMF's own files in its folder (review of 0.2.0-dev.31.30), whatever a snapshot says: `emf_core.ini`, EMF's core
     // settings (read from here before EMF's own), and `lua.ini`, the switch and settings of the Lua host Kiln bundles
     // (kiln/plugins/emf-lua), which kiln-emf reads whether or not a `lua` mod is installed
     if first == "emf" && third.is_none() && second.and_then(stem_of).is_some_and(|s| EMF_OWN.contains(&lower(&s).as_str())) {
@@ -255,7 +255,7 @@ mod tests {
 
     #[test]
     fn emfs_own_files_in_its_folder_are_nobodys() {
-        // review of 0.2.0-dev.31.31: `config::list` names `emf/<x>.ini` after its file, so these two were "Not installed"
+        // review of 0.2.0-dev.31.30: `config::list` names `emf/<x>.ini` after its file, so these two were "Not installed"
         // and could be cleared. emf_core.ini: EMF's core settings (chat admins, [net] mods_check; docs/kiln/emf.md), read
         // from the config folder before EMF's own. lua.ini: the switch and settings of the Lua host Kiln bundles
         // (kiln/plugins/emf-lua), read whether or not a `lua` mod is installed (native/plugins/emf/tests/run-bundled-lua.sh

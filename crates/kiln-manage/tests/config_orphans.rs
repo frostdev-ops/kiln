@@ -274,7 +274,7 @@ fn clearing_waits_for_the_game_and_for_a_mod_that_came_back() {
 
 #[test]
 fn a_game_folder_is_read_only_while_a_files_mod_is_still_missing() {
-    // review of 0.2.0-dev.31.31: config_list runs on every Mods page and every focus of the window; the profile and the
+    // review of 0.2.0-dev.31.30: config_list runs on every Mods page and every focus of the window; the profile and the
     // Library name the mods of most files, so the game folders (a scan of every mods folder of every known game) are
     // read only for the ids still missing. A place that cannot be read then matters only when an id is still missing
     let t = tmp("lazy");
@@ -313,7 +313,7 @@ fn a_game_folder_is_read_only_while_a_files_mod_is_still_missing() {
 
 #[test]
 fn a_game_whose_profile_json_cannot_be_read_marks_nothing() {
-    // review of 0.2.0-dev.31.31: the folders Kiln kept at the last activation come from the game's profile.json; one
+    // review of 0.2.0-dev.31.30: the folders Kiln kept at the last activation come from the game's profile.json; one
     // that cannot be read was skipped, so a mod only in such a folder looked gone
     let t = tmp("badactive");
     let dirs = DataDirs::at(t.0.join("data"));
@@ -332,7 +332,7 @@ fn a_game_whose_profile_json_cannot_be_read_marks_nothing() {
 #[cfg(unix)]
 #[test]
 fn a_file_that_cannot_go_keeps_its_snapshot_so_it_stays_marked() {
-    // review of 0.2.0-dev.31.31: a file that could not be removed (open in an editor on Windows, a read-only folder) lost
+    // review of 0.2.0-dev.31.30: a file that could not be removed (open in an editor on Windows, a read-only folder) lost
     // its snapshot all the same, so it was no longer anybody's: listed with the installed files, editable, not clearable
     use std::os::unix::fs::PermissionsExt;
     let t = tmp("halfway");
