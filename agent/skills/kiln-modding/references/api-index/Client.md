@@ -92,3 +92,24 @@ enum: Menu, DedicatedServer, Hosting, Remote
 
 ## CrosshairReason `0.2.22` — Why `Crosshair.Read` has no fresh sample (kiln_client_crosshair.h's `KILN_CROSSHAIR_REASON_*`).
 enum: None, NoSample, Busy, Stale, Faulted
+
+## GameAction `0.2.28` — The game's own digital actions, after its rebinding and controller mapping, decoded from the local player's input record.
+enum: PrimaryAttack, SecondaryAttack, Block, Dodge, Jump, Interact
+
+## GameInput `0.2.28` — Reads and changes the local player's game actions where the game has resolved its own input (rebinding, controllers, menus and focus included).
+- `static Available { get; } -> bool` — A client with a local player, and the game's input sites resolved here (capability `client.game_input`).
+- `static IsHeld(GameAction action) -> bool` — Whether `action` was held at the last sample.
+- `static OnSample(GameInputHandler handler) -> IDisposable` — Calls `handler` for each local input sample until the returned handle is disposed.
+- `static Repeat(GameAction action, TimeSpan interval, Func<bool>? whileHeld = null) -> IDisposable` — Presses and releases `action` every `interval` (at least 50 ms) while `whileHeld` is true (default: while the action...
+- `static WasPressed(GameAction action) -> bool` — Whether `action` went down at the last sample.
+
+## GameInputHandler `0.2.28` — Called for each input sample of the local player (`GameInput.OnSample`), on the game's main thread inside its input writer.
+- `Invoke(ref GameInputSample sample) -> void`
+
+## GameInputSample `0.2.28` — One input sample of the local player, in the game's input writer, after the game resolved it.
+- `BowFullyDrawn { get; } -> bool` — A bow draw has reached its effective charge duration (ActionSpeed included).
+- `HeldKind { get; } -> ActionKind?` — The `ActionKind` of the held item (Melee, Bow, Tool), or null.
+- `IsHeld(GameAction action) -> bool` — The action as the game sampled it (before handlers).
+- `Player { get; } -> EntityId` — The local player.
+- `Press(GameAction action) -> void` — Sets `action` for this sample.
+- `Release(GameAction action) -> void` — Clears `action` for this sample.

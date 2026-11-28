@@ -75,10 +75,10 @@ One line per row: header, `Table.row`, @offset, mod API, comment (native.md says
 
 ## services/kiln_action_speed.h — service `kiln.combat.speed`
 ### KilnActionSpeedApi — 40 bytes
-- kiln_action_speed.h `KilnActionSpeedApi.set_rates` @8 `0.2.26` — Replaces the whole table: defaults (KILN_ACTION_KINDS rates for every player) and 'count' per-player sets...
-- kiln_action_speed.h `KilnActionSpeedApi.status` @16 `0.2.26`
-- kiln_action_speed.h `KilnActionSpeedApi.item_kinds` @24 `0.2.26` — The classified items of this process (kiln.items' catalog; KILN_ERR_UNAVAILABLE until it is read, as on a...
-- kiln_action_speed.h `KilnActionSpeedApi.set_item_kinds` @32 `0.2.26` — A guest: the server's classified items (count \<= 8192).
+- kiln_action_speed.h `KilnActionSpeedApi.set_rates` @8 `0.2.28` — Replaces the whole table: defaults (KILN_ACTION_KINDS rates for every player) and 'count' per-player sets...
+- kiln_action_speed.h `KilnActionSpeedApi.status` @16 `0.2.28`
+- kiln_action_speed.h `KilnActionSpeedApi.item_kinds` @24 `0.2.28` — The classified items of this process (kiln.items' catalog; KILN_ERR_UNAVAILABLE until it is read, as on a...
+- kiln_action_speed.h `KilnActionSpeedApi.set_item_kinds` @32 `0.2.28` — A guest: the server's classified items (count \<= 8192).
 
 ## services/kiln_assets.h — service `kiln.assets`
 ### KilnAssetsApi — 256 bytes
@@ -229,6 +229,13 @@ One line per row: header, `Table.row`, @offset, mod API, comment (native.md says
 ## services/kiln_client_crosshair.h — service `kiln.client.crosshair`
 ### KilnClientCrosshairApi — 16 bytes
 - kiln_client_crosshair.h `KilnClientCrosshairApi.get` @8 `0.2.22` — The newest sample, copied into *out (out->size >= sizeof(KilnCrosshairHit)); *out_reason (may be NULL)...
+
+## services/kiln_client_game_input.h — service `kiln.client.game_input`
+### KilnClientGameInputApi — 40 bytes
+- kiln_client_game_input.h `KilnClientGameInputApi.last` @8 `0.2.28` — The newest sample into *out (out->size >= sizeof(KilnGameInputSample)); *out_reason (may be NULL) says...
+- kiln_client_game_input.h `KilnClientGameInputApi.subscribe` @16 `0.2.28` — fn(sample, user) at every sample whose gate is OPEN, until unsubscribe or the owner is revoked.
+- kiln_client_game_input.h `KilnClientGameInputApi.repeat` @24 `0.2.28` — Presses 'action' for one sample and releases it at the following ones, again every interval_ms (raised to...
+- kiln_client_game_input.h `KilnClientGameInputApi.unsubscribe` @32 `0.2.28` — Ends a subscribe or repeat.
 
 ## services/kiln_combat.h — service `kiln.combat`
 ### KilnCombatApi — 128 bytes

@@ -1,5 +1,8 @@
 # Api (Kiln.Api)
 
+## ActionKind `0.2.28` — What an action speed applies to (`Kiln.ActionSpeed`, in Kiln.Combat), and the kind of a held item (`GameInputSample.HeldKind`, in Kiln.Client).
+enum: Melee, Bow, Tool
+
 ## AdvancedApiAttribute — An advanced API: the mod's manifest needs `advanced: true` (analyzer rule).
 
 ## AnyThreadAttribute — Safe to call from any thread.

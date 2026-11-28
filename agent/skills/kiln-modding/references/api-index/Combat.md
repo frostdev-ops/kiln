@@ -1,9 +1,6 @@
 # Combat (Kiln.Combat)
 
-## ActionKind `0.2.26` — What an action speed applies to (`ActionSpeed`).
-enum: Melee, Bow, Tool
-
-## ActionSpeed `0.2.26` — Per-player speed multipliers for melee, bow and tool actions.
+## ActionSpeed `0.2.28` — Per-player speed multipliers for melee, bow and tool actions.
 - `static Available { get; } -> bool` — The sequence and graph scaling work in this game (server, host or joined client).
 - `static Changed -> Action<ActionSpeedChanged>?` — An effective value changed (any side).
 - `static Clear(EntityId player) -> void` — Removes all of this mod's values for one player.
@@ -17,14 +14,14 @@ enum: Melee, Bow, Tool
 - `static SetDefault(ActionKind kind, double multiplier) -> void` — Sets this mod's multiplier for `kind` for every player, now and later joins.
 - `static Status { get; } -> ActionSpeedStatus` — Which parts work here, with the reason for any that don't.
 
-## ActionSpeedChanged `0.2.26` — An effective action speed changed (`ActionSpeed.Changed`).
+## ActionSpeedChanged `0.2.28` — An effective action speed changed (`ActionSpeed.Changed`).
 - `ActionSpeedChanged()`
 - `ActionSpeedChanged(EntityId Player, ActionKind Kind, double Multiplier)`
 - `Kind { get; init; } -> ActionKind` — The action kind.
 - `Multiplier { get; init; } -> double` — The new effective multiplier (every mod's value multiplied, clamped).
 - `Player { get; init; } -> EntityId` — The player whose value changed.
 
-## ActionSpeedStatus `0.2.26` — Which parts of `ActionSpeed` work in this game.
+## ActionSpeedStatus `0.2.28` — Which parts of `ActionSpeed` work in this game.
 - `ActionSpeedStatus(bool Sequence, bool Graph, bool BowTiming, bool MeleeSampling, bool Prediction, string? Reason)`
 - `BowTiming { get; init; } -> bool` — Bow charge and fire durations are scaled.
 - `Graph { get; init; } -> bool` — The animation graph delta is scaled (visible and collision poses).

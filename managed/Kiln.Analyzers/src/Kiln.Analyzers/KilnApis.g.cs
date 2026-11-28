@@ -931,6 +931,7 @@ internal static partial class KilnApis
         "P:Kiln.EcsPrograms.SupportsOtherWrites=kiln.world", // Table != null: Services.Get("kiln.world")
         "P:Kiln.EntityData.Available=kiln.saves,kiln.spawn", // via Kiln.Saves.Available; via Kiln.SpawnLink.Available
         "P:Kiln.Example.Available=kiln.example", // T != null: Services.Get("kiln.example")
+        "P:Kiln.GameInput.Available=client.game_input,kiln.client.game_input", // GameInputNative.Members != null: Services.Get("kiln.client.game_input"); Is("client.game_input")
         "P:Kiln.GameSystems.Available=kiln.types", // t != null: Services.Get("kiln.types")
         "P:Kiln.GameTypes.Available=kiln.types", // table != null: Services.Get("kiln.types")
         "P:Kiln.Gameplay.Available=kiln.gameplay", // GameplayNative.T != null: Services.Get("kiln.gameplay")
