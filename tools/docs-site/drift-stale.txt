@@ -9,3 +9,4 @@ Of\(PlayerRef[^\n]*(?:throws|ArgumentException)	*	Pets.Of(PlayerRef) of a player
 World\.Teleport\b	*	there is no World.Teleport: Teleport.To moves an entity (Kiln.Players' LabBots too)
 Chat\.Whisper\b	*	there is no Chat.Whisper: Chat.Tell(player, text) writes to one player
 Players\.Get\(	*	there is no Players.Get: Players.Find(entity) or Players.Find(name) gives a Player
+Taming\.Define\*	*	Taming.Define and DefineJson need only kiln.taming (a definition is data, made before any world runs); Taming.Begin throws KilnUnavailableException for an off row of the steps (items.costs.exact, items.costs.wear, taming.native, pets.records), Advance for its step's
