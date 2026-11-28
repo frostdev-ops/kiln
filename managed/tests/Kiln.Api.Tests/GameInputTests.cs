@@ -116,13 +116,19 @@ public sealed unsafe class GameInputTests : IDisposable
     }
 
     [Fact]
-    public void The_row_off_or_no_table_refuses_and_reads_are_false()
+    public void The_row_off_refuses_and_reads_are_false()
     {
         _backend.Features.Remove(GameInput.Capability);
         Assert.Throws<InvalidOperationException>(() => GameInput.OnSample((ref GameInputSample s) => { }));
         Assert.False(GameInput.WasPressed(GameAction.PrimaryAttack));
-        _backend.Features.Add(GameInput.Capability);
-        _backend.Tables.Remove(GameInputNative.Service);
+        Assert.Equal(0, FakeGameInputTable.Subscribes);
+    }
+
+    [Fact]
+    public void No_table_refuses_and_reads_are_false()
+    {
+        _backend.Tables.Remove(GameInputNative.Service);  // before any call: the binding looks the table up once per backend
+        Assert.False(GameInput.Available);
         var e = Assert.Throws<InvalidOperationException>(() => GameInput.Repeat(GameAction.Block, TimeSpan.FromSeconds(1)));
         Assert.Contains("kiln.client.game_input is not here", e.Message);
         Assert.False(GameInput.IsHeld(GameAction.PrimaryAttack));

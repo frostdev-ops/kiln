@@ -154,9 +154,12 @@ public static unsafe class GameInput
     public static IDisposable OnSample(GameInputHandler handler)
     {
         ArgumentNullException.ThrowIfNull(handler);
-        var (t, mod) = Require(handler);
+        var t = Require(handler, out var mod);
         var reg = new Registration(mod, handler, null, null, 0);
-        reg.Start(t->Subscribe(mod.Owner, &OnSampleNative, (void*)reg.Handle, &reg.NativeHandle), "OnSample");
+        ulong native = 0;
+        var rc = t->Subscribe(mod.Owner, &OnSampleNative, (void*)reg.Handle, &native);
+        reg.NativeHandle = native;
+        reg.Start(rc, "OnSample");
         return reg;
     }
 
@@ -173,11 +176,14 @@ public static unsafe class GameInput
     {
         var bit = GameInputNative.Bit(action);
         if (bit == 0) throw new ArgumentOutOfRangeException(nameof(action), action, "not a GameAction");
-        var (t, mod) = Require(whileHeld);
+        var t = Require(whileHeld, out var mod);
         var ms = interval.TotalMilliseconds;
         var intervalMs = ms < GameInputNative.MinRepeatMs ? GameInputNative.MinRepeatMs : ms >= uint.MaxValue ? uint.MaxValue : (uint)ms;
         var reg = new Registration(mod, null, whileHeld, action, bit);
-        reg.Start(t->Repeat(mod.Owner, (uint)action, intervalMs, &OnConditionNative, (void*)reg.Handle, &reg.NativeHandle), "Repeat");
+        ulong native = 0;
+        var rc = t->Repeat(mod.Owner, (uint)action, intervalMs, &OnConditionNative, (void*)reg.Handle, &native);
+        reg.NativeHandle = native;
+        reg.Start(rc, "Repeat");
         return reg;
     }
 
@@ -193,7 +199,7 @@ public static unsafe class GameInput
         return true;
     }
 
-    private static (GameInputNative.Table* Table, ModContext Mod) Require(Delegate? code)
+    private static GameInputNative.Table* Require(Delegate? code, out ModContext mod)
     {
         Rows.Ensure();
         if (!Client.IsClient) throw new InvalidOperationException("GameInput is client only: this is a dedicated server");
@@ -207,10 +213,10 @@ public static unsafe class GameInput
             var row = Capabilities.Get(Capability);
             throw new InvalidOperationException($"GameInput is unavailable here ({Capability}: {row.ReasonText})");
         }
-        var mod = ModContext.CurrentMod ?? (code != null ? ModContext.OwnerOf(code) : null)
+        mod = ModContext.CurrentMod ?? (code != null ? ModContext.OwnerOf(code) : null)
             ?? throw new InvalidOperationException("GameInput subscriptions belong to a mod: call from mod code");
         if (!mod.Alive) throw new InvalidOperationException($"mod '{mod.Info.Id}' is unloading");
-        return (t, mod);
+        return t;
     }
 
     // One OnSample or Repeat: its native subscription, the GCHandle native calls back with, and the mod it ends with.
