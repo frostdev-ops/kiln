@@ -149,11 +149,13 @@ internal static unsafe class ActionSpeedRelay
         }
     }
 
+    // a dedicated server, a host, or a client in the menu: the side whose own mods decide (a joined client applies the
+    // server's)
     private static bool IsServerSide()
     {
         try
         {
-            return !Client.Available || Client.IsDedicatedServer || Client.IsHosting;
+            return !ActionSpeedState.IsJoinedClient();
         }
         catch (Exception)
         {

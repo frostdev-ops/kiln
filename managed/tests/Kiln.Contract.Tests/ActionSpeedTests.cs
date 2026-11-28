@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 // Kiln.ActionSpeed (kiln.combat.speed, mod API 0.2.28): the kinds' numbers, per-mod values and their product, clamping,
 // authority, unload, the wire.
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using Kiln;
 using Xunit;
 
@@ -124,7 +126,8 @@ public sealed unsafe class ActionSpeedStateTests : FakeTableTest
         var last = Pushed[^1];
         Assert.Equal([6f, 1f, 0.5f], last.Defaults);
         var p1 = Assert.Single(last.Players);
-        Assert.Equal((1u, new[] { 10f, 1f, 0.5f }), (p1.Entity, p1.Rates));
+        Assert.Equal(1u, p1.Entity);
+        Assert.Equal([10f, 1f, 0.5f], p1.Rates);
     }
 
     [Theory]
@@ -175,7 +178,8 @@ public sealed unsafe class ActionSpeedStateTests : FakeTableTest
         Assert.Equal(5.0, ActionSpeed.Get(P1, ActionKind.Melee));
         Assert.Equal(1.5, ActionSpeed.Get(P1, ActionKind.Bow));
         Assert.Equal(2.0, ActionSpeed.Get(P2, ActionKind.Melee));
-        Assert.Equal(([2f, 1f, 1f], 1u), (Pushed[^1].Defaults, Pushed[^1].Players.Single().Entity));
+        Assert.Equal([2f, 1f, 1f], Pushed[^1].Defaults);
+        Assert.Equal(1u, Pushed[^1].Players.Single().Entity);
         Assert.Equal([new(P1, ActionKind.Melee, 5.0), new(P1, ActionKind.Bow, 1.5), new(P2, ActionKind.Melee, 2.0)], seen);
         ActionSpeed.Changed -= seen.Add;
     }
