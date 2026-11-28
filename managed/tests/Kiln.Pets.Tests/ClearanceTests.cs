@@ -69,10 +69,16 @@ public sealed class ClearanceTests : IDisposable
 
     private static string File1(params string[] profiles) => $"{{\"format\": 1, \"profiles\": [{string.Join(",", profiles)}]}}";
 
+    private DateTime _written = new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
     private void Put(string path, string text)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         File.WriteAllText(path, text);
+        // PetClearance reads a file again when its write time changed; two writes within one tick of the system clock
+        // (about 15 ms on Windows) can share it, so each write here gets a write time of its own
+        _written = _written.AddSeconds(1);
+        File.SetLastWriteTimeUtc(path, _written);
     }
 
     private string ServerFile => Path.Combine(_dir, "server", "clearance.json");
