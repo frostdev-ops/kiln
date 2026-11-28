@@ -122,7 +122,7 @@ text is about Kiln's own kind it says "Kiln mods".
 - **Configs** (the window of a row's menu, `components/ConfigEditor.tsx`, and `/mods/configs`; HTR, #general, 31.29: the configs
   of mods he had removed were listed with switches that looked live, and he asked whether Remove really removes): the
   loaded profile's config folder, a file list beside the form (SchemaForm) and the raw file. For a profile, `config_list`
-  says per file whether its mod is installed (`ConfigFileInfo.orphaned`, `kiln_manage::config_orphans`, 0.2.0-dev.31.30):
+  says per file whether its mod is installed (`ConfigFileInfo.orphaned`, `kiln_manage::config_orphans`, 0.2.0-dev.31.31):
   the file's mod is the schema snapshot's `mod` (Kiln, native and plugin mods, kiln-emf), or, with no snapshot, the file
   name in `<kind>/<id>.<ext>` of an engine's kind (EMF, EML, XHL, ShroudForge, SET, ...). "Not installed" means absent
   everywhere the launcher can see a mod: not an entry of the profile (on or off: a mod that is only switched off is

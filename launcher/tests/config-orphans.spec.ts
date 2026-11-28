@@ -1,4 +1,4 @@
-// The Configs window and the configs of mods that are not installed (0.2.0-dev.31.30; HTR, #general: Mods, More, Configs
+// The Configs window and the configs of mods that are not installed (0.2.0-dev.31.31; HTR, #general: Mods, More, Configs
 // listed the configs of mods he had removed, and their switches looked live). Remove keeps settings on purpose, so the
 // files stay; the window now groups them under "Not installed: kept for when you add it back", read-only, with Clear on
 // each and Clear all (a confirmation, then the files go into the settings backups and a toast says where). An installed

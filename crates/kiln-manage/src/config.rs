@@ -141,7 +141,7 @@ pub struct ConfigFileInfo {
     pub has_schema: bool,
     pub mod_version: Option<String>,
     pub modified: Option<String>,
-    /// (0.2.0-dev.31.30) The file belongs to a mod that is not installed anywhere (not in the profile, on or off, not in
+    /// (0.2.0-dev.31.31) The file belongs to a mod that is not installed anywhere (not in the profile, on or off, not in
     /// the Library, not in a game folder): [`crate::config_orphans`]. Only `config_list` for a profile says it; false
     /// whenever the file's mod is not known for sure.
     #[serde(default)]

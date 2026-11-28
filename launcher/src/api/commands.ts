@@ -899,7 +899,7 @@ export interface ConfigFileInfo {
   hasSchema: boolean;
   modVersion: string | null;
   modified: string | null;
-  /** (0.2.0-dev.31.30) The file's mod is not installed anywhere (not in the profile, on or off, not in the Library, not in a
+  /** (0.2.0-dev.31.31) The file's mod is not installed anywhere (not in the profile, on or off, not in the Library, not in a
    *  game folder). False whenever the mod is not known for sure, and for every target but a profile. */
   orphaned: boolean;
 }

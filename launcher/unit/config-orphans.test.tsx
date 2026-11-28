@@ -1,4 +1,4 @@
-// The Configs window's files of mods that are not installed (0.2.0-dev.31.30; HTR, #general: Mods, More, Configs listed the
+// The Configs window's files of mods that are not installed (0.2.0-dev.31.31; HTR, #general: Mods, More, Configs listed the
 // configs of mods he had removed, and their switches looked live). The backend marks them (`orphaned`); the window groups
 // them under "Not installed: kept for when you add it back", greys their controls (the form and the raw file), and offers
 // Clear on each and Clear all on the group. Installed entries are as they were.
