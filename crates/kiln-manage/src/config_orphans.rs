@@ -1,4 +1,4 @@
-//! Configs of mods that are not installed (0.2.0-dev.31.31; HTR in #general: Mods, More, Configs listed the configs of
+//! Configs of mods that are not installed (0.2.0-dev.31.30; HTR in #general: Mods, More, Configs listed the configs of
 //! mods he had removed, and their switches looked live).
 //!
 //! Remove keeps a mod's settings on purpose (the settings files stay where Kiln keeps them, adding the mod again brings

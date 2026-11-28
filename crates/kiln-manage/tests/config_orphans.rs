@@ -1,4 +1,4 @@
-//! Configs of mods that are not installed (0.2.0-dev.31.31, HTR: Mods, More, Configs listed the configs of mods he had
+//! Configs of mods that are not installed (0.2.0-dev.31.30, HTR: Mods, More, Configs listed the configs of mods he had
 //! removed): `config_orphans::list_profile` marks them, `mod_settings::clear_orphans` clears them after a copy into the
 //! launcher's settings backups, and neither ever treats an installed mod's config, a mod that is only switched off, or
 //! a file whose mod is not known as orphaned. Temp folders only.

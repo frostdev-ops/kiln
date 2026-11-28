@@ -1,7 +1,7 @@
 // Offline config editor for a config folder: a file list, SchemaForm from the `.schema`
 // snapshot, and a raw JSONC view. Edits go through config_set (value tokens only; comments stay).
 // Reusable: <ConfigEditor target={{ profile: id }} /> | {{ server: id }} | {{ game: id }}.
-// A profile's list also says which files belong to mods that are not installed (0.2.0-dev.31.31, `orphaned`): they sit in
+// A profile's list also says which files belong to mods that are not installed (0.2.0-dev.31.30, `orphaned`): they sit in
 // their own group, "Not installed: kept for when you add it back", read-only (their mod is not there to read a change), each
 // with a Clear (and a Clear all for the group) that moves the files into the settings backups after a confirmation.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";

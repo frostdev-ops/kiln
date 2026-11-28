@@ -124,7 +124,7 @@ pub fn remove_with(
     Ok(report)
 }
 
-/// The Configs window's "Clear settings" (0.2.0-dev.31.31): takes the config files of mods that are not installed out of
+/// The Configs window's "Clear settings" (0.2.0-dev.31.30): takes the config files of mods that are not installed out of
 /// a profile's config folder (`files`, as `config_list` names them: each with its schema snapshot), after a copy into
 /// `<data>/backups/mod-settings/config-<profile>-<time>/` (the folder Remove's "its settings too" uses, laid out the same
 /// way: `profiles/<pid>/config/...`, and `removed.json`).

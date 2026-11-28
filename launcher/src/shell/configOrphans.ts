@@ -1,4 +1,4 @@
-// The Configs window's files of mods that are not installed (0.2.0-dev.31.31; HTR: Mods, More, Configs listed the configs
+// The Configs window's files of mods that are not installed (0.2.0-dev.31.30; HTR: Mods, More, Configs listed the configs
 // of mods he had removed, and their switches looked live). The backend says which (`ConfigFileInfo.orphaned`, kiln_manage::
 // config_orphans: the file's mod is in no profile entry, not in the Library, not in a game folder; never a guess); these are
 // the pure parts the window uses: the two groups, which file is open, and the words after a Clear.
