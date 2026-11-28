@@ -634,3 +634,13 @@ The station screen's per-ingredient fill of the same release is `stations.fill_i
 Window docking (`UiWindowOptions.AcceptDock`, `Ui.FindWindow`, kiln.ui's `window_state`, GitHub issue 149) has no row of
 its own: next to a kiln-ui.dll without `window_state` the window the others dock to always leads, so dragging a docked
 window does not move its target ([ui.md](../ui.md#docking-windows-since-020-dev3116-mod-api-0223)).
+
+## Rows added in 0.2.0-dev.31.30 / mod API 0.2.28 (action speed)
+
+| Row | Kind | Reported by | Unconfirmed | What it says |
+|---|---|---|---|---|
+| `kiln.combat.speed` | service | core (the table is registered by kiln-combat.dll) | | kiln.combat.speed's table is here |
+| `combat.action_speed` | sigdb feature (`server.d/combat-speed.json`, `client.d/combat-speed.json`) | core (sigdb); Kiln.Combat lowers it (`service-missing` without kiln.combat.speed, `faulted` without kiln.world's wraps, `symbol-missing` on a game client without the presentation sites) | not yet observed in a running game | `ActionSpeed` scales the sequence clock and the graph delta of a player's classified action ([combat.md](combat.md#action-speed)); `ActionSpeed.Available` |
+| `combat.bow_timing` | sigdb feature (the same files) | core (sigdb); Kiln.Combat lowers it as above | not yet observed in a running game | a bow's fresh charge and fire durations are divided by the Bow rate |
+| `combat.melee_sampling` | sigdb feature (the same files) | core (sigdb); Kiln.Combat always lowers it, `service-older`: "planned: needs an in-game check first" (a mod may keep its own sampling and read the rate with `ActionSpeed.Get`) | | melee contacts sampled between frames above `ActionSpeed.MeleeSamplingAbove`; the sites resolve and sigport tracks them |
+| `combat.action_speed.prediction` | managed, static | Kiln.Combat, at its start; `wrong-side` on a dedicated server | not yet observed in a joined client | a game client applies the server's rates to its own player's prediction and presentation (`systems.wraps.prediction` and the presentation sites) |

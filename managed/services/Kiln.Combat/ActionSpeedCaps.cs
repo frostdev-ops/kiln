@@ -19,7 +19,7 @@ internal static unsafe class SpeedCaps
     {
         var s = SpeedNative.Read();
         ServiceCaps.LowerOff(MeleeSampling, CapabilityReason.ServiceOlder,
-            "Kiln's melee contact sampler is not in this release: the sites resolve, nothing is sampled between frames");
+            "planned: Kiln's melee contact sampler needs an in-game check first; nothing is sampled between frames in this release (a mod may keep its own sampling and read the rate with ActionSpeed.Get)");
         if (s is not { } v)
         {
             var (reason, text) = ServiceCaps.Cause(CapabilityReason.ServiceMissing,

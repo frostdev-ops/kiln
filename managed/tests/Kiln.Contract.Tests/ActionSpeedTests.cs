@@ -43,7 +43,7 @@ public sealed unsafe class ActionSpeedStateTests : FakeTableTest
     private static int FakeStatus(SpeedNative.Status* s)
     {
         s->Parts = _parts;
-        var text = "melee contact sampling is not in this Kiln release; "u8;
+        var text = "melee contact sampling: planned, it needs an in-game check first; "u8;
         for (var i = 0; i < text.Length; i++) s->Detail[i] = text[i];
         return 0;
     }
@@ -245,7 +245,7 @@ public sealed unsafe class ActionSpeedStateTests : FakeTableTest
         Assert.True(s.Sequence && s.Graph && s.BowTiming);
         Assert.False(s.MeleeSampling);
         Assert.True(ActionSpeed.Available);
-        Assert.Contains("sampling is not in this Kiln release", s.Reason);
+        Assert.Contains("sampling: planned, it needs an in-game check", s.Reason);
         _parts = SpeedNative.Bow | SpeedNative.Wraps;  // the sequence sites did not resolve
         Assert.False(ActionSpeed.Available);
         Assert.False(ActionSpeed.Status.Sequence);

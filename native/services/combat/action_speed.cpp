@@ -406,7 +406,7 @@ void boot(const KilnApi* api, KilnOwner owner) {
     } else {
         note("combat.bow_timing is off on this game build: bow draw and fire durations keep the game's timing");
     }
-    g_detail += "melee contact sampling is not in this Kiln release (Kiln samples nothing between frames; hits land as the game finds them); ";
+    g_detail += "melee contact sampling: planned, it needs an in-game check first (Kiln samples nothing between frames in this release; hits land as the game finds them); ";
     LOGI("resolved: sequence clock %s, graph %s, bow timing %s%s", (g_parts & KILN_SPEED_SEQUENCE) ? "yes" : "NO",
          (g_parts & KILN_SPEED_GRAPH) ? "yes" : "NO", (g_parts & KILN_SPEED_BOW) ? "yes" : "NO",
          client ? ((g_parts & KILN_SPEED_PRESENTATION) ? ", presentation yes" : ", presentation NO") : "");

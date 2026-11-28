@@ -8,6 +8,9 @@
 #include <thread>
 #include <vector>
 
+#include <chrono>
+
+#include "../sampler_core.h"
 #include "../speed_core.h"
 
 using namespace kc::speed;
@@ -413,6 +416,154 @@ static void bow_hook() {
     }
 }
 
+
+// ---- CATT's lab numbers for bows: 1.5x on a 1.0 s charge and 0.5 s fire gave 0.667 s and 0.333 s ----
+static void bow_one_and_a_half() {
+    CHECK(divide_duration(1'000'000'000, 1.5f) == 666'666'667);
+    CHECK(divide_duration(500'000'000, 1.5f) == 333'333'333);
+}
+
+// ---- the sampler's logic (not bound to the game in this release) ----
+namespace ks = kc::sampler;
+
+// A box swept from angle 0 to 90 degrees around the actor during the swing, measured only at the two step boundaries.
+// Poses between them are estimates (position lerped, rotation slerped), so they follow the chord between the measured
+// frames: the target sits on that chord's middle, 0.71 m from either end. Only a sample near the middle touches it.
+static ks::Pose arc_pose(double frac) {
+    ks::Pose p;
+    const double a = frac * 1.5707963267948966;
+    p.pos[0] = std::cos(a), p.pos[2] = std::sin(a);
+    const double h = a / 2;
+    p.rot[1] = static_cast<float>(std::sin(h)), p.rot[3] = static_cast<float>(std::cos(h));
+    return p;
+}
+static bool touches(const ks::Pose& p) {
+    const double tx = 0.5, tz = 0.5;
+    const double dx = p.pos[0] - tx, dz = p.pos[2] - tz;
+    return dx * dx + dz * dz < 0.15 * 0.15;  // the box's reach around the target
+}
+
+static void sampler() {
+    const int64_t ms = 1'000'000;
+    // a 41 ms server tick at 10x: 410 ms of sequence per step
+    const ks::Interval s1{0, 410 * ms}, s2{410 * ms, 820 * ms}, s3{820 * ms, 1230 * ms};
+    // a swing whose hit window (68 ms) starts and ends inside one tick: sampled whole, in that step
+    ks::Interval w = ks::window_part(s1, 120 * ms, 68 * ms, true);
+    CHECK(w.lo == 120 * ms && w.hi == 188 * ms);
+    CHECK(ks::window_part(s2, 120 * ms, 68 * ms, false).empty());
+    // a window shorter than two ticks across a step boundary: in two parts
+    CHECK(ks::window_part(s1, 380 * ms, 68 * ms, true).lo == 380 * ms && ks::window_part(s1, 380 * ms, 68 * ms, true).hi == 410 * ms);
+    w = ks::window_part(s2, 380 * ms, 68 * ms, false);
+    CHECK(w.lo == 410 * ms && w.hi == 448 * ms);
+    // a collider that appears one step late samples its window from the start on its first sweep
+    w = ks::window_part(s2, 380 * ms, 68 * ms, true);
+    CHECK(w.lo == 380 * ms && w.hi == 448 * ms);
+    // ... and one that appears after its window closed (two steps late) still samples it once, from the pose history;
+    // its later sweeps sample nothing
+    w = ks::window_part(s3, 380 * ms, 68 * ms, true);
+    CHECK(w.lo == 380 * ms && w.hi == 448 * ms);
+    CHECK(ks::window_part(s3, 380 * ms, 68 * ms, false).empty());
+    // 1x for comparison: a 41 ms tick, the same window spans two steps of the slow swing
+    CHECK(ks::window_part(ks::Interval{0, 41 * ms}, 20 * ms, 68 * ms, true).hi == 41 * ms);
+    CHECK(ks::window_part(ks::Interval{0, 41 * ms}, 50 * ms, 68 * ms, true).empty());
+    CHECK(ks::window_part(s1, 120 * ms, 0, true).empty() && ks::window_part(ks::Interval{5, 5}, 0, 10, true).empty());
+
+    // sample times: evenly inside the part, capped, at least one
+    int64_t t[ks::kMaxSamples];
+    CHECK(ks::sample_times(ks::Interval{120 * ms, 188 * ms}, 10 * ms, 10, t) == 7);
+    CHECK(t[0] > 120 * ms && t[6] < 188 * ms);
+    CHECK(ks::sample_times(ks::Interval{0, 1000 * ms}, 1 * ms, 50, t) == ks::kMaxSamples);  // capped at 10
+    CHECK(ks::sample_times(ks::Interval{0, 2 * ms}, 10 * ms, 10, t) == 1 && t[0] == 1 * ms);
+    CHECK(ks::sample_times(ks::Interval{}, 10 * ms, 10, t) == 0);
+
+    // poses between measured frames: at 10x the hand is measured at the step boundaries only (0 and 410 ms of sequence:
+    // the start and the end of the arc). Both endpoints miss the target; the samples inside the window hit it.
+    ks::PoseHistory h;
+    h.push(0, arc_pose(0.0));
+    h.push(410 * ms, arc_pose(1.0));
+    ks::Pose p;
+    CHECK(h.at(0, &p) && !touches(p));
+    CHECK(h.at(410 * ms, &p) && !touches(p));
+    // the window [180, 230] ms covers the middle of the arc (205 ms)
+    const uint32_t n = ks::sample_times(ks::window_part(s1, 180 * ms, 50 * ms, true), 5 * ms, 10, t);
+    uint32_t hits = 0;
+    for (uint32_t i = 0; i < n; ++i) hits += h.at(t[i], &p) && touches(p);
+    CHECK(n == 10 && hits >= 1);
+    // slerp keeps unit quaternions and takes the short way round
+    ks::Pose a, b;
+    b.rot[3] = -1.0f;  // the same rotation as a, the other sign
+    ks::Pose mid = ks::interpolate(a, b, 0.5f);
+    CHECK(std::fabs(std::fabs(mid.rot[3]) - 1.0f) < 1e-5f);
+    // the history keeps the last kHistory steps and answers between them
+    ks::PoseHistory g;
+    for (int i = 0; i < 9; ++i) g.push(i * 100, arc_pose(i / 8.0));
+    CHECK(g.size() == ks::kHistory && g.at(250, &p) && g.at(-5, &p));
+    g.push(50, arc_pose(0));  // a rewind (a new sequence): the history starts over
+    CHECK(g.size() == 1);
+
+    // merge: distinct targets only (the stream's and the reversed pair), within the stream's capacity
+    ks::Contact stream[4] = {};
+    uint32_t count = 1;
+    stream[0].impact = 900, stream[0].target = 17;
+    ks::Contact pend[5] = {};
+    pend[0].impact = 900, pend[0].target = 17;   // already in the stream
+    pend[1].impact = 17, pend[1].target = 900;   // the same pair, reversed
+    pend[2].impact = 900, pend[2].target = 18;   // new
+    pend[3].impact = 900, pend[3].target = 18;   // twice in the pending list
+    pend[4].impact = 900, pend[4].target = 19;   // new
+    CHECK(ks::merge(stream, &count, 4, pend, 5) == 2 && count == 3 && stream[1].target == 18 && stream[2].target == 19);
+    pend[0].target = 20, pend[1].impact = 900, pend[1].target = 21;
+    CHECK(ks::merge(stream, &count, 4, pend, 2) == 1 && count == 4);  // full: the rest is dropped, nothing reallocated
+    // pending contacts per impact: bounded, taken once
+    static ks::Pending pending;
+    pending.clear();
+    ks::Contact c;
+    c.impact = 900;
+    for (uint32_t i = 0; i < ks::Pending::kPerImpact + 3; ++i) c.target = 100 + i, pending.add(c);
+    uint32_t got = 0;
+    pending.take(900, [&](const ks::Contact*, uint32_t k) { got = k; });
+    CHECK(got == ks::Pending::kPerImpact && pending.impacts() == 0);
+    for (uint32_t i = 0; i < ks::Pending::kImpacts + 2; ++i) c.impact = 1000 + i, c.target = 1, pending.add(c);
+    CHECK(pending.impacts() == ks::Pending::kImpacts);
+}
+
+// ---- cost: one server step at 10x with 4 players attacking (the four hook bodies, as kiln-combat runs them) ----
+static void cost() {
+    World w;
+    bool any = false;
+    const float d[3] = {10.0f, 10.0f, 10.0f};
+    w.rates.set(d, nullptr, 0, &any);
+    SeqFrame f[4] = {{1, kPrimary, 0xAA}, {2, kHeavy, 0xAA}, {3, kToolTrigger, 0xCC}, {4, kPrimary, 0xBB}};
+    uint8_t frame[0x400] = {};
+    uint8_t instance[4][16] = {};
+    const uintptr_t rbp = reinterpret_cast<uintptr_t>(frame) + 0x100;
+    for (uint32_t e = 1; e <= 4; ++e) w.ranged.put(e, kWeaponBow);
+    constexpr int kSteps = 200'000;
+    const auto t0 = std::chrono::steady_clock::now();
+    for (int step = 0; step < kSteps; ++step) {
+        for (int i = 0; i < 4; ++i) {
+            f[i].elapsed = 41'000'000;
+            seq_clock(f[i].r, w.L, w.env(kAuthority, kProgSim, step), w.counters);
+            uint32_t actor = i + 1;
+            std::memcpy(reinterpret_cast<uint8_t*>(rbp) - 0x7C, &actor, 4);
+            KilnRegisters b{};
+            b.rax = reinterpret_cast<uintptr_t>(instance[i]), b.rbp = rbp;
+            Env ge = w.env(kAuthority, kProgGraph, step);
+            ge.now_ms = 1000 + static_cast<uint32_t>(step / 24);
+            graph_bind(b, w.L, ge);
+            KilnRegisters e{};
+            e.rcx = b.rax;
+            const float dt = 0.041f;
+            std::memcpy(e.xmm3.bytes, &dt, 4);
+            graph_eval(e, ge, w.counters);
+        }
+    }
+    const double ns = std::chrono::duration<double, std::nano>(std::chrono::steady_clock::now() - t0).count() / kSteps;
+    std::printf("speed: cost of one 10x step with 4 attacking players (sequence + graph bind + evaluation each): %.0f ns\n", ns);
+    CHECK(ns < 20'000);  // a generous bound for a sanitizer build; the release build is far below
+    CHECK(w.counters.seq == static_cast<uint64_t>(kSteps) * 4);
+}
+
 int main() {
     rate_table();
     routes();
@@ -421,6 +572,9 @@ int main() {
     graph_hooks();
     bindings_capacity_and_threads();
     bow_hook();
+    bow_one_and_a_half();
+    sampler();
+    cost();
     if (g_fail) {
         std::printf("speed: %d check(s) failed\n", g_fail);
         return 1;

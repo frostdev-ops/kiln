@@ -13,6 +13,7 @@ killing blow, hit reaction, damage number on clients, kill credit / XP for the a
 | Managed | `managed/services/Kiln.Combat/` → `kiln/host/Kiln.Combat.dll` (`Kiln.Combat`, `Kiln.Attributes`, the event classes) |
 | Test mod | `mods/tests/combat-test/` (player-free) |
 | Evidence | `docs/re/combat.md` |
+| Action speed | `kiln.combat.speed` (`kiln_action_speed.h`), `native/services/combat/action_speed.cpp`, `sigdb/symbols/{server,client}.d/combat-speed.json`, `Kiln.ActionSpeed`; evidence `docs/re/action-speed.md` ([below](#action-speed)) |
 
 Fails soft: the service is always published; a part that does not resolve on a build makes its functions return
 `KILN_ERR_UNAVAILABLE` (logged at boot: `resolved: health on, hits on (record 0x150), deaths on`). Death events need
@@ -311,3 +312,108 @@ one `DecisionCompletedEvent`: `Prevented`, `Allowed` (the game lets it die), `Al
 nothing is written), or `NoPositiveRange`, `WriteRefused`, `SourceChanged`, `StaleEntity`, `TimeoutReleased`. Only
 deaths from health; not damage cancellation (refuse the hit in `EntityHurtEvent`). Capability `events.death`, on
 since 0.2.0-dev.29 and not yet confirmed in a real game. [decisions.md](decisions.md).
+
+## Action speed
+
+Since Kiln 0.2.0-dev.31.30 (mod API 0.2.28). Kiln provides the framework for attack and action speed mods: per-player
+multipliers for melee, bow and tool actions. Players see nothing new until a mod sets a value. Guide:
+[../modding/action-speed.md](../modding/action-speed.md). For the Combat And Attack Tweaks author:
+[../modding/catt-action-speed.md](../modding/catt-action-speed.md). Evidence: [../../re/action-speed.md](../../re/action-speed.md).
+
+| Layer | What |
+|---|---|
+| C table | `kiln.combat.speed` v1 (`native/core/abi/services/kiln_action_speed.h`): `set_rates` (the whole effective table), `status`, `item_kinds`, `set_item_kinds` |
+| Native | `native/services/combat/action_speed.cpp` (links, wraps, items) and `speed_core.h` (the logic, host-tested by `tests/speed_test.cpp`), in kiln-combat.dll |
+| Symbols | `sigdb/symbols/server.d/combat-speed.json`, `client.d/combat-speed.json` (features `combat.action_speed`, `combat.action_speed.client`, `combat.bow_timing`, `combat.melee_sampling`); checks `tools/sigport/tests/test_combat_speed.py` |
+| Managed | `Kiln.ActionSpeed` in Kiln.Combat (`ActionSpeed.cs`, `ActionSpeedState.cs`, `ActionSpeedRelay.cs`, `ActionSpeedCaps.cs`); tests `managed/tests/Kiln.Contract.Tests/ActionSpeedTests.cs` |
+
+### The API
+```csharp
+ActionSpeed.SetDefault(ActionKind.Melee, 2.0);          // this mod's value for every player, now and later joins
+ActionSpeed.Set(player, ActionKind.Bow, 1.5);           // this mod's value for one player (overrides its default there)
+ActionSpeed.Clear(player, ActionKind.Bow); ActionSpeed.Clear(player); ActionSpeed.ClearDefault(ActionKind.Melee);
+double m = ActionSpeed.Get(player, ActionKind.Melee);   // the effective value, any side, any thread
+ActionSpeed.Changed += e => Log.Info($"{e.Player} {e.Kind} {e.Multiplier}");
+if (!ActionSpeed.Available) Log.Warn(ActionSpeed.Status.Reason);
+```
+- **Kinds:** `Melee` (light and heavy attacks, combos and recovery), `Bow` (draw and fire durations and the shot;
+  not staffs or wands), `Tool` (axe, pickaxe and the like). `ActionKind`'s numbers are 0, 1 and 2, on the wire and in C.
+- **Per mod:** each mod's values are its own (ModContext). Across mods the effective value is the product of every mod's
+  value (a mod's `Set` for a player, else its `SetDefault`, else 1), clamped to [`Min` 0.5, `Max` 10]. A mod's values
+  go when it unloads. A player who leaves loses every mod's values for that id (a later player may get it). A value
+  outside [0.5, 10], NaN or infinity throws `ArgumentOutOfRangeException`. A non-player entity throws `ArgumentException`.
+- **Authority:** `SetDefault`, `ClearDefault`, `Set` and `Clear` are for the server or the host, on the tick thread. On a
+  joined client they throw `InvalidOperationException`. `Get`, `Status`, `Available` and `Changed` work on any side.
+- **1.0 is the game:** with every value at 1, nothing is hooked at all. The first value other than 1 installs the links
+  and wraps (once); from then on a site whose rates are 1 returns at once.
+
+### What Kiln scales
+For a classified action of a player, together:
+- the action sequence clock (the step's elapsed time at the sequence advance): gameplay events, combos, recovery;
+- the animation graph delta of that player's graph instance (visible and collision poses), on the graph evaluator's
+  first pass;
+- for a bow, the fresh, skill-adjusted charge and fire durations (divided). The ranged state machine latches them at a
+  state change, so a draw in progress keeps the durations it started with.
+
+**Classification (Kiln's routes):** the running action's trigger and its used item's equipment slot type, from the
+game's reflection and kiln.items' catalog. A melee weapon with Primary, Primary_Tap, Primary_Hold or Heavy is Melee. A
+tool with those or the Tool trigger is Tool. A ranged weapon with a Primary trigger is Bow, but only while the player's
+ranged weapon type is Bow. Everything else keeps its timing (blocks, parries, dodges, spells, eating, interactions,
+unarmed). Unknown routes keep their timing.
+
+**Where:** the server world of the process (a dedicated server, or a host) for every player; on a game client, the
+prediction storage and the client world for the local player only. The runs are told apart by kiln.world wraps
+(BEFORE and AFTER stages on actor_simulation_start, server_update_animation_graph_2 and server_player_ranged_weapon in
+the server world and the prediction storage, and on actor_client_play and client_update_animation_graph_2 in the client
+world). A site that runs outside a marked run is left alone and counted (`unmarked`).
+
+### Multiplayer
+- **The server or host has authority.** Kiln sends the effective view (the defaults and every player with values of
+  their own) to every Kiln client over its own channel `kiln:speed` v1 (`required: false`), whenever it changes and to
+  each client when it becomes ready. It also sends the server's classified items once, since a client has no item
+  catalog. Mods need no `[Synced]` config for this.
+- **A joined client** reads the server's values (`Get`, `Changed`) and applies them to its own player's prediction and
+  presentation. Other players look as the server sends them.
+- **Older clients** (or vanilla ones) have no channel and see server-timed results. A host is a peer of its own server
+  and drops the copy it receives.
+
+### Melee contact sampling
+`ActionSpeed.MeleeSamplingAbove` is 2.0, and `Status.MeleeSampling` is **false in this release**. Kiln samples nothing
+between frames: at high melee rates a hit lands where the game's own frames find it. Kiln's sampler is planned and
+follows in a later release, after an in-game check. Until then a mod may keep its own contact sampling and read the
+rate with `ActionSpeed.Get(player, ActionKind.Melee)`. The sampler's sites (CATT's 11-18) resolve in sigdb
+(`combat.melee_sampling` stays on there for sigport) and are not hooked; the capability row says `service-older`
+("planned: needs an in-game check first"). Its game-free logic is in `sampler_core.h` with host tests (the step
+interval intersected with the impact window, swings shorter than one and two ticks, late colliders, at most 10 casts,
+fixed storage, merge within capacity with dedupe). What is left is listed in the porting note.
+
+Lab evidence (CATT beta.6 with its own sampler, dedicated server, bots): sword hits per swing 0.94 at 1x, 0.19-0.64 at
+3x, 0.22 at 10x (a 10x swing lasts 68 ms, under two 41 ms server ticks); axe hits 0.94-0.98 at every speed. At 10x,
+4 bots for 150 s gave memory errors and frame spikes up to 1.28 s that 1x did not (bots never acknowledge
+replication, so part of it may be the bots). Values above about 3-5x on busy dedicated servers are untested.
+
+### Status and capabilities
+| `Status` | Capability | On when |
+|---|---|---|
+| `Sequence`, `Graph` (and `Available`) | `combat.action_speed` (sigdb; lowered by Kiln.Combat when kiln.combat.speed cannot serve it) | the clock, binding and evaluator sites resolved and kiln.world's wraps are there; on a game client also `combat.action_speed.client` (presentation) |
+| `BowTiming` | `combat.bow_timing` (sigdb, lowered the same way) | the bow parameter site resolved |
+| `MeleeSampling` | `combat.melee_sampling` (lowered, `service-older`) | never in this release |
+| `Prediction` | `combat.action_speed.prediction` (managed, static) | a game client whose prediction storage can be wrapped (`systems.wraps.prediction`) with the presentation sites; `wrong-side` on a dedicated server |
+
+kiln.log (`speed:` lines): `resolved: sequence clock yes, graph yes, bow timing yes, presentation yes`, `routes:
+ActionSequence trigger +0x18, used item +0x38 (reflection)`, `N of M items classified ... from kiln.items' catalog`,
+`active: sequence clock on, graph on, bow timing on`, and a warn-once line for each part that does not resolve or a
+wrap kiln.world refuses. `status` counts the scaled sequence steps, graph evaluations and bow blocks.
+
+### Limits
+- Players only (1..1023); NPCs and creatures are left for later. At most 64 players with values of their own.
+- `Max` is 10, but values above about 3-5x on busy dedicated servers are untested, and above 2x melee hits can be
+  missed between server ticks (no sampling in this release).
+- Cost: Kiln's per-step work is a few table lookups per player and site, with no allocation and no message per
+  swing (the rates go out only when they change). Host benchmark (ASan/UBSan, -O1): about 1.1 µs for one 10x step
+  with 4 attacking players (sequence, graph binding and evaluation each), before the mid-hook stub's own cost.
+- While a classified action runs, the player's whole graph instance takes the rate (legs too, when moving while
+  attacking). CATT confines it to graph states and overlays.
+- A guest's prediction compares the row's entity with kiln.client's local player. On a host the ids are shared. For a
+  guest this is unverified in a real game; if they differ, the guest's own swing stays at server timing.
+- Not seen in a real game yet. Host tests over fakes, static checks on both exes, and managed contract tests.
