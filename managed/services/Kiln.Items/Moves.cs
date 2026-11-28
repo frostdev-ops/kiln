@@ -49,7 +49,7 @@ public static unsafe partial class Items
     // asks this before Items.MoveChecked has asked for items.move
     /// <summary>True when <see cref="MoveChecked"/> works right now: moves work (capability <c>items.move</c>, and the
     /// kiln_items program runs in the server world, as <see cref="MovesAvailable"/>) and this runtime's kiln.items checks
-    /// the witnesses inside the move (since 0.2.0-dev.32; an older one answers false). Gear also needs
+    /// the witnesses inside the move (since 0.2.0-dev.31.30, experimental in 31.x: KILNX033; an older one answers false). Gear also needs
     /// <c>items.instances</c>: without it no read carries a stamp, and <see cref="MoveChecked"/> of gear is
     /// <see cref="ItemsStatus.Unavailable"/>. Read live.</summary>
     [Experimental("KILNX033", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/analyzers.md#kilnx033")]

@@ -79,8 +79,8 @@ players and the save follow, as after a drag and drop.
 
 `Items.Move` names its source by slot number: when it runs, it moves whatever is in that slot then. A move a player asked
 for on an old view (a drag and drop in a mod's own inventory screen, a request that arrives twice) can then move another
-stack, or another piece of gear. `Items.MoveChecked` (since 0.2.0-dev.32) takes the slots as a read listed them and moves
-only while they still hold that:
+stack, or another piece of gear. `Items.MoveChecked` (since 0.2.0-dev.31.30) takes the slots as a read listed them and
+moves only while they still hold that. Detect it through `Items.CheckedMovesAvailable`:
 
 ```csharp
 var seen = Items.Read(player)!.Slots.First(s => s.Item == flint);   // what the player dragged
@@ -103,8 +103,14 @@ if (Items.CheckedMovesAvailable)
 - The same request twice moves once: the second finds its source changed. A plain stack has no identity, so a stack of the
   same item and count put in its place passes.
 - No options: equipped and held items and the action bar are refused, as by `Items.Move` without options.
-- `Items.CheckedMovesAvailable` is false on an older Kiln (then `MoveChecked` is `Unavailable` and says to update Kiln) and
-  while moves are off. Gear also needs capability `items.instances`; without it a checked move of gear is `Unavailable`.
+- `Items.CheckedMovesAvailable` is false while moves are off (then `MoveChecked` is `Unavailable` and says why) and on a
+  runtime whose kiln.items has no checked moves (`Unavailable`, saying to update Kiln). Gear also needs capability
+  `items.instances`; without it a checked move of gear is `Unavailable`.
+- In 31.x both members are experimental, [KILNX033](analyzers.md#kilnx033): 0.2.0-dev.31.30 keeps mod API 0.2.26, so a
+  mod opts in with `<NoWarn>$(NoWarn);KILNX033</NoWarn>`. On a Kiln older than 0.2.0-dev.31.30 neither member exists: a
+  mod that also loads there finds `CheckedMovesAvailable` and `MoveChecked` by reflection and takes a missing member as
+  false (as Flamebound Ledger does), or requires `"kiln": ">=0.2.0-dev.31.30"` in its manifest's dependencies. In
+  0.2.0-dev.32 they are normal API.
 - The test kit does not model moves: offline, `CheckedMovesAvailable` is false and `MoveChecked` is `Unavailable`.
 
 ## Using a consumable for a player (0.2.0-dev.30.3)
