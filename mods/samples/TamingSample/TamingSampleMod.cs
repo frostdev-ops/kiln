@@ -70,6 +70,7 @@ public sealed class TamingSampleMod : Mod
     [Command("tame begin", Description = "start taming the nearest wolf or wild dog (3 m)")]
     private async Task Begin(CommandContext c)
     {
+        if (!Taming.Available) throw new CommandException($"taming is off here: {Capabilities.Why(Taming.Capability)}");
         var who = Player(c);
         var at = World.Position(c.Source.Player) ?? throw new CommandException("your position is not known");
         foreach (var e in Creatures.Near(at, 3))
@@ -86,6 +87,7 @@ public sealed class TamingSampleMod : Mod
     [Command("tame step", Description = "the next step that takes no item (weaken, the game's own step)")]
     private async Task Step(CommandContext c)
     {
+        if (!Taming.Available) throw new CommandException($"taming is off here: {Capabilities.Why(Taming.Capability)}");
         var who = Player(c);
         var p = Attempt(who);
         c.Reply(Answer(who, await Taming.Advance(who, p.Id, TamingRequest.New(p.Token))));
@@ -94,6 +96,7 @@ public sealed class TamingSampleMod : Mod
     [Command("tame feed", Description = "feed from the first slot that can pay the step")]
     private async Task Feed(CommandContext c)
     {
+        if (!Taming.Available) throw new CommandException($"taming is off here: {Capabilities.Why(Taming.Capability)}");
         var who = Player(c);
         var p = Attempt(who);
         var choices = Taming.Choices(who, p.Id);
@@ -106,6 +109,7 @@ public sealed class TamingSampleMod : Mod
     [Command("tame retry", Description = "retry a tame that waits (every step is paid; nothing more is taken)")]
     private async Task Retry(CommandContext c)
     {
+        if (!Taming.Available) throw new CommandException($"taming is off here: {Capabilities.Why(Taming.Capability)}");
         var who = Player(c);
         var p = Attempt(who);
         c.Reply(Answer(who, await Taming.Retry(who, p.Id, TamingRequest.New(p.Token))));
@@ -114,6 +118,7 @@ public sealed class TamingSampleMod : Mod
     [Command("tame cancel", Description = "stop taming (paid steps stay paid: the wolf's refund is for failures only)")]
     private async Task Cancel(CommandContext c)
     {
+        if (!Taming.Available) throw new CommandException($"taming is off here: {Capabilities.Why(Taming.Capability)}");
         var who = Player(c);
         var p = Attempt(who);
         c.Reply(Answer(who, await Taming.Cancel(who, p.Id, TamingRequest.New(p.Token))));
@@ -122,6 +127,7 @@ public sealed class TamingSampleMod : Mod
     [Command("tame status", Description = "the taming now")]
     private void Status(CommandContext c)
     {
+        if (!Taming.Available) throw new CommandException($"taming is off here: {Capabilities.Why(Taming.Capability)}");
         var who = Player(c);
         var p = Taming.Inspect(Attempt(who).Id) ?? throw new CommandException("the taming is over");
         c.Reply($"{p.Definition}: {p.State}, step {p.CompletedSteps}/{p.TotalSteps}, expires at {p.ExpiresAt.TotalSeconds:0} s, paid {p.Spent.Count}");

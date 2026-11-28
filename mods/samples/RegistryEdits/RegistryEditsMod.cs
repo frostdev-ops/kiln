@@ -19,14 +19,18 @@ public sealed class RegistryEditsMod : Mod
         // The host supplies a read-only input snapshot when no live config is registered yet.
         // Observed settings, code, point, pass and world identity contribute to context.Identity.
         var settings = Config.Register<Settings>().Value;
+        if (!Registries.Available) return;                   // kiln.registry: the host's registry transport
         var registry = Registries.For(context);
         if (context.EntryPoint == RegistryEntryPoint.GameStart)
         {
-            // New identities and visibility are process decisions: never restate them at later entry points.
-            registry.Add(stage => stage.Items.AddLike(new("registry-edits:stout_logs"), new("game:material_t1_wood_logs"),
-                item => item.MaxStack = 100));
+            // New identities and visibility are process decisions: never restate them at later entry points. Adding and
+            // removing entries have rows of their own (registry.items.add, registry.loot.remove): ask them.
+            if (Capabilities.Is("registry.items.add"))
+                registry.Add(stage => stage.Items.AddLike(new("registry-edits:stout_logs"), new("game:material_t1_wood_logs"),
+                    item => item.MaxStack = 100));
             // This hides only random-loot candidates, not already-owned logs or their recipes/direct drops.
-            registry.Alter(stage => stage.Loot.Remove("game:material_t1_wood_logs"));
+            if (Capabilities.Is("registry.loot.remove"))
+                registry.Alter(stage => stage.Loot.Remove("game:material_t1_wood_logs"));
             // World rules (dev.32) are restart fields: GameStart only. Build anywhere, and let worlds set enemy damage up to 10x.
             registry.Alter(stage => stage.World.NoBuildZones.Clear());
             registry.Alter(stage => stage.Difficulty.EnemyDamageFactor.Max = Math.Max(stage.Difficulty.EnemyDamageFactor.Max, 10));
