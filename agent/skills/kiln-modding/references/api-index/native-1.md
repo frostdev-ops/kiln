@@ -73,6 +73,13 @@ One line per row: header, `Table.row`, @offset, mod API, comment (native.md says
 - kiln_abilities.h `KilnAbilitiesApi.native_ecs_write` @304 `0.2.4` — The same through the other_write accessor with the job's tracker (saved and replicated like the game's own...
 - kiln_abilities.h `KilnAbilitiesApi.item_use` @312 `0.2.13` — since 0.2.0-dev.30.3 (mod API 0.2.13): an item used from a player's slot, check header.size (a table...
 
+## services/kiln_action_speed.h — service `kiln.combat.speed`
+### KilnActionSpeedApi — 40 bytes
+- kiln_action_speed.h `KilnActionSpeedApi.set_rates` @8 `0.2.26` — Replaces the whole table: defaults (KILN_ACTION_KINDS rates for every player) and 'count' per-player sets...
+- kiln_action_speed.h `KilnActionSpeedApi.status` @16 `0.2.26`
+- kiln_action_speed.h `KilnActionSpeedApi.item_kinds` @24 `0.2.26` — The classified items of this process (kiln.items' catalog; KILN_ERR_UNAVAILABLE until it is read, as on a...
+- kiln_action_speed.h `KilnActionSpeedApi.set_item_kinds` @32 `0.2.26` — A guest: the server's classified items (count \<= 8192).
+
 ## services/kiln_assets.h — service `kiln.assets`
 ### KilnAssetsApi — 256 bytes
 - kiln_assets.h `KilnAssetsApi.icon_register_png` @8 — icon_register_png: 'png' = the bytes of a PNG file (8-bit RGBA/RGB/grey, any size up to 1024x1024; drawn...
@@ -487,20 +494,3 @@ One line per row: header, `Table.row`, @offset, mod API, comment (native.md says
 - kiln_gameplay.h `KilnGameplayApi.component_change` @120 `0.2.0` — Queues one change of an interaction-offer component on 'entity' (never a player).
 - kiln_gameplay.h `KilnGameplayApi.request_build` @128 `0.2.4` — First-use build interest, AnyThread.
 - kiln_gameplay.h `KilnGameplayApi.request_hooks` @136 `0.2.4` — AnyThread.
-
-## services/kiln_gemcraft.h — service `kiln.gemcraft`
-### KilnGemcraftApi — 120 bytes
-- kiln_gemcraft.h `KilnGemcraftApi.status` @8 `0.2.5`
-- kiln_gemcraft.h `KilnGemcraftApi.submit` @16 `0.2.5` — Queues a code action.
-- kiln_gemcraft.h `KilnGemcraftApi.cancel` @24 `0.2.5` — Drops a code action's callback (the action may still run).
-- kiln_gemcraft.h `KilnGemcraftApi.hold` @32 `0.2.5` — Holds players' new forge actions for the next 'steps' steps (1..250; 0 stops at once: what is held runs).
-- kiln_gemcraft.h `KilnGemcraftApi.held` @40 `0.2.5` — The actions held since the last call (each once). *out_count = how many were written...
-- kiln_gemcraft.h `KilnGemcraftApi.decide` @48 `0.2.5` — The answer for a held action (player, version): cancel 1 = refuse it, 0 = let it run.
-- kiln_gemcraft.h `KilnGemcraftApi.watch` @56 `0.2.5` — 1: players' actions that ran are reported by crafted() (code actions always are).
-- kiln_gemcraft.h `KilnGemcraftApi.crafted` @64 `0.2.5` — The actions that ran since the last call, players' (while watched) and code's (DONE only), and every...
-- kiln_gemcraft.h `KilnGemcraftApi.extras` @72 `0.2.7` — appended in 0.2.0-dev.29.15 (header.size covers them) ---- Which appended parts run here...
-- kiln_gemcraft.h `KilnGemcraftApi.offer` @80 `0.2.7` — Offers gems to players (any number of players and holders in one call): each gets a new token and its expiry.
-- kiln_gemcraft.h `KilnGemcraftApi.withdraw` @88 `0.2.7` — Withdraws the owner's offers (owner 0: every owner's) to 'player' (0: every player) in 'holder' (0: every...
-- kiln_gemcraft.h `KilnGemcraftApi.sources` @96 `0.2.7` — The live offers to 'player' (every owner's), in offer order.
-- kiln_gemcraft.h `KilnGemcraftApi.payers` @104 `0.2.7` — Who would pay for 'player' with pay_from / pay_holder now, in order (what a request resolves in the step...
-- kiln_gemcraft.h `KilnGemcraftApi.forge_material` @112 `0.2.7` — The forge's own upgrade material (ShroudForge.upgradeMaterial), what payers other than the player pay in.

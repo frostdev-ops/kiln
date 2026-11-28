@@ -25,3 +25,7 @@ g++ -std=c++20 -O1 -g -Wall -Wextra -fsanitize=address,undefined \
 g++ -std=c++20 -O1 -g -Wall -Wextra -fsanitize=address,undefined \
     -I"$here/../../../core/abi" "$here/hold_test.cpp" -o "$out/hold-test"
 "$out/hold-test"
+# kiln.combat.speed (Kiln's action speed, since 0.2.0-dev.31.30): rate table, routes, clock / graph / bow hooks over fakes
+g++ -std=c++20 -O1 -g -Wall -Wextra -pthread -fsanitize=address,undefined \
+    -I"$here/../../../core/abi" "$here/speed_test.cpp" -o "$out/speed-test"
+"$out/speed-test"

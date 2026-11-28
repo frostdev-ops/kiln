@@ -60,5 +60,19 @@ internal static unsafe class CombatCaps
 /// mod asks for them, not from Kiln.Combat's first use.</summary>
 internal static class CombatStartup
 {
-    static CombatStartup() => CombatCaps.Rows.Ensure();
+    static CombatStartup()
+    {
+        CombatCaps.Rows.Ensure();
+        // action speed (since 0.2.0-dev.31.30): its rows, and the kiln:speed channel, so a joined client receives the
+        // server's rates even when none of its mods touched Kiln.ActionSpeed
+        SpeedCaps.Rows.Ensure();
+        try
+        {
+            ActionSpeedRelay.Start();
+        }
+        catch (Exception e)
+        {
+            SpeedLog.Warn($"startup: {e.Message}");
+        }
+    }
 }

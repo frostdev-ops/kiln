@@ -428,6 +428,61 @@
       },
       "sha256": "fdc44a4710c16f012652343d46eec86e8029aa35ae918c68fa8de12f735396e1"
     },
+    "native/core/abi/services/kiln_action_speed.h": {
+      "function_macros": [],
+      "inline_helpers": [],
+      "layouts": {
+        "KilnActionItemKind": {
+          "align": 4,
+          "fields": {
+            "item": 0,
+            "kind": 4,
+            "reserved": 5
+          },
+          "size": 8
+        },
+        "KilnActionRate": {
+          "align": 4,
+          "fields": {
+            "entity": 0,
+            "rate": 4
+          },
+          "size": 16
+        },
+        "KilnActionSpeedApi": {
+          "align": 8,
+          "fields": {
+            "header": 0,
+            "item_kinds": 24,
+            "set_item_kinds": 32,
+            "set_rates": 8,
+            "status": 16
+          },
+          "size": 40
+        },
+        "KilnActionSpeedStatus": {
+          "align": 8,
+          "fields": {
+            "active": 8,
+            "bow_scaled": 56,
+            "defaults": 16,
+            "detail": 72,
+            "graph_scaled": 48,
+            "items": 32,
+            "parts": 4,
+            "players": 28,
+            "reserved": 10,
+            "scaling": 9,
+            "sequence_scaled": 40,
+            "size": 0,
+            "unmarked": 64,
+            "wraps": 12
+          },
+          "size": 328
+        }
+      },
+      "sha256": "731c1879e73ca0091f96d73341f3e5bf38e186efa24beebb4591ca08bc3fae46"
+    },
     "native/core/abi/services/kiln_assets.h": {
       "function_macros": [],
       "inline_helpers": [],
@@ -10384,8 +10439,9 @@
   },
   "outputs": {
     "src/bindings.rs": "134028a6a9914076cab3f71f98d356141d4fe36c4d7f51bac6a11819501ed935",
-    "src/layout.rs": "de428635d2d63e96799597a18ac24a3207cdc9e673ef575685b0a464d3481de5",
+    "src/layout.rs": "b2c82cdb21782f9670551b6b38028961f615a0248b1c97f4a35c05c5cd58c809",
     "src/services/kiln_abilities.rs": "a24dff6123db80e30ed1b2e33f87c772a40982ec3ce379347ca96bb81579f6cb",
+    "src/services/kiln_action_speed.rs": "3e7eedc0d4f2aa70a47fc1b915a7cc15a008a4f4b8427887d1c1afeb3912a794",
     "src/services/kiln_assets.rs": "e7fe4eb1c4d53ad31eeaf05be06f41c551a49362ad5bd4174465ec18a03effe0",
     "src/services/kiln_assets_vfx.rs": "90ed8ce5ad512bbf4f002db3277bc3b439d648ca437a58d4477eac4ce46c3b81",
     "src/services/kiln_audio.rs": "52a49e9a14975f3abecbe7200bb2dce40c0af7fd54f50faf7890befe559d8d7c",
@@ -10470,7 +10526,7 @@
     "src/services/kiln_world.rs": "3cb0272179db9c198f154ce6c008837e4bb95245a2ec62993be78879c4b330b8",
     "src/services/kiln_world_budget.rs": "b196426492d0525df1317c08e4927f3f3ff35817990bed8f2b58c02d174bab98",
     "src/services/kiln_worldtables.rs": "3d423bb8cfd5235f82230a1942bbc334d86b55d343e5e5880c671a57d1469fce",
-    "src/services/mod.rs": "ff80f65ba3f1bbe1a2c97ad75826ecabb47456dfc87cdeda348ddfafa42bc7ec"
+    "src/services/mod.rs": "738dd55668d33a3d26be667a8bcb0eac01db943f684068b3d0a27dbe91442962"
   },
   "schema": 1,
   "target": "x86_64-pc-windows-msvc"
