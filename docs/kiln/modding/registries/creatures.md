@@ -110,7 +110,7 @@ registry.Alter(stage =>
     vukah.Sight.Range = vukah.Sight.Range * 1.5;
     vukah.Resist.Fire = 2.0;                               // takes double fire damage; 0 would make it immune
     foreach (var wolf in stage.Creatures.Select("game:enemy_wildbeast_wolf_*"))
-        if (wolf.Kind == CreatureKind.Enemy) wolf.Level = 12;
+        if (wolf.Kind == RegistryCreatureKind.Enemy) wolf.Level = 12;
     var dog = stage.Creatures["game:animal_wildlife_dog_05_white_ag2"];
     if (dog.Tameable) dog.TamingSteps = 3;
 });

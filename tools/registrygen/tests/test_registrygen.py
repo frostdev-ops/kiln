@@ -233,6 +233,26 @@ class SchemaChecks(unittest.TestCase):
         s["fields"]["parts"]["typeName"] = "RegistryId"
         self.assertTrue(any("RegistryId" in e for e in self.errors_of(s)))
 
+    def test_a_generated_type_never_takes_a_kiln_type_name(self):
+        """dev.32 review-beta1: Kiln.Registry's generated CreatureKind and ArsenalAttack had the names of Kiln.Creatures'
+        shipped types, so `CreatureKind` in a registry mod with both usings did not compile (CS0104)."""
+        t = Tree(copy.deepcopy(MINI))
+        try:
+            api = t.root / "managed" / "services" / "Kiln.Other"
+            api.mkdir(parents=True)
+            (api / "PublicAPI.Shipped.txt").write_text("#nullable enable\nKiln.ThingRow\nKiln.Other.ThingParts.get -> int\n")
+            (api / "PublicAPI.Unshipped.txt").write_text("[KILNX031]Kiln.ThingColor\n")
+            errs = rg.load(t.root).errors
+            self.assertTrue(any("ThingRow" in e and "Kiln.ThingRow (Kiln.Other)" in e and "CS0104" in e for e in errs), errs)
+            self.assertTrue(any("ThingColor" in e and "Kiln.ThingColor" in e for e in errs), errs)
+            self.assertFalse(any("ThingParts" in e and "CS0104" in e for e in errs), errs)   # a member line, not a type
+            own = t.root / "managed" / "services" / "Kiln.Registry"
+            own.mkdir(parents=True)
+            (own / "PublicAPI.Unshipped.txt").write_text("Kiln.ThingEntry\n")   # Kiln.Registry's own record is not Kiln's
+            self.assertFalse(any("ThingEntry" in e and "CS0104" in e for e in rg.load(t.root).errors))
+        finally:
+            shutil.rmtree(t.root, ignore_errors=True)
+
     def test_one_enum_serves_several_registries(self):
         """dev.32 api-shape: one name for one set of values. A second registry's field names the first's enum (typeName) with
         the same values, or the same plus the one C# reads as null (nullValue): the enum is declared once, in the first

@@ -12,20 +12,20 @@
 [KILNX031]Kiln.Registry.AbilityTiming.Hit.set -> void
 [KILNX031]Kiln.Registry.AbilityTiming.Release.get -> System.TimeSpan
 [KILNX031]Kiln.Registry.AbilityTiming.Release.set -> void
-[KILNX031]Kiln.Registry.ArsenalAttack
-[KILNX031]Kiln.Registry.ArsenalAttack.Chance.get -> double
-[KILNX031]Kiln.Registry.ArsenalAttack.Chance.set -> void
-[KILNX031]Kiln.Registry.ArsenalAttack.Index.get -> int
-[KILNX031]Kiln.Registry.ArsenalAttack.MaxHeight.get -> double
-[KILNX031]Kiln.Registry.ArsenalAttack.MaxHeight.set -> void
-[KILNX031]Kiln.Registry.ArsenalAttack.MaxRange.get -> double
-[KILNX031]Kiln.Registry.ArsenalAttack.MaxRange.set -> void
-[KILNX031]Kiln.Registry.ArsenalAttack.MinRange.get -> double
-[KILNX031]Kiln.Registry.ArsenalAttack.MinRange.set -> void
-[KILNX031]Kiln.Registry.ArsenalAttack.Threat.get -> double
-[KILNX031]Kiln.Registry.ArsenalAttack.Threat.set -> void
+[KILNX031]Kiln.Registry.RegistryArsenalAttack
+[KILNX031]Kiln.Registry.RegistryArsenalAttack.Chance.get -> double
+[KILNX031]Kiln.Registry.RegistryArsenalAttack.Chance.set -> void
+[KILNX031]Kiln.Registry.RegistryArsenalAttack.Index.get -> int
+[KILNX031]Kiln.Registry.RegistryArsenalAttack.MaxHeight.get -> double
+[KILNX031]Kiln.Registry.RegistryArsenalAttack.MaxHeight.set -> void
+[KILNX031]Kiln.Registry.RegistryArsenalAttack.MaxRange.get -> double
+[KILNX031]Kiln.Registry.RegistryArsenalAttack.MaxRange.set -> void
+[KILNX031]Kiln.Registry.RegistryArsenalAttack.MinRange.get -> double
+[KILNX031]Kiln.Registry.RegistryArsenalAttack.MinRange.set -> void
+[KILNX031]Kiln.Registry.RegistryArsenalAttack.Threat.get -> double
+[KILNX031]Kiln.Registry.RegistryArsenalAttack.Threat.set -> void
 [KILNX031]Kiln.Registry.ArsenalEntry
-[KILNX031]Kiln.Registry.ArsenalEntry.Attacks.get -> Kiln.Registry.RegistryEntryList<Kiln.Registry.ArsenalAttack!>!
+[KILNX031]Kiln.Registry.ArsenalEntry.Attacks.get -> Kiln.Registry.RegistryEntryList<Kiln.Registry.RegistryArsenalAttack!>!
 [KILNX031]Kiln.Registry.ArsenalEntry.Id.get -> Kiln.Registry.RegistryId
 [KILNX031]Kiln.Registry.ArsenalEntry.Registry.get -> string!
 [KILNX031]Kiln.Registry.BuffEntry
@@ -60,7 +60,7 @@
 [KILNX031]Kiln.Registry.CreatureEntry.Faction.set -> void
 [KILNX031]Kiln.Registry.CreatureEntry.Health.get -> Kiln.Registry.CreatureHealth!
 [KILNX031]Kiln.Registry.CreatureEntry.Id.get -> Kiln.Registry.RegistryId
-[KILNX031]Kiln.Registry.CreatureEntry.Kind.get -> Kiln.Registry.CreatureKind
+[KILNX031]Kiln.Registry.CreatureEntry.Kind.get -> Kiln.Registry.RegistryCreatureKind
 [KILNX031]Kiln.Registry.CreatureEntry.Level.get -> int
 [KILNX031]Kiln.Registry.CreatureEntry.Level.set -> void
 [KILNX031]Kiln.Registry.CreatureEntry.LevelMax.get -> int
@@ -100,11 +100,11 @@
 [KILNX031]Kiln.Registry.CreatureHealth.LevelFactor.set -> void
 [KILNX031]Kiln.Registry.CreatureHealth.PerPlayer.get -> double
 [KILNX031]Kiln.Registry.CreatureHealth.PerPlayer.set -> void
-[KILNX031]Kiln.Registry.CreatureKind
-[KILNX031]Kiln.Registry.CreatureKind.Animal = 2 -> Kiln.Registry.CreatureKind
-[KILNX031]Kiln.Registry.CreatureKind.Enemy = 0 -> Kiln.Registry.CreatureKind
-[KILNX031]Kiln.Registry.CreatureKind.Villager = 3 -> Kiln.Registry.CreatureKind
-[KILNX031]Kiln.Registry.CreatureKind.Wildlife = 1 -> Kiln.Registry.CreatureKind
+[KILNX031]Kiln.Registry.RegistryCreatureKind
+[KILNX031]Kiln.Registry.RegistryCreatureKind.Animal = 2 -> Kiln.Registry.RegistryCreatureKind
+[KILNX031]Kiln.Registry.RegistryCreatureKind.Enemy = 0 -> Kiln.Registry.RegistryCreatureKind
+[KILNX031]Kiln.Registry.RegistryCreatureKind.Villager = 3 -> Kiln.Registry.RegistryCreatureKind
+[KILNX031]Kiln.Registry.RegistryCreatureKind.Wildlife = 1 -> Kiln.Registry.RegistryCreatureKind
 [KILNX031]Kiln.Registry.CreatureLoot
 [KILNX031]Kiln.Registry.CreatureLoot.Disabled.get -> bool
 [KILNX031]Kiln.Registry.CreatureLoot.Disabled.set -> void

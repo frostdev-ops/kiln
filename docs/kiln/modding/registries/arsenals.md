@@ -53,7 +53,7 @@ registry.Alter(stage =>
 });
 ```
 
-`stage.Arsenals` is a `RegistryEntries<ArsenalEntry>`; `Attacks` is a list of `ArsenalAttack` (`Index`, `Chance`, `Threat`, `MinRange`,
+`stage.Arsenals` is a `RegistryEntries<ArsenalEntry>`; `Attacks` is a list of `RegistryArsenalAttack` (`Index`, `Chance`, `Threat`, `MinRange`,
 `MaxRange`, `MaxHeight`). The attack's order is the game's, so name an attack by its index only after reading the arsenal on this
 build.
 

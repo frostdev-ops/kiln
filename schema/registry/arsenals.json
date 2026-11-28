@@ -22,7 +22,7 @@
       "doc": "The arsenal's attacks in the game's order. Index i in a field path (attacks[2].chance) is that order. An arsenal keeps its attacks: only their values change (no attack is added or removed).",
       "of": {
         "type": "struct",
-        "typeName": "ArsenalAttack",
+        "typeName": "RegistryArsenalAttack",
         "fields": {
           "chance": {
             "type": "float",

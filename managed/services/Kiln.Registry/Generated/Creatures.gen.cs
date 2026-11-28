@@ -19,7 +19,7 @@ public sealed partial class CreatureEntry : IRegistryEntry
 
     /// <summary>What the creature is, by the behaviour it has: an enemy, a wild animal, a farm animal or pet, a villager.</summary>
     [RegistryField("creatures.kind", RegistryApplies.Now, JoinedClient = "serverOnly")]
-    public CreatureKind Kind => (CreatureKind)RegistryCells.Enum(_c, CreatureFields.Kind, _i, CreatureKindNames.All);
+    public RegistryCreatureKind Kind => (RegistryCreatureKind)RegistryCells.Enum(_c, CreatureFields.Kind, _i, RegistryCreatureKindNames.All);
 
     /// <summary>The level a creature spawns at when its spawner sets none (most spawners set their own). Creatures that spawn after the edit get it; creatures already in the world keep the value they spawned with.</summary>
     [RegistryField("creatures.level", RegistryApplies.Now, JoinedClient = "serverOnly")]
@@ -264,7 +264,7 @@ public sealed partial class CreatureSight
 
 /// <summary>What the creature is, by the behaviour it has: an enemy, a wild animal, a farm animal or pet, a villager.</summary>
 [global::System.Diagnostics.CodeAnalysis.Experimental("KILNX031", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/registries/creatures.md")]
-public enum CreatureKind
+public enum RegistryCreatureKind
 {
     /// <summary>enemy</summary>
     Enemy = 0,
@@ -276,7 +276,7 @@ public enum CreatureKind
     Villager = 3,
 }
 
-internal static class CreatureKindNames
+internal static class RegistryCreatureKindNames
 {
     internal static readonly string[] All = { "enemy", "wildlife", "animal", "villager" };
 }

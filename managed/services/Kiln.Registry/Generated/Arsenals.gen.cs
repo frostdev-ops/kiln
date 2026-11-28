@@ -19,16 +19,16 @@ public sealed partial class ArsenalEntry : IRegistryEntry
 
     /// <summary>The arsenal's attacks in the game's order. Index i in a field path (attacks[2].chance) is that order. An arsenal keeps its attacks: only their values change (no attack is added or removed).</summary>
     [RegistryField("arsenals.attacks", RegistryApplies.Now, JoinedClient = "serverOnly")]
-    public RegistryEntryList<ArsenalAttack> Attacks => new(_c, ArsenalFields.Attacks, static (c, i) => new ArsenalAttack(c, i), static (c, i) => RegistryCells.Snapshot(c, i, ArsenalFields.AttacksElement));
+    public RegistryEntryList<RegistryArsenalAttack> Attacks => new(_c, ArsenalFields.Attacks, static (c, i) => new RegistryArsenalAttack(c, i), static (c, i) => RegistryCells.Snapshot(c, i, ArsenalFields.AttacksElement));
 }
 
 /// <summary>The arsenal's attacks in the game's order. Index i in a field path (attacks[2].chance) is that order. An arsenal keeps its attacks: only their values change (no attack is added or removed).</summary>
 [global::System.Diagnostics.CodeAnalysis.Experimental("KILNX031", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/registries/arsenals.md")]
-public sealed partial class ArsenalAttack
+public sealed partial class RegistryArsenalAttack
 {
     private readonly IRegistryCells _c;
     private readonly int _i;
-    internal ArsenalAttack(IRegistryCells cells, int index) { _c = cells; _i = index; }
+    internal RegistryArsenalAttack(IRegistryCells cells, int index) { _c = cells; _i = index; }
 
     /// <summary>The element's index in its list.</summary>
     public int Index => _i;

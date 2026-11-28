@@ -30,7 +30,7 @@
       "readOnly": true,
       "applies": "now",
       "doc": "What the creature is, by the behaviour it has: an enemy, a wild animal, a farm animal or pet, a villager.",
-      "typeName": "CreatureKind",
+      "typeName": "RegistryCreatureKind",
       "joinedClient": "serverOnly"
     },
     "level": {

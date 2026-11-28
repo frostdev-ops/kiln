@@ -196,6 +196,7 @@ def load(root):
         regs[name] = reg
     errors += check_lengths(regs)
     errors += check_type_names(regs)
+    errors += check_kiln_names(regs, kiln_type_names(root))
     errors += check_game_words(regs, game_names(root, regs))
     return Model(regs, errors, str(root))
 
@@ -306,6 +307,40 @@ def check_type_names(regs):
                 errs.append(f"{reg.name}: the C# type name {n} is used twice ({seen[n]} and {reg.name} {what})")
             elif n not in seen:
                 seen[n] = f"{reg.name} {what}"
+    return errs
+
+
+KILN_TYPE_LINE = re.compile(r"^(?:\[\w+\])?~?Kiln\.([A-Z]\w*)(?:<[^<>]*>)?$")
+
+
+def kiln_type_names(root):
+    """{name: assembly} of the public types of namespace Kiln in every PublicAPI record but Kiln.Registry's: a generated
+    type of the same name makes the name ambiguous (CS0104) in a mod that has both `using Kiln;` and `using Kiln.Registry;`."""
+    out = {}
+    managed = Path(root) / "managed"
+    if not managed.is_dir():
+        return out
+    for p in sorted(managed.rglob("PublicAPI.*.txt")):
+        if p.name not in ("PublicAPI.Shipped.txt", "PublicAPI.Unshipped.txt") or p.parent.name == "Kiln.Registry" \
+                or {"bin", "obj"} & set(p.parts):
+            continue
+        for line in p.read_text(encoding="utf-8-sig").splitlines():
+            m = KILN_TYPE_LINE.match(line.strip())
+            if m:
+                out.setdefault(m.group(1), p.parent.name)
+    return out
+
+
+def check_kiln_names(regs, kiln):
+    """dev.32 review-beta1: a generated type never takes the name of a public Kiln type (the rule that named RegistryRarity
+    beside Kiln.Rarity): Kiln.Registry's types are used with `using Kiln;` in the same file."""
+    errs = []
+    for reg in regs.values():
+        for n, what in type_names(reg):
+            if n in kiln:
+                errs.append(f"{reg.name}: the C# type {n} ({what}) has the name of Kiln.{n} ({kiln[n]}): a mod with "
+                            f"`using Kiln;` and `using Kiln.Registry;` cannot name either (CS0104); give it a typeName "
+                            f"such as Registry{n}")
     return errs
 
 
