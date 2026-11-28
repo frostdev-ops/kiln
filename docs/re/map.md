@@ -190,7 +190,8 @@ guessed frame delay establishes that native UI has finished reading their bytes.
 Custom cache is reset and fully rebuilt on each generation change; entries above 1024 drop silently. [seen, session 1]
 Counts were normal/label/special 833/6/1; custom 0→528 on opening map→529 after adding a pin. Initial zero was lazy
 cache state, not an empty save. [seen, session 2] Local append produced a copied icon and yellow diamond, removed
-within 3 s after stopping injection; no hover-name tooltip. Existing Render world label stayed world-locked.
+within 3 s after stopping injection; no hover-name tooltip (its text view was empty: "The tooltip's name" below).
+Existing Render world label stayed world-locked.
 
 ### The list in a frame (GitHub #159; client 26430625 `5d9ef2f1…`) [static]
 
@@ -242,6 +243,61 @@ the list's end and `append_rows` writes them over in place, so they are never th
 whose clear did not run. A ticked step without Kiln's Post (the core removes a tick subscriber that faults) drops the
 kept rows, so they never outlive the Post that would move or remove them. Without the feature the rows are written at
 the Post only.
+
+### The tooltip's name (GitHub #160; client 26430625 `5d9ef2f1…`) [static]
+
+Read 2026-11-28 from the client exe (capstone over `.pdata` and call/rip xrefs, never run), for cykel-far's request that
+`MapLabel.NativeTooltip` show a marker's `Text` when the map's cursor is on it. Pinned by
+`tools/sigport/tests/test_markers_map_text.py`; sigdb feature `markers.map_tooltip_text`
+(`sigdb/symbols/client.d/dev31-markers-map-text.json`). All of it runs in the UI frame, on the main thread.
+
+1. **The hover.** The map canvas `0xc36070` rebuilds its marker layer `0xda4770` when a list count changed (`0xc362db`),
+   then clears the hovered entry (canvas `+0x28` and `+0x20`, `0xc36566`) and hit-tests the layer's items again
+   (`0xd9ee20`, `0xc3656e`), every frame. So the hovered entry is a slot below the list's current count. Later it calls
+   the **crosshair window** `0xc2eea0` ("CrosshairWindow", `0xc37b6b`) with it.
+2. **The tooltip.** The crosshair window takes the entry's title and the line under it from `TooltipTexts` `0xd1df80`
+   (`0xc2f4f7`) and draws **no tooltip when the title is empty** (`0xc2f4fc` to `0xc2fabc`). The title is a native text
+   line (`ui/NativeTextLine` `0xb1da10` at `0xc2f74c`, the view at `rbp-0x80`), the line under it another (`0xc2fa77`).
+   `TooltipTexts` starts from the name resolver (`0xd1dfb4`) and changes it for a few types only:
+   - Ancient Spire (`0xa17072be` fast travel, `0x98b2d65d` locked, `mapmarker_tower_locked`): the type's own name
+     ("Ancient Spire") is the title and the entry's name goes to the line under it (`0xd1e007..0xd1e060`).
+   - Water Source (`0x4293eae5`, `mapmarker_playerWaterSource`): always the type's own name; the entry's name is not
+     shown (`0xd1e062`).
+   - A Hint-visibility or investigation (`0xafce0c5f`) entry can take its quest's text by marker id (`+8`); id 0 finds
+     none (`0xd3a1f0` returns null for 0, `0xd39cc0` an empty view).
+3. **The name resolver** `0xd3d350` (`void(Name* out, const MapEntry*)`, `Name` = `{ptr, u64 len, fnv64}`), in this
+   order:
+   1. **the entry's text view**: when `+0x58` (length) is not 0, `PlayerText(&tmp, entry + 0x50)` (`0xd3d394`), its
+      result when its status byte is 0, else an empty name;
+   2. the custom-pin text view (`+0x70` length not 0): `{+0x68, +0x70, +0x78}` as it is (`0xd3d3f0`);
+   3. the attention marker (`0xeb250f27`) at the entity and position of the record at GameUiData `+0x14020`: the loca
+      text at `+0x4d30`;
+   4. byte `+0x9c` set: a name by the entity (`0xd44530`, `0xd44230`);
+   5. the type (`0xd3cf90`): a custom-pin type (`isCustomMarkerType`, `+0x19`) is the loca text at `+0xaea0`
+      ("Custom marker"; `0xd3d4e8`);
+   6. the LocaTagComponent hash `+0x38`: 0 is an empty name (`0xd3d529`); Hint or investigation entries the quest's
+      name (above), else the loca text of `+0x38`.
+   The layer calls it too (four sites) and keeps the result in its items (`+0x18`), but the canvas does not draw that
+   copy (`0xc34650` reads the item's flags, type and icon); the hover path calls the resolver again every frame.
+4. **PlayerText** `0xd28af0` (`Result*(Result* out, const StringView* text)`, 40 call sites in 36 UI functions: the
+   game's path for text players write). `0xa49b40` copies the bytes into a 1 KiB buffer (the heap beyond), through the
+   platform's text filter when the game has one (UiApp `+0x10` → `+0x110`, `0x1091f30`: a virtual call; more than
+   1024 bytes refused there), else as they are; then `"%k"` is formatted into the **UI's
+   string buffer** (`0x11b0da0`: UiApp `+0x18`, its array at `+0x6b10`; "!!! String buffer out of memory !!!" when it
+   is full) with the escape argument `0x89a9e0`: a `\` before every `\` and `<` (`0xd28b85`, `0xd28bc9`), so a text
+   carries no markup. Byte by byte: UTF-8's lead and continuation bytes are never `\` or `<`. The result is that copy
+   with its 64-bit FNV-1a of sign-extended bytes.
+5. **The game's writers of the two views.** The append `0x302970` clears `+0x50`, `+0x58`, `+0x60` and `+0x68`,
+   `+0x70`, `+0x78` of every entry it adds. `replicate_map_markers_for_ui` fills `+0x50` (view) and `+0x60` (hash) only
+   from the entity's CustomPlayerString (its string id through `0xe8ecd0`; no string, no write: `0x3167d7`), the hash
+   a wrapping 64-bit FNV-1a over each byte sign-extended (`0x316830`). `custom_map_markers_ui` `0x3087f0` fills
+   `+0x68`/`+0x78` from the registry node's inline text (`+0x20`, length byte `+0xa0`): **the player's own pins carry
+   their own names** in that second view, and an unnamed one falls to "Custom marker" (step 5 above).
+
+So the normal list already has a per-row text field the tooltip honours first: route (a). A row's text view is its name
+everywhere the game names a map entry (the tooltip, the locator lists `0xbb9b80`/`0xcf1fd0`/`0xcf2900`, the panel
+`0xc2fb40`), through the same filter and escaping as a name another player wrote. What kiln.markers makes of it:
+docs/kiln/services/markers.md.
 
 ### Compass, projection and names [static] [refl]
 
