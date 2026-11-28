@@ -1,6 +1,28 @@
 {
   "released": [
     {
+      "version": "0.2.0-dev.31.29",
+      "date": "2026-11-28",
+      "title": "Windows 11 main menu fix",
+      "summary": "Windows 11 players whose mods bring their own models, materials or textures get past the main menu again.",
+      "patch": true,
+      "features": [
+        {
+          "title": "No more main-menu crash on Windows 11 with content mods",
+          "text": "On Windows 11 the game reads its files through a newer Windows reader that Kiln did not answer, so a mod's own models, materials and textures read as empty and the game stopped in the main menu (\"error loading streamed texture mip tail\" in its log). Kiln now has the game use its standard reader, the one it uses on Windows 10 and with its --disable-ioring launch option (thanks Rebur, KR-KZRX).",
+          "area": "core",
+          "kind": "fix",
+          "gamePending": true
+        },
+        {
+          "title": "Support reports spot this crash",
+          "text": "A support report from an older Kiln that hit this crash now says so and names the --disable-ioring launch option, which can be removed after updating.",
+          "area": "launcher",
+          "kind": "improved"
+        }
+      ]
+    },
+    {
       "version": "0.2.0-dev.31.28",
       "date": "2026-11-28",
       "title": "Steady map icons",
@@ -4081,30 +4103,8 @@
   ],
   "upcoming": [
     {
-      "version": "0.2.0-dev.31.29",
-      "status": "next",
-      "title": "Windows 11 main menu fix",
-      "summary": "Windows 11 players whose mods bring their own models, materials or textures get past the main menu again.",
-      "patch": true,
-      "features": [
-        {
-          "title": "No more main-menu crash on Windows 11 with content mods",
-          "text": "On Windows 11 the game reads its files through a newer Windows reader that Kiln did not answer, so a mod's own models, materials and textures read as empty and the game stopped in the main menu (\"error loading streamed texture mip tail\" in its log). Kiln now has the game use its standard reader, the one it uses on Windows 10 and with its --disable-ioring launch option (thanks Rebur, KR-KZRX).",
-          "area": "core",
-          "kind": "fix",
-          "gamePending": true
-        },
-        {
-          "title": "Support reports spot this crash",
-          "text": "A support report from an older Kiln that hit this crash now says so and names the --disable-ioring launch option, which can be removed after updating.",
-          "area": "launcher",
-          "kind": "improved"
-        }
-      ]
-    },
-    {
       "version": "0.2.0-dev.32",
-      "status": "planned",
+      "status": "next",
       "title": "Pets, taming and more registries",
       "summary": "Kiln makes pets and taming possible for mods, and adds registries for creatures, spells, buffs, perks, stations, skills, world rules, limits and loot.",
       "features": [
