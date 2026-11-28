@@ -2,7 +2,7 @@
 
 Wiki: [dev kit](https://frostdev.io/kiln/wiki/dev-kit), [your first mod](https://frostdev.io/kiln/wiki/first-mod).
 
-`Kiln.Api`, `Kiln.Sdk`, `Kiln.Templates` and `Kiln.TestKit` share the full MDK pack version: `0.2.0-dev.31.30` for this release (the
+`Kiln.Api`, `Kiln.Sdk`, `Kiln.Templates` and `Kiln.TestKit` share the full MDK pack version: `0.2.0-dev.31.31` for this release (the
 four `.nupkg` files on its GitHub release), or a unique
 `0.2.0-dev.local.<date>.<time>` for a local pack. `0.2.0` is only the source's base version. These packages use a local feed,
 not nuget.org: pass the MDK feed as `--feed` or `$KILN_FEED`. Use the actual pack version when editing a project by hand.
@@ -52,7 +52,7 @@ launcher window yet.
 
 The project file:
 ```xml
-<Project Sdk="Kiln.Sdk/0.2.0-dev.31.30">
+<Project Sdk="Kiln.Sdk/0.2.0-dev.31.31">
   <PropertyGroup>
     <KilnModId>my-mod</KilnModId>
     <Version>1.0.0</Version>

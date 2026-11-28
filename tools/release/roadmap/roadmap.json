@@ -4125,6 +4125,21 @@
       ]
     },
     {
+      "version": "0.2.0-dev.31.31",
+      "status": "planned",
+      "title": "Settings of removed mods, marked",
+      "summary": "The Configs window marks the settings Kiln keeps for mods you removed as not installed, read-only, and lets you clear them into Kiln's settings backups.",
+      "patch": true,
+      "features": [
+        {
+          "title": "Removed mods' settings are marked \"Not installed\"",
+          "text": "Remove keeps a mod's settings, so adding the mod again brings them back. The Configs window now lists those kept settings apart, under \"Not installed\", read-only, instead of next to your mods with switches that looked live. Clear, or Clear all, moves them into Kiln's settings backups after asking; your installed mods' settings are never touched (thanks HTR).",
+          "area": "launcher",
+          "kind": "improved"
+        }
+      ]
+    },
+    {
       "version": "0.2.0-dev.32",
       "status": "planned",
       "title": "Pets, taming and more registries",
