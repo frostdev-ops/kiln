@@ -145,6 +145,7 @@ void KILN_CALL t_draw_text_in(uint32_t layer, float x, float y, uint32_t rgba, f
     IN_FRAME();
     if (!s.ptr || !s.len) return;
     const float fs = size > 0 ? size : ImGui::GetFontSize();
+    kui::note_text(s.ptr, s.len);
     layer_list(layer)->AddText(ImGui::GetFont(), fs, ImVec2(x, y), col(rgba), s.ptr, s.ptr + s.len, wrap > 0 ? wrap : 0.0f);
 }
 
@@ -153,6 +154,7 @@ void KILN_CALL t_text_size_ex(KilnStr s, float size, float wrap, float* w, float
     if (h) *h = 0;
     if (!kui::in_frame() || !s.ptr) return;
     const float fs = size > 0 ? size : ImGui::GetFontSize();
+    kui::note_text(s.ptr, s.len);
     const ImVec2 v = ImGui::GetFont()->CalcTextSizeA(fs, FLT_MAX, wrap > 0 ? wrap : 0.0f, s.ptr, s.ptr + s.len);
     if (w) *w = v.x;
     if (h) *h = v.y;

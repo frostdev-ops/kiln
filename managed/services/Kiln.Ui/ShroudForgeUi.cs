@@ -22,7 +22,7 @@ internal static class ShroudForgeUi
 {
     /// <summary>What a read or a save left of a package, published as one: the package (or why there is none), the page's
     /// view of it (made on the worker that read it) and a hash of the files it was read from.</summary>
-    private sealed record State(SfPackage? Package, string? Error, View? View, string? Hash, int Texts = -1);
+    private sealed record State(SfPackage? Package, string? Error, View? View, string? Hash, int Texts = -1, bool Library = false);
 
     private sealed class Entry
     {
@@ -94,6 +94,7 @@ internal static class ShroudForgeUi
         string? error = null;
         View? view = null;
         var hash = FilesHash(folder);
+        var library = IsLibraryEntry(folder);
         try
         {
             // the files as last read (and the page's view of them) stay: a re-read of the same bytes makes nothing new
@@ -120,12 +121,36 @@ internal static class ShroudForgeUi
             lock (e)
             {
                 // a save that published while this read ran has newer values than this read may have seen
-                if (e.Generation == generation && (package is not null || error is not null)) e.Now = new State(package, error, view, hash, texts);
+                if (e.Generation == generation && (package is not null || error is not null)) e.Now = new State(package, error, view, hash, texts, library);
             }
             Interlocked.Exchange(ref e.ReadAtMs, Environment.TickCount64);
             Interlocked.Exchange(ref e.Reading, 0);
         }
     }
+
+    /// <summary>The folder is an entry of Kiln's Library (<c>&lt;library&gt;/&lt;kind&gt;/&lt;id&gt;/&lt;version&gt;+&lt;hash8&gt;</c>,
+    /// with its import record <c>&lt;folder&gt;.json</c> beside it; kiln-manage library.rs record_path): files the launcher
+    /// checks against their hash before it copies them, which ShroudForge never runs. A change there breaks the entry (the
+    /// launcher then calls the mod "changed in its folder"), so the page shows such a folder and never writes it. Review of
+    /// 0.2.0-dev.31.24: 0.2.0-dev.31.23's page drew the launcher's compatibility entry from the Library folder and saved
+    /// its switch and settings there (HTR, Nexus 347). Worker threads only (file access).</summary>
+    internal static bool IsLibraryEntry(string folder)
+    {
+        try
+        {
+            var record = folder.TrimEnd('/', '\\') + ".json";
+            var info = new FileInfo(record);
+            if (!info.Exists || info.Length > 1 << 20) return false;
+            using var doc = JsonDocument.Parse(File.ReadAllBytes(record));
+            var r = doc.RootElement;
+            return r.ValueKind == JsonValueKind.Object && r.TryGetProperty("kind", out var k) && k.ValueKind == JsonValueKind.String &&
+                   r.TryGetProperty("hash", out var h) && h.ValueKind == JsonValueKind.String && r.TryGetProperty("imported", out _);
+        }
+        catch (Exception) { return false; }
+    }
+
+    /// <summary>The page's last read found <paramref name="folder"/> to be a Library entry (<see cref="IsLibraryEntry"/>).</summary>
+    internal static bool IsLibraryCopy(string folder) => Packages.TryGetValue(folder, out var e) && e.Now.Library;
 
     /// <summary>A hash of mod.json and extended.mod.json as they are now, or null when they cannot be read.</summary>
     private static string? FilesHash(string folder)
@@ -279,6 +304,7 @@ internal static class ShroudForgeUi
                 var before = FileBytes(id.Folder);
                 try
                 {
+                    if (IsLibraryEntry(id.Folder)) throw new SfEditException(KilnText.T("shroudforge.library_copy"));
                     var p = id.Key is null
                         ? ShroudForgePackages.SetEnabled(id.Folder, value is JsonValue v && v.GetValueKind() == JsonValueKind.True)
                         : SetSetting(id.Folder, id.Key, value);
@@ -655,6 +681,13 @@ internal static class ShroudForgeUi
         }
         var now = Current(folder, out var error);
         var p = now.Package;
+        // Kiln's Library copy of the mod (the details name its folder): never written here (IsLibraryEntry)
+        if (now.Library)
+        {
+            label(ui, KilnText.T("shroudforge.labels.settings"), s);
+            using (ui.PushColor(UiColorSlot.Text, GameColors.Warning)) ui.TextWrapped(KilnText.T("shroudforge.library_copy"));
+            return;
+        }
         // what the mod published for the player, which ShroudForge's own window shows in its news (a hosted or installed
         // start: a kiln-backend start never reads ShroudForge's folders)
         if (m.Sfi is null) News(ui, m, folder, p, s, k, label);

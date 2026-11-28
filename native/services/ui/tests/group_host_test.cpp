@@ -471,6 +471,45 @@ int main() {
     set_kiln("en");
     CHECK(until(KILN_UI_GLYPHS_LATIN, 0));
 
+    // 8. Kiln and the game in a Latin language, and a mod's Chinese label drawn through kiln.ui's slots (HTR, 2026-11-27:
+    //    Nexus 347's ShroudForge settings drew as ????): zh-CN's group joins the atlas for it; look_info stays Latin (Kiln's
+    //    texts are English). Latin text through the same slots asks for nothing.
+    auto slot_frame = [](const char* text) {
+        kui::style_frame_begin();
+        ImGui::NewFrame();
+        kui::t_frame = true;
+        ImGui::Begin("slots");
+        bool on = false;
+        kui_draw::t_checkbox(KilnStr{text, std::strlen(text)}, &on);
+        kui_draw::t_text_wrapped(KilnStr{text, std::strlen(text)});
+        ImGui::End();
+        kui_draw::v3_frame_end();
+        kui::style_frame_end();
+        kui::t_frame = false;
+        ImGui::Render();
+        textures(ImGui::GetDrawData());
+    };
+    for (int n = 0; n < 5; ++n) slot_frame("Sulfur / Archaic Essence 4");
+    CHECK(kui::g_group_lang.load() == 0 && merged(base) == 2);
+    slot_frame("\xe7\xa1\xab\xe7\xa3\xba | \xe7\xa1\xab\xe7\xa3\xba / Sulfur");  // 硫磺 | 硫磺 / Sulfur
+    for (int n = 0; n < 2000 && !(kui::g_group_lang.load() == fg::kZhCn && kui::g_group_state.load() == 3); ++n) {
+        frame();
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    frame();
+    CHECK(kui::g_group_lang.load() == fg::kZhCn && kui::g_group_state.load() == 3 && merged(base) == 4);
+    CHECK(info().glyphs == KILN_UI_GLYPHS_LATIN && info().glyph_language == 0);
+    CHECK(logged("a text in Chinese, Japanese or Korean is drawn"));
+    // Kiln's language picks its own group still (Japanese here), and back to Latin the Chinese group stays for the text
+    set_kiln("ja");
+    CHECK(until(KILN_UI_GLYPHS_READY, fg::kJaJp));
+    set_kiln("en");
+    for (int n = 0; n < 2000 && !(kui::g_group_lang.load() == fg::kZhCn && kui::g_group_state.load() == 3); ++n) {
+        frame();
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    CHECK(kui::g_group_lang.load() == fg::kZhCn && merged(base) == 4);
+
     ImGui::DestroyContext();
     std::printf("group_host_test: %d checks, %d failed\n", g_checks, g_fail);
     return g_fail ? 1 : 0;

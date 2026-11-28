@@ -42,6 +42,7 @@ size_t active_text_cap(const char* label, size_t cap, bool read_only, bool multi
 bool KILN_CALL t_input_text_ex(KilnStr l, char* buf, size_t cap, uint32_t flags, float w, float h) {
     IN_FRAME(false);
     if (!buf || !cap) return false;
+    kui::note_text(buf, strnlen(buf, cap));
     const char* label = z(l);
     cap = active_text_cap(label, cap, (flags & KUI_INPUT_READ_ONLY) != 0, (flags & KUI_INPUT_MULTILINE) != 0);
     ImGuiInputTextFlags f = ImGuiInputTextFlags_None;

@@ -133,6 +133,18 @@ reads the game's UI font, and merges it into the overlay's fonts after their Lat
   a warm cache (a cold hard disk takes longer); the first frame in Chinese about 60-100 ms of software rendering in the
   preview. The files stay in memory while the language is in use (`font_budget.h`: one file at most 16 MiB, a group at
   most 24 MiB; zh-CN is 18.6 MB on 26430625). Another language's group replaces them; a Latin language drops them.
+- **Mods' own texts (0.2.0-dev.31.24).** A mod's text in Chinese, Japanese or Korean drawn while neither Kiln's language
+  nor the game's is one (HTR, 2026-11-27: the settings of Mineral Production Boxes, Nexus 347, are Chinese, and Kiln's
+  ShroudForge page drew them as `????`): kiln-ui.dll looks at the text it is given to draw (every label, text, combo item
+  and text field value of any `Ui` call, and the render service's text: `native/services/ui/text_glyphs.h`), and at the
+  first such rune loads the zh-CN group (Noto Serif SC for Chinese and kana, KR for Hangul syllables) for the rest of the
+  process; a Latin language keeps it then. The check costs one atomic read per text once the group is asked for, and a
+  byte scan of each text before that (Latin text never matches). When the game's font cannot be read, kiln.log says so once
+  (below) and the text stays `?`. The text shows `?` for
+  the frames until the group has joined (well under a second from a warm cache). Cost: nothing downloaded; the group's
+  18.6 MB of font files stay in memory from then on, and glyphs are made as they are drawn. Japanese text drawn this way
+  gets the SC font's shapes of kana and kanji. Kiln's language, and the game's, still pick their own group first; look_info's
+  `glyphs` stays about them. kiln.log: `ui: a text in Chinese, Japanese or Korean is drawn (a mod's) ...`.
 - **No boxes.** Until the font has joined the atlas, Kiln's overlay texts are English (the game's own menu entries and the
   footer, which the game draws with its own fonts, are already in the language). When the font cannot be read (no
   `kiln.assets`, another build's data), kiln.log says why (`ui: the game's font of language 20 is not available (...)`),

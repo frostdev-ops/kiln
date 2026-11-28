@@ -120,7 +120,8 @@ internal static class SfiCatalog
     // ------------------------------------------------------------------------------------- the group ----
 
     /// <summary>Worker only: the ShroudForge group of a non-Legacy start. <paramref name="emlRows"/> is the EML group's list:
-    /// an EML package the interpreter runs stays an EML row (with the interpreter's truth), never a second ShroudForge row.</summary>
+    /// an EML package the interpreter runs stays an EML row (with the interpreter's truth), never a second ShroudForge row;
+    /// a ShroudForge package kiln-eml or the profile calls EML (ModCatalog.IsSfOwned) moves from it to this group.</summary>
     public static void Build(SfiBranch branch, CatalogSources src, IReadOnlyList<ModCatalog.ProfileEntry> entries,
         Func<ModCatalog.ProfileEntry, string> folderOf, Func<ModCatalog.ProfileEntry, bool> missing, List<CatalogMod> emlRows,
         Action<CatalogMod> add, Action<string?, EngineHealth, string?, bool> engine)
@@ -152,8 +153,28 @@ internal static class SfiCatalog
             };
         }
 
-        // 1. EML rows of packages in the mods root that the interpreter lists: refined in place
+        // 1. EML rows of packages in the mods root that the interpreter lists: refined in place. A ShroudForge package
+        // among them (ModCatalog.IsSfOwned: its own settings in an extension that says EML, Nexus 347) is this group's row,
+        // with its switch and settings: where the interpreter lists it, before it has reported, and while ShroudForge's
+        // own loader or an unreadable state runs the folder (Default says which)
         var covered = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // (one row per mod: an EML row for the folder of a profile ShroudForge entry, the launcher's compatibility entry for
+        // an EML package that needs ShroudForge's runtime, goes; step 2's row stands for it. kiln-eml names the entry's
+        // Library folder as the plan's data writer, Kiln's copy in the mods root otherwise: both are the entry's. A failed or
+        // missing EML row stays: kiln-eml's failure shows nowhere else)
+        var profileFolders = entries.SelectMany(e => new[] { ModCatalog.NormPath(e.Path), ModCatalog.NormPath(folderOf(e)) }).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        emlRows.RemoveAll(m => !m.NeedsAttention && m.Folder is { } ef && profileFolders.Contains(ModCatalog.NormPath(ef)));
+        foreach (var m in ModCatalog.TakeSfPackages(emlRows, root, m => record is null || record.Find(SfPackageId(m.Folder!)) is not null))
+        {
+            var facts = ModCatalog.SfFacts(m.Folder!);
+            var pkgId = SfPackageId(m.Folder!);
+            var row = Row(m with { Engine = "shroudforge" }, pkgId, facts?.On);
+            // nothing of the interpreter's about it yet (it has not reported, or ShroudForge's own loader runs the folder):
+            // kiln-eml's words where they say the profile has it off, or that it runs although off
+            if (record?.Find(pkgId) is null && ModCatalog.KeepsEmlWords(m)) row = row with { State = m.State, Word = m.Word, Reason = m.Reason, Help = m.Help };
+            add(row);
+            covered.Add(ModCatalog.NormPath(m.Folder!));
+        }
         for (var i = 0; i < emlRows.Count; i++)
         {
             var m = emlRows[i];
@@ -206,6 +227,9 @@ internal static class SfiCatalog
             var norm = ModCatalog.NormPath(sub);
             if (seen.Contains(leaf) || covered.Contains(norm)) continue;
             if (emlFolders.Contains(norm) && string.Equals(ModCatalog.PlacedMarker(sub)?.Kind, "eml", StringComparison.OrdinalIgnoreCase)) continue;
+            // a ShroudForge package the interpreter does not run while kiln-eml lists it: the EML row only (it says why its
+            // settings do nothing)
+            if (emlFolders.Contains(norm) && ModCatalog.IsSfOwned(sub)) continue;
             if (ModCatalog.SfFacts(sub) is not { } facts) continue;
             var (sid, sname, sversion, on) = facts;
             var pkgId = sid ?? leaf;
@@ -387,6 +411,9 @@ internal static class SfiCatalog
 
     private static bool InRoot(string folder, string root) =>
         Path.GetDirectoryName(folder.TrimEnd('/', '\\')) is { } parent && ModCatalog.SamePath(parent, root);
+
+    /// <summary>The package id a folder's row is looked up by in the interpreter's record (as step 1 below does).</summary>
+    private static string? SfPackageId(string folder) => ModCatalog.SfFacts(folder)?.Id ?? ManifestId(folder);
 
     private static string? ManifestId(string folder)
     {

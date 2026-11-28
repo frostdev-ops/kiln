@@ -206,6 +206,37 @@ public sealed class ShroudForgeTests : IDisposable
         Assert.Empty(Directory.GetFiles(dir, "*.tmp"));
     }
 
+    /// <summary>Review of 0.2.0-dev.31.24 (HTR, Nexus 347): 0.2.0-dev.31.23's page drew the launcher's compatibility entry
+    /// from the mod's Library folder and saved its switch and settings there. ShroudForge never runs a mod from Kiln's Library,
+    /// and the launcher checks an entry's files against its hash before it copies them (library::changed_error: "was changed
+    /// in its folder"). A Library entry (<c>&lt;kind&gt;/&lt;id&gt;/&lt;version&gt;+&lt;hash8&gt;</c> with its import record
+    /// <c>&lt;folder&gt;.json</c> beside it) is shown, never written; a folder without such a record is written as before.</summary>
+    [Fact]
+    public void A_library_entry_is_shown_but_never_written()
+    {
+        var entry = Path.Combine(_root, "library", "eml", "mineral-production-boxes", "0.3.1+0a1b2c3d");
+        Directory.CreateDirectory(entry);
+        File.WriteAllText(Path.Combine(entry, "mod.json"), """{"id":"mineral-production-boxes","name":"Boxes","version":"0.3.1","capabilities":["runtime"]}""");
+        File.WriteAllText(Path.Combine(entry, "extended.mod.json"), """{"schemaVersion":1,"enabled":true,"launcher":"EML","settings":{"amount":{"value":1}}}""");
+        File.WriteAllText(entry + ".json", """{"format":1,"kind":"eml","id":"mineral-production-boxes","version":"0.3.1","hash":"kdh1:0a1b2c3d","imported":"2026-11-27T22:00:00Z","size":1}""");
+        var before = File.ReadAllBytes(Path.Combine(entry, "extended.mod.json"));
+        ShroudForgeUi.ResetForTests();
+        ShroudForgeUi.Load(entry);
+        Assert.NotNull(ShroudForgeUi.Get(entry, out _));
+        Assert.True(ShroudForgeUi.IsLibraryCopy(entry));
+        ShroudForgeUi.Edit(entry, "amount", JsonValue.Create(5));
+        ShroudForgeUi.Edit(entry, null, JsonValue.Create(false));
+        ShroudForgeUi.Flush();
+        Assert.Equal(before, File.ReadAllBytes(Path.Combine(entry, "extended.mod.json")));
+        // the same files in a mods folder (no import record beside them): written
+        var dir = Package();
+        ShroudForgeUi.Load(dir);
+        Assert.False(ShroudForgeUi.IsLibraryCopy(dir));
+        ShroudForgeUi.Edit(dir, "amount", JsonValue.Create(5));
+        ShroudForgeUi.Flush();
+        Assert.Equal(5, ShroudForgePackages.NumberOf(ShroudForgePackages.Read(dir).Settings[0].Value));
+    }
+
     /// <summary>A number that is not finite is refused before the writer, which would put null (serde_json's form)
     /// in its place; the launcher cannot hold one at all (serde_json's numbers are finite).</summary>
     [Theory]

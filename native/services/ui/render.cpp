@@ -13,6 +13,7 @@
 
 #include "imgui.h"
 #include "render_math.h"
+#include "text_glyphs.h"
 #include "kiln_hook.hpp"
 #include "safetyhook.hpp"  // safetyhook::Context: the camera hook's register view
 #include "services/kiln_render.h"
@@ -262,6 +263,7 @@ void KILN_CALL t_polyline(const float* xy, uint32_t count, uint32_t rgba, float 
 
 void KILN_CALL t_text(float x, float y, uint32_t rgba, float size, uint32_t flags, KilnStr s) {
     if (!sane2(x, y) || !s.ptr || !s.len) return;
+    kui::note_text(s.ptr, s.len);
     ImDrawList* d = dl();
     if (!d) return;
     ImFont* font = ImGui::GetFont();

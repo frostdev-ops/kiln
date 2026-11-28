@@ -925,6 +925,428 @@ public sealed class ModCatalogTests : IDisposable
         Assert.Equal(ModCatalog.HandEmlOff, Mod(s, "shroudforge", "own-folder").Reason);  // the player's own folder: the promised words
     }
 
+    // ---- a ShroudForge mod the profile or kiln-eml calls EML (HTR, Discord 2026-11-27: Mineral Production Boxes, Nexus 347) ----
+
+    /// <summary>Nexus 347's extended.mod.json: ShroudForge's EML stamp (<c>"launcher": "EML"</c>) with its own settings in
+    /// it, the whitelist ShroudForge's window shows.</summary>
+    private const string WhitelistExt = """
+        {"schemaVersion":1,"enabled":true,"targets":["client","server"],"launcher":"EML","settings":{
+          "whitelist":{"value":["Sulfur","Coal"],"control":"multiselect","label":"Whitelist","options":{"Sulfur":"Sulfur","Coal":"Coal","Iron":"Iron Ore"}},
+          "interval":{"value":1800,"min":30,"max":7200,"label":"Refill interval (s)","applyAt":"live"}}}
+        """;
+
+    /// <summary>What ShroudForge's ensure_eml_extension writes into an EML package (and Kiln into its EML copies).</summary>
+    private const string StampExt = """{"$schema":"https://bonsaibauer.github.io/shroudforge/schemas/extended.mod.schema.json","schemaVersion":1,"enabled":true,"targets":["client","server"],"launcher":"EML","settings":{}}""";
+
+    /// <summary>A package folder <c>mods/&lt;id&gt;</c>: mod.json, src/mod.lua, the given extended.mod.json (none when
+    /// null) and Kiln's EML marker when <paramref name="kilns"/>.</summary>
+    private string EmlPackage(string id, string? ext, bool kilns = true, string caps = "\"patch\",\"runtime\"", string parent = "mods")
+    {
+        var dir = Dir(parent, id);
+        File.WriteAllText(Path.Combine(dir, "mod.json"), $$"""{"id":"{{id}}","name":"Name {{id}}","version":"0.3.1","capabilities":[{{caps}}]}""");
+        File.WriteAllText(Path.Combine(Dir(parent, id, "src"), "mod.lua"), "return {}");
+        if (ext is not null) File.WriteAllText(Path.Combine(dir, "extended.mod.json"), ext);
+        if (kilns) File.WriteAllText(Path.Combine(dir, ".kiln-library.json"), $$"""{"format":1,"kind":"eml","id":"{{id}}","version":"0.3.1","hash":"h"}""");
+        return dir;
+    }
+
+    private void SfRuntimeActive(params string[] ids) =>
+        File.WriteAllText(Path.Combine(Dir("shroudforge"), "state.json"), JsonSerializer.Serialize(new
+        {
+            runtime = new { pid = Pid, running = true, updatedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds(), active = ids },
+        }));
+
+    /// <summary>HTR's start: ShroudForge's own install runs next to Kiln (self-hosted), and Kiln's copy of a profile EML
+    /// entry in ShroudForge's folder holds Nexus 347's settings. kiln-eml stood aside and said own-loader, which read as a
+    /// bare "Loaded" under EML with no switch and no settings. The row is ShroudForge's now, with ShroudForge's runtime
+    /// truth (its state.json says the mod is active) and the folder the page reads its switch and whitelist from. A real
+    /// EML mod beside it (the stamp only), and a mod with both manifests that is ShroudForge's own, stay where they were.</summary>
+    [Theory]
+    [InlineData("self-hosted")]
+    [InlineData("hosted")]
+    public void A_shroudforge_mod_kiln_eml_calls_eml_is_listed_under_shroudforge_with_its_settings(string mode)
+    {
+        var mods = Dir("mods");
+        var boxes = EmlPackage("mineral-production-boxes", WhitelistExt);
+        var real = EmlPackage("auto-loot", StampExt, caps: "\"patch\"");
+        var both = EmlPackage("climb-anywhere", """{"schemaVersion":1,"enabled":true,"targets":["client"],"settings":{"range":{"value":5,"min":1,"max":10}}}""", kilns: false);
+        File.WriteAllText(Path.Combine(both, ".kiln-library.json"), """{"format":1,"kind":"shroudforge","id":"climb-anywhere","version":"0.3.1","hash":"h"}""");
+        Profile(new()
+        {
+            ["eml"] = [new { id = "mineral-production-boxes", version = "0.3.1", path = boxes }, new { id = "auto-loot", version = "0.3.1", path = real }],
+            ["shroudforge"] = [new { id = "climb-anywhere", version = "0.3.1", path = both }],
+        });
+        var who = mode == "self-hosted" ? "ShroudForge (its own loader)" : "ShroudForge (hosted by Kiln)";
+        Write("eml.json", new
+        {
+            format = 1, pid = Pid, phase = "aside", aside = "ShroudForge owns startup asset patching and runs EML packages in its mods folder",
+            mods = new[]
+            {
+                new { id = "mineral-production-boxes", source = "profile", path = boxes, state = "own-loader", reason = $"runs under {who}: its ShroudForge switch is on (Kiln's copy at {boxes})" },
+                new { id = "auto-loot", source = "profile", path = real, state = "own-loader", reason = $"runs under {who}: its ShroudForge switch is on (Kiln's copy at {real})" },
+            },
+        });
+        Write("shroudforge.json", new { pid = Pid, mode, menu = mode == "hosted" ? "kiln" : null, runtime = "running", modsDir = mods, startupPrepared = true });
+        SfRuntimeActive("mineral-production-boxes", "auto-loot", "climb-anywhere");
+        var s = Read();
+
+        var row = Mod(s, "shroudforge", "mineral-production-boxes");
+        Assert.Equal((ModRunState.Loaded, "active", true), (row.State, row.Word, row.Active));
+        Assert.Equal(boxes, row.Folder);
+        Assert.Equal("profile", row.Source);
+        Assert.Contains("shroudforge", row.SearchText);
+        Assert.DoesNotContain(s.Mods, m => m.Engine == "eml" && m.Id == "mineral-production-boxes");
+        Assert.Single(s.Mods, m => m.Folder is { } f && ModCatalog.SamePath(f, boxes));  // one row, not a second folder row
+        // what the page's switch and settings read (ShroudForgeUi.Draw draws every ShroudForge row with a folder)
+        var p = ShroudForgePackages.Read(row.Folder!);
+        Assert.True(p.Enabled);
+        Assert.Contains(p.Settings, d => d.Key == "whitelist");
+        Assert.Contains(p.Settings, d => d.Key == "interval");
+
+        // a real EML mod: the stamp only, still an EML row (EmlUnderSf: its switch is on, no startup proof for its patch)
+        var eml = Mod(s, "eml", "auto-loot");
+        Assert.NotEqual(ModRunState.Failed, eml.State);
+        Assert.DoesNotContain(s.Mods, m => m.Engine == "shroudforge" && m.Id == "auto-loot");
+        // both manifests, ShroudForge's own: the ShroudForge row it always was
+        Assert.Equal((ModRunState.Loaded, "active"), (Mod(s, "shroudforge", "climb-anywhere").State, Mod(s, "shroudforge", "climb-anywhere").Word));
+        Assert.Equal(3, s.Mods.Count);
+    }
+
+    /// <summary>HTR (10:32 pm ET): the mod in both sections. The launcher puts an EML package that needs ShroudForge's
+    /// runtime into the profile twice, under eml (off for kiln-eml) and under shroudforge, with the same folder (kiln-manage
+    /// profile.rs, emlRuntime's compatibility entry), and kiln-eml reports the eml one as running under ShroudForge: an
+    /// EML "Loaded" row next to the ShroudForge row. One ShroudForge row now, before a save loads (ShroudForge's runtime has
+    /// not reported) and after (its state.json lists the mod active), for a package with ShroudForge settings and for one
+    /// with ShroudForge's EML stamp only.</summary>
+    [Fact]
+    public void The_launchers_compatibility_entry_is_one_shroudforge_row_before_and_after_a_save_loads()
+    {
+        var mods = Dir("mods");
+        var chests = EmlPackage("endless-chests", StampExt, caps: "\"runtime\",\"runtime-register-dll\"");
+        var boxes = EmlPackage("mineral-production-boxes", WhitelistExt);
+        Profile(new()
+        {
+            ["eml"] = [new { id = "endless-chests", version = "0.3.1", path = chests, enabled = false }, new { id = "mineral-production-boxes", version = "0.3.1", path = boxes, enabled = false }],
+            ["shroudforge"] = [new { id = "endless-chests", version = "0.3.1", path = chests, enabled = true }, new { id = "mineral-production-boxes", version = "0.3.1", path = boxes, enabled = true }],
+        });
+        Write("eml.json", new
+        {
+            format = 1, pid = Pid, phase = "aside", aside = "ShroudForge owns startup asset patching and runs EML packages in its mods folder",
+            mods = new[] { chests, boxes }.Select(f => new { id = Path.GetFileName(f), source = "profile", path = f, state = "own-loader",
+                reason = $"runs under ShroudForge (hosted by Kiln): delegated to ShroudForge's runtime (Kiln's copy at {f})" }).ToArray(),
+        });
+        Write("shroudforge.json", new { pid = Pid, mode = "hosted", menu = "kiln", runtime = "running", modsDir = mods, startupPrepared = true });
+        foreach (var loaded in new[] { false, true })
+        {
+            if (loaded) SfRuntimeActive("endless-chests", "mineral-production-boxes");
+            var s = Read();
+            foreach (var f in new[] { chests, boxes })
+            {
+                var row = Assert.Single(s.Mods, m => m.Folder is { } x && ModCatalog.SamePath(x, f));
+                Assert.Equal(("shroudforge", loaded), (row.Engine, row.Active));
+            }
+            Assert.DoesNotContain(s.Mods, m => m.Engine == "eml");
+        }
+    }
+
+    /// <summary>The compatibility entry as the launcher writes it (kiln-manage profile.rs render_routed): an EML entry's path
+    /// is its Library folder (an EML package runs from the Library unless a DLL reads it in the game's mods folder), and the
+    /// shroudforge entry is an exact copy of it. ShroudForge runs Kiln's EML copy in its mods folder, the folder kiln-eml's
+    /// report names (kr-ynqz's kiln.log and eml.json: endless-chests). Review of 0.2.0-dev.31.24: the ShroudForge row read
+    /// and wrote the Library folder (the copy's marker says eml, not shroudforge), so the one-row rule never matched kiln-eml's
+    /// row: Nexus 347 was two ShroudForge rows, Endless Chests an EML row and a ShroudForge row "without a switch file". One
+    /// ShroudForge row on Kiln's copy now, with the switch and settings ShroudForge reads; the Library is never its folder.</summary>
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    public void The_compatibility_entry_of_a_library_package_is_one_shroudforge_row_on_kilns_copy(bool settings, bool loaded)
+    {
+        var mods = Dir("mods");
+        var id = settings ? "mineral-production-boxes" : "endless-chests";
+        var lib = Dir("library", "eml", id, "0.3.1");
+        File.WriteAllText(Path.Combine(lib, "mod.json"), $$"""{"id":"{{id}}","name":"Name {{id}}","version":"0.3.1","capabilities":["patch","runtime"]}""");
+        File.WriteAllText(Path.Combine(Dir("library", "eml", id, "0.3.1", "src"), "mod.lua"), "return {}");
+        // the Library's copy as the mod ships it: Endless Chests has no extended.mod.json; Nexus 347's own, switched off here
+        // so that a row reading the Library would say so
+        if (settings) File.WriteAllText(Path.Combine(lib, "extended.mod.json"), WhitelistExt.Replace("\"enabled\":true", "\"enabled\":false"));
+        var copy = EmlPackage(id, settings ? WhitelistExt : StampExt);  // mods/<id>: Kiln's EML copy, switched on
+        Profile(new()
+        {
+            ["eml"] = [new { id, version = "0.3.1", path = lib, enabled = false }],
+            ["shroudforge"] = [new { id, version = "0.3.1", path = lib, enabled = true }],
+        });
+        Write("eml.json", new
+        {
+            format = 1, pid = Pid, phase = "aside", aside = "ShroudForge owns startup asset patching and runs EML packages in its mods folder",
+            mods = new[] { new { id, source = "profile", path = copy, state = "own-loader",
+                reason = $"runs under ShroudForge (hosted by Kiln): its ShroudForge switch is on (Kiln's copy at {copy})" } },
+        });
+        Write("shroudforge.json", new { pid = Pid, mode = "hosted", menu = "kiln", runtime = "running", modsDir = mods, startupPrepared = true });
+        if (loaded) SfRuntimeActive(id);
+        var s = Read();
+        var row = Assert.Single(s.Mods, m => m.Id == id);
+        Assert.Equal(("shroudforge", copy, "profile"), (row.Engine, row.Folder, row.Source));
+        Assert.Equal(loaded, row.Active);
+        Assert.NotEqual(ModRunState.Disabled, row.State);
+        Assert.DoesNotContain(s.Mods, m => m.Folder is { } f && ModCatalog.SamePath(f, lib));
+        Assert.Equal(settings, ShroudForgePackages.Read(row.Folder!).Settings.Any(d => d.Key == "whitelist"));
+    }
+
+    /// <summary>Nexus 347's settings as the mod ships them (a Chinese label before the English one) and as HTR edited them
+    /// in the game's mods folder (English only), with the options as ShroudForge's object map.</summary>
+    private static string Labelled(bool chinese) => $$$"""
+        {"schemaVersion":1,"enabled":true,"targets":["client","server"],"launcher":"EML","settings":{
+          "mineralWhitelist":{"value":["sulfur","coal"],"label":"{{{(chinese ? "\u77ff\u77f3 | " : "")}}}Auto-mining whitelist","control":"multiselect",
+            "options":{"copper":"{{{(chinese ? "\u94dc\u77ff / " : "")}}}Copper Ore","sulfur":"Sulfur","coal":"Coal"},"applyAt":"restart","restartRequired":true}},
+         "groups":[{"label":"{{{(chinese ? "\u91c7\u77ff / " : "")}}}Mining whitelist","settings":["mineralWhitelist"]}]}
+        """;
+
+    /// <summary>HTR (Discord, 2026-11-27 ~11 pm ET): he replaced every Chinese label of the mod's extended.mod.json in the
+    /// game's mods folder with English, and the Kiln menu still drew ????. The ShroudForge page draws its row's folder
+    /// (ShroudForgeUi reads it again within a second of a change; no restart, no cached copy), and the compatibility
+    /// entry's row was the Library copy, with the labels the mod shipped, never the folder ShroudForge runs: Kiln's copy,
+    /// or the player's own folder of the package under another name, which kiln-eml names. The page reads the file the
+    /// player edited now.</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void The_page_reads_the_settings_file_shroudforge_runs_not_the_librarys(bool kilnsCopy)
+    {
+        const string id = "mineral-production-boxes";
+        var mods = Dir("mods");
+        var lib = Dir("library", "eml", id, "0.3.1");
+        var run = kilnsCopy ? Dir("mods", id) : Dir("mods", "MineralProductionBoxes");  // the player's own folder: the archive's name
+        foreach (var (folder, chinese) in new[] { (lib, true), (run, false) })
+        {
+            File.WriteAllText(Path.Combine(folder, "mod.json"), $$"""{"id":"{{id}}","name":"Mineral Production Boxes","version":"0.3.1","capabilities":["patch","runtime"]}""");
+            File.WriteAllText(Path.Combine(Directory.CreateDirectory(Path.Combine(folder, "src")).FullName, "mod.lua"), "return {}");
+            File.WriteAllText(Path.Combine(folder, "extended.mod.json"), Labelled(chinese));
+        }
+        if (kilnsCopy) File.WriteAllText(Path.Combine(run, ".kiln-library.json"), $$"""{"format":1,"kind":"eml","id":"{{id}}","version":"0.3.1","hash":"h"}""");
+        Profile(new()
+        {
+            ["eml"] = [new { id, version = "0.3.1", path = lib, enabled = false }],
+            ["shroudforge"] = [new { id, version = "0.3.1", path = lib, enabled = true }],
+        });
+        Write("eml.json", new
+        {
+            format = 1, pid = Pid, phase = "aside", aside = "ShroudForge owns startup asset patching and runs EML packages in its mods folder",
+            mods = new[] { new { id, source = "profile", path = run, state = "own-loader",
+                reason = $"runs under ShroudForge (its own loader): its ShroudForge switch is on ({(kilnsCopy ? "Kiln's copy" : "hand-installed mod")} at {run})" } },
+        });
+        Write("shroudforge.json", new { pid = Pid, mode = "self-hosted", runtime = "running", modsDir = mods, startupPrepared = true });
+        var s = Read();
+        var row = Assert.Single(s.Mods, m => m.Id == id);
+        Assert.Equal(("shroudforge", run), (row.Engine, row.Folder));
+        // what the page draws: ShroudForgeUi's read of the row's folder
+        ShroudForgeUi.Load(row.Folder!);
+        var p = ShroudForgeUi.Get(row.Folder!, out var error);
+        Assert.Null(error);
+        var whitelist = Assert.Single(p!.Settings, d => d.Key == "mineralWhitelist");
+        Assert.Equal("Auto-mining whitelist", whitelist.Label);
+        Assert.Contains(whitelist.Options, o => o.Label == "Copper Ore");
+        Assert.Equal("Mining whitelist", Assert.Single(p.Groups).Label);
+    }
+
+    /// <summary>HTR's ShroudForge config names its mods folder with the extended-length prefix
+    /// (<c>\\?\D:\...\Enshrouded\mods</c>), as ShroudForge writes it on Windows; kiln-shroudforge's status and kiln-eml may
+    /// name it either way. The one-row rules (the compatibility entry, a moved package) and the page's read of the row's
+    /// folder hold for every spelling.</summary>
+    [Fact]
+    public void Extended_length_paths_keep_one_row_and_a_readable_folder()
+    {
+        if (!OperatingSystem.IsWindows()) Assert.Skip("skipped: the \\\\?\\ prefix is a Windows path form");
+        var mods = Dir("mods");
+        var prefixed = @"\\?\" + mods;
+        Directory.CreateDirectory(Path.Combine(_root, "shroudforge", "config"));
+        File.WriteAllText(Path.Combine(_root, "shroudforge", "config", "modloader-config.json"), JsonSerializer.Serialize(new { paths = new { mods = prefixed } }));
+        var lib = Dir("library", "eml", "endless-chests", "0.3.1");
+        File.WriteAllText(Path.Combine(lib, "mod.json"), """{"id":"endless-chests","name":"Endless Chests","version":"0.3.1","capabilities":["runtime"]}""");
+        var chests = EmlPackage("endless-chests", StampExt, caps: "\"runtime\"");
+        var boxes = EmlPackage("mineral-production-boxes", Labelled(false));
+        Profile(new()
+        {
+            ["eml"] = [new { id = "endless-chests", version = "0.3.1", path = lib, enabled = false }, new { id = "mineral-production-boxes", version = "0.3.1", path = boxes }],
+            ["shroudforge"] = [new { id = "endless-chests", version = "0.3.1", path = lib, enabled = true }],
+        });
+        Write("eml.json", new
+        {
+            format = 1, pid = Pid, phase = "aside", aside = "ShroudForge owns startup asset patching and runs EML packages in its mods folder",
+            mods = new[]
+            {
+                new { id = "endless-chests", source = "profile", path = Path.Combine(prefixed, "endless-chests"), state = "own-loader", reason = "runs under ShroudForge (its own loader): its ShroudForge switch is on" },
+                new { id = "mineral-production-boxes", source = "profile", path = boxes.ToUpperInvariant(), state = "own-loader", reason = "runs under ShroudForge (its own loader): its ShroudForge switch is on" },
+            },
+        });
+        Write("shroudforge.json", new { pid = Pid, mode = "self-hosted", runtime = "running", modsDir = prefixed, startupPrepared = true });
+        var s = Read();
+        foreach (var (id, folder) in new[] { ("endless-chests", chests), ("mineral-production-boxes", boxes) })
+        {
+            var row = Assert.Single(s.Mods, m => m.Id == id);
+            Assert.Equal("shroudforge", row.Engine);
+            Assert.True(ModCatalog.SamePath(row.Folder!, folder), row.Folder);
+            Assert.True(ShroudForgePackages.Read(row.Folder!).Enabled);
+        }
+        Assert.Equal("Auto-mining whitelist", Assert.Single(ShroudForgePackages.Read(Mod(s, "shroudforge", "mineral-production-boxes").Folder!).Settings).Label);
+        Assert.DoesNotContain(s.Mods, m => m.Engine == "eml");
+    }
+
+    /// <summary>Where Kiln cannot read the moved mod's files while ShroudForge's own runtime runs it, the row says so and
+    /// points to ShroudForge's own window; a hosted start (no such window) does not.</summary>
+    [Theory]
+    [InlineData("self-hosted", true)]
+    [InlineData("hosted", false)]
+    public void An_unreadable_shroudforge_mod_under_shroudforges_own_runtime_points_to_its_window(string mode, bool window)
+    {
+        var mods = Dir("mods");
+        // schemaVersion 2: ShroudForgePackages refuses the file (the page cannot draw it); it is still ShroudForge's
+        var boxes = EmlPackage("mineral-production-boxes", WhitelistExt.Replace("\"schemaVersion\":1", "\"schemaVersion\":2"));
+        Profile(new() { ["eml"] = [new { id = "mineral-production-boxes", version = "0.3.1", path = boxes }] });
+        Write("eml.json", new
+        {
+            format = 1, pid = Pid, phase = "aside", aside = "ShroudForge owns startup asset patching",
+            mods = new[] { new { id = "mineral-production-boxes", source = "profile", path = boxes, state = "own-loader", reason = "runs under ShroudForge" } },
+        });
+        Write("shroudforge.json", new { pid = Pid, mode, runtime = "running", modsDir = mods, startupPrepared = true });
+        var row = Mod(Read(), "shroudforge", "mineral-production-boxes");
+        Assert.Equal((ModRunState.Waiting, "unconfirmed"), (row.State, row.Word));
+        if (window)
+        {
+            Assert.Contains("ShroudForge's own Modloader window", row.Help);
+            Assert.Contains("shroudforge.exe", row.Help);
+        }
+        else Assert.True(row.Help is null || !row.Help.Contains("Modloader window", StringComparison.Ordinal), row.Help);
+    }
+
+    /// <summary>ShroudForge's preparation failed: the moved row fails like the profile's ShroudForge mods (ShroudForge's
+    /// note); a moved row the profile has off stays off with kiln-eml's words.</summary>
+    [Fact]
+    public void A_moved_shroudforge_mod_fails_with_shroudforge_and_stays_off_when_the_profile_has_it_off()
+    {
+        var mods = Dir("mods");
+        var boxes = EmlPackage("mineral-production-boxes", WhitelistExt);
+        var off = EmlPackage("off-boxes", WhitelistExt.Replace("\"enabled\":true", "\"enabled\":false"));
+        Profile(new()
+        {
+            ["eml"] = [new { id = "mineral-production-boxes", version = "0.3.1", path = boxes }, new { id = "off-boxes", version = "0.3.1", path = off, enabled = false }],
+        });
+        Write("eml.json", new
+        {
+            format = 1, pid = Pid, phase = "aside", aside = "ShroudForge owns startup asset patching",
+            mods = new[]
+            {
+                new { id = "mineral-production-boxes", source = "profile", path = boxes, state = "own-loader", reason = "runs under ShroudForge (hosted by Kiln)" },
+                new { id = "off-boxes", source = "profile", path = off, state = "disabled", reason = "off-boxes is off in the profile: Kiln switched its copy off" },
+            },
+        });
+        Write("shroudforge.json", new { pid = Pid, mode = "failed", modsDir = mods, reason = "ShroudForge's startup preparation failed" });
+        var s = Read();
+        var row = Mod(s, "shroudforge", "mineral-production-boxes");
+        Assert.Equal((ModRunState.Failed, "failed"), (row.State, row.Word));
+        Assert.Contains("startup preparation failed", row.Reason);
+        var shut = Mod(s, "shroudforge", "off-boxes");
+        Assert.Equal((ModRunState.Disabled, "disabled"), (shut.State, shut.Word));
+        Assert.Contains("off in the profile", shut.Reason);
+        Assert.DoesNotContain(s.Mods, m => m.Engine == "eml");
+        Assert.DoesNotContain(s.Engines, e => e.Kind == "eml" && e.Health == EngineHealth.Problem);
+
+        // the same off row while ShroudForge runs: kiln-eml's words, not ShroudForge's switch in the files
+        Write("shroudforge.json", new { pid = Pid, mode = "hosted", menu = "kiln", runtime = "running", modsDir = mods, startupPrepared = true });
+        SfRuntimeActive("mineral-production-boxes");
+        shut = Mod(Read(), "shroudforge", "off-boxes");
+        Assert.Equal((ModRunState.Disabled, "disabled"), (shut.State, shut.Word));
+        Assert.Contains("off in the profile", shut.Reason);
+    }
+
+    /// <summary>No ShroudForge runs it: kiln-eml applied it as an EML mod (from the Library), or EML's own loader runs the
+    /// game's mods folder. It stays an EML row, and says its ShroudForge settings do nothing this start; a real EML mod
+    /// says nothing of the kind.</summary>
+    [Theory]
+    [InlineData("kiln-eml")]
+    [InlineData("eml-loader")]
+    public void A_shroudforge_mod_that_runs_as_an_eml_mod_says_its_settings_do_not_apply(string runner)
+    {
+        var parent = runner == "kiln-eml" ? "library" : "mods";
+        var boxes = EmlPackage("mineral-production-boxes", WhitelistExt, kilns: false, parent: parent);
+        var real = EmlPackage("auto-loot", StampExt, kilns: false, caps: "\"patch\"", parent: parent);
+        Profile(new() { ["eml"] = [new { id = "mineral-production-boxes", version = "0.3.1", path = boxes }, new { id = "auto-loot", version = "0.3.1", path = real }] });
+        if (runner == "kiln-eml")
+            Write("eml.json", new
+            {
+                format = 1, pid = Pid, phase = "done",
+                mods = new[]
+                {
+                    new { id = "mineral-production-boxes", source = "profile", path = boxes, state = "loaded", reason = (string?)null },
+                    new { id = "auto-loot", source = "profile", path = real, state = "loaded", reason = (string?)null },
+                },
+            });
+        else
+            Write("eml.json", new
+            {
+                format = 1, pid = Pid, phase = "aside", aside = "dbghelp.dll is loaded",
+                mods = new[]
+                {
+                    new { id = "mineral-production-boxes", source = "profile", path = boxes, state = "own-loader", reason = (string?)"runs under EML's own loader" },
+                    new { id = "auto-loot", source = "profile", path = real, state = "own-loader", reason = (string?)"runs under EML's own loader" },
+                },
+            });
+        var s = Read();
+        var row = Mod(s, "eml", "mineral-production-boxes");
+        Assert.Equal(ModRunState.Loaded, row.State);
+        Assert.Contains("only ShroudForge reads", row.Help);
+        // (the game's mods folder is ShroudForge's too: its packages there keep their "ShroudForge did not run" rows)
+        Assert.DoesNotContain(s.Mods, m => m.Engine == "shroudforge" && m.State == ModRunState.Loaded);
+        var eml = Mod(s, "eml", "auto-loot");
+        Assert.True(eml.Help is null || !eml.Help.Contains("ShroudForge", StringComparison.Ordinal), eml.Help);
+    }
+
+    /// <summary>kiln-eml says ShroudForge runs the package while kiln-shroudforge's status of this start is missing (Kiln does
+    /// not know ShroudForge's state, so the row stays EML): it must not also say that its ShroudForge settings do nothing
+    /// (review of 0.2.0-dev.31.24).</summary>
+    [Fact]
+    public void An_eml_row_that_shroudforge_runs_does_not_say_its_settings_do_nothing()
+    {
+        var mods = Dir("mods");
+        var boxes = EmlPackage("mineral-production-boxes", WhitelistExt, kilns: false);
+        Profile(new() { ["eml"] = [new { id = "mineral-production-boxes", version = "0.3.1", path = boxes }] });
+        Write("eml.json", new
+        {
+            format = 1, pid = Pid, phase = "aside", aside = "ShroudForge owns startup asset patching and runs EML packages in its mods folder",
+            mods = new[] { new { id = "mineral-production-boxes", source = "profile", path = boxes, state = "own-loader",
+                reason = $"runs under ShroudForge (its own loader): its ShroudForge switch is on (hand-installed mod at {boxes})" } },
+        });
+        var row = Mod(Read(), "eml", "mineral-production-boxes");
+        Assert.Equal(ModRunState.Loaded, row.State);
+        Assert.True(row.Help is null || !row.Help.Contains("only ShroudForge reads", StringComparison.Ordinal), row.Help);
+    }
+
+    /// <summary>The profile has the mod off, but ShroudForge runs Kiln's copy anyway (its switch is on there and this
+    /// ShroudForge takes no skip list): kiln-eml's row says so and how to stop it. Moved to the ShroudForge group, the row
+    /// keeps those words rather than ShroudForge's bare "active" (review of 0.2.0-dev.31.24).</summary>
+    [Fact]
+    public void A_moved_row_that_runs_although_off_in_the_profile_keeps_kiln_emls_words()
+    {
+        var mods = Dir("mods");
+        var boxes = EmlPackage("mineral-production-boxes", WhitelistExt);
+        Profile(new() { ["eml"] = [new { id = "mineral-production-boxes", version = "0.3.1", path = boxes, enabled = false }] });
+        Write("eml.json", new
+        {
+            format = 1, pid = Pid, phase = "aside", aside = "ShroudForge owns startup asset patching and runs EML packages in its mods folder",
+            mods = new[] { new { id = "mineral-production-boxes", source = "profile", path = boxes, state = "own-loader",
+                reason = $"runs under ShroudForge (its own loader) although it is off in the profile: ShroudForge's switch is on in Kiln's copy {boxes}, " +
+                         "and Kiln does not host ShroudForge this start, so it cannot have it skipped. Press Play in the Kiln launcher (or activate the profile again): Kiln then takes its copy out (or switches it off)" } },
+        });
+        Write("shroudforge.json", new { pid = Pid, mode = "self-hosted", runtime = "running", modsDir = mods, startupPrepared = true });
+        SfRuntimeActive("mineral-production-boxes");
+        var s = Read();
+        var row = Mod(s, "shroudforge", "mineral-production-boxes");
+        Assert.Equal(boxes, row.Folder);
+        Assert.Contains("although it is off in the profile", row.Reason);
+        Assert.DoesNotContain(s.Mods, m => m.Engine == "eml");
+    }
+
     [Fact]
     public void A_failed_shroudforge_preparation_does_not_leave_eml_rows_loaded()
     {

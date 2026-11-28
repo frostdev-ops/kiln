@@ -119,6 +119,19 @@ int main() {
     CHECK(fg::needed("ru-ru", 1) == fg::kRuRu && fg::needed("ru", fg::kZhCn) == fg::kRuRu && fg::needed("zh", fg::kRuRu) == fg::kZhCn);
     CHECK(fg::needed("en-us", fg::kUkUa) == fg::kUkUa && fg::needed("en-us", fg::kJaJp) == fg::kJaJp);
     CHECK(fg::needed("de", 3) == fg::kNone && fg::needed("en", 17) == fg::kNone);  // Thai: the game draws it with the default group too
+    // a text that needs a CJK group (HTR, 2026-11-27: Nexus 347's Chinese ShroudForge labels in an English game drew as ????)
+    auto cjk = [](const char* t) { return fg::cjk_text(t, std::strlen(t)); };
+    CHECK(cjk("\xe7\xa1\xab\xe7\xa3\xba | \xe7\xa1\xab\xe7\xa3\xba" "4 / Archaic Essence 4"));  // 硫磺 | 硫磺4 / ...
+    CHECK(cjk("\xe3\x83\xa2\xe3\x83\x83\xe3\x83\x89") && cjk("\xeb\xaa\xa8\xeb\x93\x9c"));  // モッド, 모드
+    CHECK(cjk("\xef\xbc\x81") && cjk("\xe3\x80\x82") && cjk("\xe1\x84\x80"));  // fullwidth !, ideographic full stop, a Jamo
+    CHECK(!cjk("Sulfur, Coal and Iron Ore") && !cjk("") && !cjk("caf\xc3\xa9 \xe2\x80\x94 \xe2\x80\xa6 \xc2\xb7"));  // é — … ·
+    CHECK(!cjk("\xd0\x96\xd0\xb8\xd0\xb7\xd0\xbd\xd1\x8c") && !cjk("\xe0\xb8\x81") && !cjk("\xef\xbf\xbd"));  // Cyrillic, Thai, U+FFFD
+    CHECK(!cjk("\xe7\xa1") && !cjk("\xe7\x41\xab") && !fg::cjk_text(nullptr, 3));  // cut and malformed sequences
+    CHECK(fg::cjk_text("\xe7\xa1\xab", 3) && !fg::cjk_text("\xe7\xa1\xab", 2));
+    // whose group with such a text: Kiln's or the game's CJK language first, else zh-CN's (Chinese, kana and Hangul)
+    CHECK(fg::wanted("en-us", 3, true) == fg::kZhCn && fg::wanted("en-us", 3, false) == fg::kNone);
+    CHECK(fg::wanted("ru", 3, true) == fg::kZhCn && fg::wanted("ja", 3, true) == fg::kJaJp && fg::wanted("en", fg::kKoKr, true) == fg::kKoKr);
+    CHECK(fg::needed("en-us", 3) == fg::kNone);  // look_info's glyphs stay about Kiln's and the game's language
 
     // ---- the group of a language, with 26430625's layout ----
     const fg::Layout l;

@@ -15,6 +15,7 @@
 #include "services/kiln_ui.h"
 #include "services/kiln_ui_blocks.h"
 #include "slider.h"
+#include "text_glyphs.h"
 
 namespace kui {
 bool in_frame();
@@ -66,8 +67,10 @@ namespace {  // internal linkage: one copy per table that includes this
 #define IN_FRAME(ret) \
     if (!kui::in_frame()) return ret
 
-// KilnStr -> NUL-terminated (labels); a few rotating buffers per thread.
+// KilnStr -> NUL-terminated (labels); a few rotating buffers per thread. Every label and text is noted for its glyphs
+// (text_glyphs.h): a mod's Chinese label makes the overlay load a CJK font.
 const char* z(KilnStr s) {
+    kui::note_text(s.ptr, s.len);
     thread_local std::string buf[8];
     thread_local int i = 0;
     std::string& b = buf[i++ & 7];
@@ -92,21 +95,24 @@ bool KILN_CALL t_begin(KilnStr title, bool* open, uint32_t flags) {
     return ImGui::Begin(z(title), open, static_cast<ImGuiWindowFlags>(flags));
 }
 void KILN_CALL t_end() { IN_FRAME(); ImGui::End(); }
-void KILN_CALL t_text(KilnStr s) { IN_FRAME(); ImGui::TextUnformatted(s.ptr, s.ptr + s.len); }
+void KILN_CALL t_text(KilnStr s) { IN_FRAME(); kui::note_text(s.ptr, s.len); ImGui::TextUnformatted(s.ptr, s.ptr + s.len); }
 void KILN_CALL t_text_colored(uint32_t rgba, KilnStr s) {
     IN_FRAME();
+    kui::note_text(s.ptr, s.len);
     ImGui::PushStyleColor(ImGuiCol_Text, col4(rgba));
     ImGui::TextUnformatted(s.ptr, s.ptr + s.len);
     ImGui::PopStyleColor();
 }
 void KILN_CALL t_text_wrapped(KilnStr s) {
     IN_FRAME();
+    kui::note_text(s.ptr, s.len);
     ImGui::PushTextWrapPos(0.0f);
     ImGui::TextUnformatted(s.ptr, s.ptr + s.len);
     ImGui::PopTextWrapPos();
 }
 void KILN_CALL t_text_disabled(KilnStr s) {
     IN_FRAME();
+    kui::note_text(s.ptr, s.len);
     ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
     ImGui::TextUnformatted(s.ptr, s.ptr + s.len);
     ImGui::PopStyleColor();
@@ -118,6 +124,7 @@ bool KILN_CALL t_slider_float(KilnStr l, float* v, float a, float b) { IN_FRAME(
 bool KILN_CALL t_slider_int(KilnStr l, int32_t* v, int32_t a, int32_t b) { IN_FRAME(false); return v && ImGui::SliderInt(z(l), v, a, b); }
 bool KILN_CALL t_input_text(KilnStr l, char* buf, size_t cap, uint32_t flags) {
     IN_FRAME(false);
+    if (buf && cap) kui::note_text(buf, strnlen(buf, cap));
     return buf && cap && ImGui::InputText(z(l), buf, cap, static_cast<ImGuiInputTextFlags>(flags));
 }
 bool KILN_CALL t_collapsing_header(KilnStr l, uint32_t flags) { IN_FRAME(false); return ImGui::CollapsingHeader(z(l), static_cast<ImGuiTreeNodeFlags>(flags)); }
@@ -168,6 +175,7 @@ void KILN_CALL t_draw_text(float x, float y, uint32_t rgba, float size, KilnStr 
     IN_FRAME();
     ImDrawList* dl = ImGui::GetForegroundDrawList();
     const float fs = size > 0 ? size : ImGui::GetFontSize();
+    kui::note_text(s.ptr, s.len);
     dl->AddText(ImGui::GetFont(), fs, ImVec2(x + 1, y + 1), col((rgba & 0xFF) * 3 / 4), s.ptr, s.ptr + s.len);  // the shadow
     dl->AddText(ImGui::GetFont(), fs, ImVec2(x, y), col(rgba), s.ptr, s.ptr + s.len);
 }
@@ -184,6 +192,7 @@ void KILN_CALL t_text_size(KilnStr s, float size, float* w, float* h) {
         return;
     }
     const float fs = size > 0 ? size : ImGui::GetFontSize();
+    kui::note_text(s.ptr, s.len);
     const ImVec2 v = ImGui::GetFont()->CalcTextSizeA(fs, FLT_MAX, 0.0f, s.ptr, s.ptr + s.len);
     if (w) *w = v.x;
     if (h) *h = v.y;
@@ -196,10 +205,13 @@ bool KILN_CALL t_image_button(KilnStr id, KilnHandle h, float w, float hh) { IN_
 void KILN_CALL t_set_next_window_focus() { IN_FRAME(); ImGui::SetNextWindowFocus(); }
 bool KILN_CALL t_combo(KilnStr l, int32_t* index, const char* items) {
     IN_FRAME(false);
+    if (items)  // the items: texts each ended by a NUL, the list by a second one
+        for (const char* it = items; *it; it += std::strlen(it) + 1) kui::note_text(it, std::strlen(it));
     return index && items && ImGui::Combo(z(l), index, items);
 }
 bool KILN_CALL t_input_multiline(KilnStr l, char* buf, size_t cap, float w, float h) {
     IN_FRAME(false);
+    if (buf && cap) kui::note_text(buf, strnlen(buf, cap));
     return buf && cap && ImGui::InputTextMultiline(z(l), buf, cap, ImVec2(w, h));
 }
 void KILN_CALL t_dummy(float w, float h) { IN_FRAME(); ImGui::Dummy(ImVec2(w, h)); }

@@ -40,7 +40,10 @@ bool KILN_CALL t_drag_source(KilnStr kind, const void* payload, size_t len, Kiln
     const ImGuiDragDropFlags flags = ImGuiDragDropFlags_SourceAllowNullID | (label ? 0 : ImGuiDragDropFlags_SourceNoPreviewTooltip);
     if (!ImGui::BeginDragDropSource(flags)) return false;
     ImGui::SetDragDropPayload(type, len ? payload : nullptr, len, ImGuiCond_Always);  // ImGui: an empty payload is NULL, 0
-    if (label) ImGui::TextUnformatted(preview.ptr, preview.ptr + preview.len);
+    if (label) {
+        kui::note_text(preview.ptr, preview.len);
+        ImGui::TextUnformatted(preview.ptr, preview.ptr + preview.len);
+    }
     ImGui::EndDragDropSource();
     return true;
 }

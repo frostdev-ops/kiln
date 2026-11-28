@@ -305,6 +305,156 @@ public sealed class SfiCatalogTests : IDisposable
         Assert.False(Group(s).Reported);
     }
 
+    private const string Whitelist = """{"whitelist":{"value":["Sulfur"],"control":"multiselect","label":"Whitelist","options":{"Sulfur":"Sulfur","Coal":"Coal"}}}""";
+
+    /// <summary>HTR (Discord, 2026-11-27, 10:32 pm ET): Mineral Production Boxes (Nexus 347) in the player's own folder in
+    /// the game's mods folder, its extension saying EML with ShroudForge settings in it. kiln-eml, the launch plan's data
+    /// writer, ran it as an EML drop-in. Before a save loaded (the interpreter had not reported) the menu listed it twice,
+    /// EML "Loaded" and ShroudForge with its settings; once the interpreter's record named it, step 1 refined the EML row
+    /// in place and its folder no longer made a ShroudForge row: only EML was left, without switch or settings. Now one
+    /// ShroudForge row with its folder at both moments, with the interpreter's truth once it reports; and the same while
+    /// ShroudForge's own loader runs the folder (external).</summary>
+    [Theory]
+    [InlineData("kiln")]
+    [InlineData("external")]
+    public void A_shroudforge_mod_kiln_eml_runs_is_one_shroudforge_row_before_and_after_a_save_loads(string branch)
+    {
+        var folder = Package(Path.Combine(Mods, "mineral-production-boxes"), "mineral-production-boxes", launcher: "EML", settings: Whitelist);
+        var real = Package(Path.Combine(Mods, "auto-loot"), "auto-loot", caps: "patch", launcher: "EML");
+        Profile();
+        WriteRaw("eml.json", JsonSerializer.Serialize(new
+        {
+            pid = Pid, updatedUnixMs = StartMs + 2000, phase = "done",
+            mods = new[]
+            {
+                new { id = "mineral-production-boxes", name = "Mineral Production Boxes", version = "1.0.0", path = folder, source = "game-mods", state = "loaded" },
+                new { id = "auto-loot", name = "Auto Loot", version = "1.0.0", path = real, source = "game-mods", state = "loaded" },
+            },
+        }));
+        SfStatus("kiln", mode: branch == "external" ? "self-hosted" : "off");
+
+        void One(CatalogSnapshot s, ModRunState state, string word, bool active)
+        {
+            var row = Assert.Single(s.Mods, m => m.Folder is { } f && ModCatalog.SamePath(f, folder));
+            Assert.Equal("shroudforge", row.Engine);
+            Assert.Equal((state, word, active), (row.State, row.Word, row.Active));
+            Assert.NotNull(row.Sfi);
+            Assert.Contains(ShroudForgePackages.Read(row.Folder!).Settings, d => d.Key == "whitelist");
+            // the real EML mod (the stamp only) keeps its EML row (its own folder's switch row is ShroudForge's, as before)
+            Assert.Contains(s.Mods, m => m.Engine == "eml" && m.Folder is { } f && ModCatalog.SamePath(f, real));
+        }
+
+        // before a save loads: the interpreter has not reported yet (ShroudForge's own loader: it never does)
+        if (branch == "external") One(Read(), ModRunState.NotLoaded, "external", false);
+        else One(Read(), ModRunState.Waiting, "unconfirmed", false);
+        // after: the interpreter's record names it (a self-hosted start's record is not this branch's: still external)
+        WriteSfi(Record("running", [Pkg("mineral-production-boxes", epoch: 2)]));
+        if (branch == "external") One(Read(), ModRunState.NotLoaded, "external", false);
+        else One(Read(), ModRunState.Loaded, "active", true);
+    }
+
+    /// <summary>The launcher's compatibility entry (kiln-manage profile.rs, emlRuntime): an EML package that needs
+    /// ShroudForge's runtime is in the profile twice, under eml and under shroudforge, with the same folder. One row,
+    /// ShroudForge's, before and after the interpreter reports.</summary>
+    [Fact]
+    public void The_launchers_compatibility_entry_makes_one_row_not_two()
+    {
+        var folder = Package(Path.Combine(Mods, "endless-chests"), "endless-chests", marker: "eml", launcher: "EML");
+        Profile(("eml", "endless-chests", folder, true), ("shroudforge", "endless-chests", folder, true));
+        WriteRaw("eml.json", JsonSerializer.Serialize(new
+        {
+            pid = Pid, updatedUnixMs = StartMs + 2000, phase = "done",
+            mods = new[] { new { id = "endless-chests", name = "Endless Chests", version = "1.0.0", path = folder, source = "profile", state = "loaded" } },
+        }));
+        SfStatus("kiln");
+        foreach (var record in new[] { false, true })
+        {
+            if (record) WriteSfi(Record("running", [Pkg("endless-chests", epoch: 2)]));
+            var s = Read();
+            var row = Assert.Single(s.Mods, m => m.Folder is { } f && ModCatalog.SamePath(f, folder));
+            Assert.Equal(("shroudforge", record), (row.Engine, row.Active));
+        }
+    }
+
+    /// <summary>The compatibility entry as the launcher writes it: both entries name the EML package's Library folder
+    /// (kiln-manage profile.rs render_routed), and a kiln start places Kiln's EML copy in the game's mods folder with
+    /// ShroudForge's switch on (tests/sfi_placement.rs: wardrobe), which the interpreter runs. kiln-eml names the Library
+    /// folder (the plan's data writer) or Kiln's copy. One ShroudForge row on Kiln's copy, before and after the
+    /// interpreter reports: its switch and settings are the copy's, never the Library's (review of 0.2.0-dev.31.24).</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void The_compatibility_entry_of_a_library_package_is_one_row_on_kilns_copy(bool emlNamesTheCopy)
+    {
+        var lib = Package(Path.Combine(_root, "library", "eml", "wardrobe", "1.0.0"), "wardrobe", on: false, launcher: "EML", settings: Whitelist);
+        var copy = Package(Path.Combine(Mods, "wardrobe"), "wardrobe", marker: "eml", launcher: "EML", settings: Whitelist);
+        Profile(("eml", "wardrobe", lib, true), ("shroudforge", "wardrobe", lib, true));
+        WriteRaw("eml.json", JsonSerializer.Serialize(new
+        {
+            pid = Pid, updatedUnixMs = StartMs + 2000, phase = "done",
+            mods = new[] { new { id = "wardrobe", name = "Wardrobe", version = "1.0.0", path = emlNamesTheCopy ? copy : lib, source = "profile",
+                state = emlNamesTheCopy ? "own-loader" : "loaded" } },
+        }));
+        SfStatus("kiln");
+        foreach (var record in new[] { false, true })
+        {
+            if (record) WriteSfi(Record("running", [Pkg("wardrobe", epoch: 2)]));
+            var s = Read();
+            var row = Assert.Single(s.Mods, m => m.Id == "wardrobe");
+            Assert.Equal(("shroudforge", copy, record), (row.Engine, row.Folder, row.Active));
+            Assert.DoesNotContain(s.Mods, m => m.Folder is { } f && ModCatalog.SamePath(f, lib));
+        }
+    }
+
+    /// <summary>A ShroudForge package the profile has off, which kiln-eml lists (its row: off in the profile), moves to the
+    /// ShroudForge group before the interpreter reports. Until the interpreter says something of its own about it, the row
+    /// keeps kiln-eml's words (off in the profile), not "has not reported"; then the interpreter's (review of
+    /// 0.2.0-dev.31.24).</summary>
+    [Fact]
+    public void A_moved_row_the_profile_has_off_keeps_kiln_emls_words_until_the_interpreter_reports()
+    {
+        var folder = Package(Path.Combine(Mods, "mineral-production-boxes"), "mineral-production-boxes", launcher: "EML", settings: Whitelist);
+        Profile(("eml", "mineral-production-boxes", folder, false));
+        WriteRaw("eml.json", JsonSerializer.Serialize(new
+        {
+            pid = Pid, updatedUnixMs = StartMs + 2000, phase = "done",
+            mods = new[] { new { id = "mineral-production-boxes", name = "Mineral Production Boxes", version = "1.0.0", path = folder, source = "profile",
+                state = "disabled", reason = "switched off in the profile" } },
+        }));
+        SfStatus("kiln");
+        var row = Assert.Single(Read().Mods, m => m.Id == "mineral-production-boxes");
+        Assert.Equal(("shroudforge", ModRunState.Disabled, folder), (row.Engine, row.State, row.Folder));
+        Assert.Contains("off in the profile", row.Reason);
+        Assert.NotNull(row.Sfi);
+        WriteSfi(Record("running", [Pkg("mineral-production-boxes", intent: "disabled", epoch: 2)]));
+        row = Assert.Single(Read().Mods, m => m.Id == "mineral-production-boxes");
+        Assert.Equal(("shroudforge", ModRunState.Disabled), (row.Engine, row.State));
+        Assert.Contains("Switched off for this start", row.Reason);
+    }
+
+    /// <summary>kiln-eml, the plan's data writer, failed to apply the compatibility entry's package: its EML row is the
+    /// only place that failure shows, so the one-row rule leaves it (and the EML group's problem count) in place.</summary>
+    [Fact]
+    public void A_failed_eml_row_of_the_compatibility_entry_stays()
+    {
+        var lib = Package(Path.Combine(_root, "library", "eml", "wardrobe", "1.0.0"), "wardrobe", launcher: "EML", settings: Whitelist);
+        var copy = Package(Path.Combine(Mods, "wardrobe"), "wardrobe", marker: "eml", launcher: "EML", settings: Whitelist);
+        Profile(("eml", "wardrobe", lib, true), ("shroudforge", "wardrobe", lib, true));
+        WriteRaw("eml.json", JsonSerializer.Serialize(new
+        {
+            pid = Pid, updatedUnixMs = StartMs + 2000, phase = "done",
+            mods = new[] { new { id = "wardrobe", name = "Wardrobe", version = "1.0.0", path = lib, source = "profile", state = "failed",
+                reason = "patch failed: the target container is missing" } },
+        }));
+        SfStatus("kiln");
+        var s = Read();
+        var eml = Assert.Single(s.Mods, m => m.Engine == "eml" && m.Id == "wardrobe");
+        Assert.Equal(ModRunState.Failed, eml.State);
+        Assert.Contains("target container is missing", eml.Reason);
+        Assert.Equal(1, s.Engines.Single(e => e.Kind == "eml").Problems);
+        Assert.Equal(copy, Assert.Single(s.Mods, m => m.Engine == "shroudforge" && m.Id == "wardrobe").Folder);
+    }
+
     /// <summary>An EML package the interpreter runs from the mods root stays one EML row with the interpreter's truth; no
     /// second ShroudForge row for its folder.</summary>
     [Fact]

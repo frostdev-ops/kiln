@@ -31,6 +31,7 @@
 #include "imgui_internal.h"
 #include "font_budget.h"
 #include "font_group.h"
+#include "text_glyphs.h"
 #include "image_budget.h"
 #include "image_rect.h"
 #include "look_palette.h"
@@ -964,8 +965,9 @@ bool update_default_fonts() {
     return g_extra_into.size() != before;
 }
 
-// The CJK language whose group the overlay needs now (render thread): Kiln's (set_texts) when it is CJK, else the game's;
-// and the language look_info reports the glyphs of (fontgroup::needed) into g_glyph_need.
+// The CJK language whose group the overlay needs now (render thread): Kiln's (set_texts) when it is CJK, else the game's,
+// else zh-CN's once a drawn text needed CJK glyphs (text_glyphs.h); and the language look_info reports the glyphs of
+// (fontgroup::needed: Kiln's and the game's only) into g_glyph_need.
 uint32_t group_wanted() {
     uint32_t game = 0;
     KilnUiScreen sc{};
@@ -973,7 +975,15 @@ uint32_t group_wanted() {
     if (game_screen(&sc) == KILN_OK) game = sc.language;
     const std::string kiln(text::table().language());
     g_glyph_need = fontgroup::needed(kiln, game);
-    return fontgroup::wanted(kiln, game);
+    const bool text = g_text_cjk.load(std::memory_order_relaxed);
+    const uint32_t want = fontgroup::wanted(kiln, game, text);
+    static bool said = false;
+    if (text && !said && want != fontgroup::wanted(kiln, game)) {
+        said = true;
+        logf(KILN_LOG_INFO, "ui: a text in Chinese, Japanese or Korean is drawn (a mod's) while neither Kiln's language nor the "
+                            "game's is one: the game's Chinese font group joins the overlay's font atlas for it");
+    }
+    return want;
 }
 
 // Each frame (render thread, before NewFrame): start the read of a newly wanted group, merge one that was read, merge into

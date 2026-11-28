@@ -539,11 +539,53 @@ internal static class ModCatalog
         private readonly Dictionary<ProfileEntry, string?> _runFolders = new();
 
         /// <summary>The folder the engine runs a profile entry from when that is not the entry's path, else null
-        /// (<see cref="EngineRunFolder"/>; read once per snapshot).</summary>
+        /// (<see cref="EngineRunFolder"/>; read once per snapshot). The launcher's compatibility entry for an EML package
+        /// that needs ShroudForge's runtime (kiln-manage profile.rs render_routed: an exact copy of the EML entry under
+        /// shroudforge, both naming the package's Library folder) runs Kiln's EML copy in ShroudForge's mods folder, the
+        /// folder kiln-eml's report names: its row reads and writes ShroudForge's switch and settings there, never in the
+        /// Library (review of 0.2.0-dev.31.24). That is Kiln's EML copy, or the player's own folder of the package under
+        /// another name, which kiln-eml finds by its manifest id (<see cref="EmlRunFolder"/>; HTR, 2026-11-27: labels he
+        /// changed to English there still drew as ???? from the Library copy).</summary>
         public string? RunFolder(ProfileEntry e)
         {
-            if (!_runFolders.TryGetValue(e, out var f)) _runFolders[e] = f = EngineRunFolder(Src, e);
+            if (!_runFolders.TryGetValue(e, out var f))
+                _runFolders[e] = f = EngineRunFolder(Src, e) ?? (IsCompatEntry(e) ? EngineRunFolder(Src, e, "eml") ?? EmlRunFolder(e) : null);
             return f;
+        }
+
+        /// <summary>The folder kiln-eml's row of the profile's EML entry <paramref name="e"/> names in ShroudForge's mods
+        /// folder (kiln-eml discover.rs aside_entries: Kiln's copy, or a hand-installed folder of the package), or null.
+        /// kiln-eml's rows are made before any ShroudForge entry's folder is looked up (Read: EngineMods, then Xhl and
+        /// ShroudForge).</summary>
+        private string? EmlRunFolder(ProfileEntry e)
+        {
+            if (PlacedRoot(Src, "shroudforge") is not { } root || !Mods.TryGetValue("eml", out var rows)) return null;
+            foreach (var m in rows)
+                if (string.Equals(m.Id, e.Id, StringComparison.Ordinal) && m.Folder is { } f && ParentOf(f) is { } parent && SamePath(parent, root) &&
+                    DirExists(f))
+                    return f;
+            return null;
+        }
+
+        /// <summary>A shroudforge entry that is the launcher's compatibility entry: the profile's EML entry of the same id
+        /// and folder.</summary>
+        public bool IsCompatEntry(ProfileEntry e) =>
+            e.Kind == "shroudforge" && e.Id is { Length: > 0 } id &&
+            Profile.Of("eml").Any(x => string.Equals(x.Id, id, StringComparison.Ordinal) && SamePath(x.Path, e.Path));
+
+        /// <summary>The folders of the profile's ShroudForge entries: each entry's own path and the folder its row stands
+        /// for (<see cref="FolderOf"/>). An EML row of one of them is the same mod (the compatibility entry: kiln-eml names
+        /// Kiln's copy while ShroudForge runs it, the Library folder as the plan's data writer); the ShroudForge row stands for
+        /// it.</summary>
+        public HashSet<string> SfProfileFolders()
+        {
+            var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var e in Profile.Of("shroudforge"))
+            {
+                set.Add(NormPath(e.Path));
+                set.Add(NormPath(FolderOf(e)));
+            }
+            return set;
         }
 
         /// <summary>The folder a profile entry's row stands for: where its engine runs it (<see cref="RunFolder"/>), else
@@ -632,6 +674,8 @@ internal static class ModCatalog
             Guard(kind, () => EngineMods(b, kind, bootDoc));
         Guard("xhl", () => Xhl(b));
         Guard("shroudforge", () => ShroudForge(b, bootDoc));
+        // (after ShroudForge took the EML rows of its own packages that it runs)
+        Guard("eml", () => SfSettingsUnused(b));
         Guard("enshwick", () => Enshwick(b, bootDoc));
 
         var engines = new List<CatalogEngine>();
@@ -1076,12 +1120,38 @@ internal static class ModCatalog
         // Kiln's copies of the profile's EML mods are rows of the EML group, which say whether ShroudForge's switch runs
         // them (the profile is their switch: the launcher sets it)
         var emlRows = b.Mods.TryGetValue("eml", out var emlList) ? emlList : [];
+        // one row per mod: a profile ShroudForge entry for the folder of an EML row is the launcher's compatibility entry for
+        // an EML package that needs ShroudForge's runtime (kiln-manage profile.rs, emlRuntime): the ShroudForge row
+        // stands for it, with its switch and ShroudForge's runtime truth, and the EML row goes
+        // (a failed or missing EML row stays: kiln-eml's failure shows nowhere else)
+        var mine = b.SfProfileFolders();
+        emlRows.RemoveAll(m => !m.NeedsAttention && m.Folder is { } ef && mine.Contains(NormPath(ef)));
+        // an EML package with ShroudForge's own settings in its folder here is ShroudForge's row while ShroudForge runs (or
+        // was to run) the folder: its switch and settings are drawn there, and SfRefine says what ShroudForge did with it
+        var moved = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var keepWord = new HashSet<int>();  // indexes in the ShroudForge list
+        if (runs || mode == "failed")
+            foreach (var m in TakeSfPackages(emlRows, dir))
+            {
+                moved.Add(NormPath(m.Folder!));
+                var row = m with { Engine = "shroudforge" };
+                // kiln-eml handed it to ShroudForge, whose preparation then failed (as below for the EML rows)
+                if (mode == "failed" && m.Word == "own-loader") row = row with { State = ModRunState.Failed, Word = "failed", Reason = note, Help = help };
+                // the profile has it off, and kiln-eml had Kiln's copy taken out or skipped (that is the row, not ShroudForge's
+                // switch in the files), or ShroudForge runs it although the profile has it off (kiln-eml says how to stop it)
+                if (KeepsEmlWords(m)) keepWord.Add(b.Mods.TryGetValue("shroudforge", out var l) ? l.Count : 0);
+                b.Add(row);
+            }
         var emlFolders = new HashSet<string>(emlRows.Where(m => m.Folder is not null).Select(m => NormPath(m.Folder!)), StringComparer.OrdinalIgnoreCase);
         foreach (var sub in SubDirs(dir))
         {
             var name = LeafName(sub);
-            if (seen.Contains(name)) continue;
+            // (a profile entry's folder: the compatibility entry's may be the player's own folder under another name)
+            if (seen.Contains(name) || moved.Contains(NormPath(sub)) || mine.Contains(NormPath(sub))) continue;
             if (emlFolders.Contains(NormPath(sub)) && string.Equals(PlacedKind(sub), "eml", StringComparison.OrdinalIgnoreCase)) continue;
+            // ShroudForge does not run it this start, and kiln-eml (or EML's own loader) lists it: one row, the EML one, which
+            // says its ShroudForge settings do nothing (SfSettingsUnused)
+            if (emlFolders.Contains(NormPath(sub)) && IsSfOwned(sub)) continue;
             // a legacy EML package (no extended.mod.json): ShroudForge's own Modloader lists it, off until its switch is
             // first turned on (it writes the file then), and so does this page while ShroudForge runs
             var facts = SfFacts(sub) ?? (runs ? LegacyEmlFacts(sub) : null);
@@ -1120,7 +1190,11 @@ internal static class ModCatalog
             if (b.Mods.TryGetValue("shroudforge", out var list))
             {
                 var runtime = SfRuntime(b.Src);
-                for (var i = start; i < list.Count; i++) list[i] = SfRefine(list[i], runtime, assets, b.Src.Side);
+                // ShroudForge's own runtime runs the folder: where Kiln cannot read a mod's files or finds no folder (SfRefine
+                // keeps a row's help then), ShroudForge's own window still shows its settings
+                var own = mode == "self-hosted" ? KilnText.T("catalog.sf.own_window") : null;
+                for (var i = start; i < list.Count; i++)
+                    if (!keepWord.Contains(i)) list[i] = SfRefine(own is not null && list[i].Help is null ? list[i] with { Help = own } : list[i], runtime, assets, b.Src.Side);
             }
             // the EML mods ShroudForge runs from its folder: only while its switch is on (kiln-eml decided before
             // ShroudForge prepared, and an older kiln-eml said "runs" for every one of them)
@@ -1197,6 +1271,83 @@ internal static class ModCatalog
             Help = null,
         };
     }
+
+    /// <summary>The package in <paramref name="folder"/> is ShroudForge's by its extended.mod.json, though kiln-eml or the
+    /// profile calls it an EML mod: the file is ShroudForge's own (a <c>launcher</c> other than EML, or none: ShroudForge's
+    /// modloader <c>mod_ecosystem_for_package</c>), or it says EML but holds what only ShroudForge reads, a non-empty
+    /// <c>settings</c>, <c>groups</c>, <c>links</c> or <c>changelog</c>. ShroudForge's stamp of an EML package
+    /// (<c>ensure_eml_extension</c>: an empty settings) and Kiln's switch in its EML copies hold none of these, so a real
+    /// EML mod is never one. HTR (Discord, 2026-11-27): Mineral Production Boxes (Nexus 347) ships its 30-resource
+    /// whitelist in an extension that says EML, and the Kiln menu showed it under EML with no switch and no settings;
+    /// Wardrobe - Transmog ships settings the same way (kiln-manage tests/eml_under_shroudforge.rs SHIPPED). The Library
+    /// keeps such a mod's kind (kiln-manage engines.rs detect_folder): only the menu's group follows this.</summary>
+    internal static bool IsSfOwned(string? folder)
+    {
+        if (string.IsNullOrEmpty(folder)) return false;
+        string path;
+        try
+        {
+            path = Path.Combine(folder, "extended.mod.json");
+            if (!File.Exists(path) || new FileInfo(path).Length > 2 << 20) return false;
+        }
+        catch (Exception) { return false; }
+        if (ReadJson(path, out _) is not { ValueKind: JsonValueKind.Object } d) return false;
+        if (!string.Equals(Str(d, "launcher"), "EML", StringComparison.OrdinalIgnoreCase)) return true;
+        foreach (var key in new[] { "settings", "groups", "links", "changelog" })
+            if (d.TryGetProperty(key, out var v) && v.ValueKind switch
+                {
+                    JsonValueKind.Object => v.EnumerateObject().Any(),
+                    JsonValueKind.Array => v.GetArrayLength() > 0,
+                    JsonValueKind.String => v.GetString() is { Length: > 0 },
+                    JsonValueKind.Null => false,
+                    _ => true,
+                })
+                return true;
+        return false;
+    }
+
+    /// <summary>Takes out of <paramref name="emlRows"/>, and returns in their order, the rows whose folder lies in
+    /// <paramref name="root"/> and holds a ShroudForge package (<see cref="IsSfOwned"/>): ShroudForge (or Kiln's
+    /// interpreter) runs that folder, so the row belongs to the ShroudForge group, with its switch and settings.</summary>
+    internal static List<CatalogMod> TakeSfPackages(List<CatalogMod> emlRows, string root, Func<CatalogMod, bool>? also = null)
+    {
+        var taken = new List<CatalogMod>();
+        for (var i = 0; i < emlRows.Count; i++)
+        {
+            var m = emlRows[i];
+            if (m.Folder is not { } folder || ParentOf(folder) is not { } parent || !SamePath(parent, root) || !IsSfOwned(folder) ||
+                also is not null && !also(m)) continue;
+            taken.Add(m);
+            emlRows.RemoveAt(i--);
+        }
+        return taken;
+    }
+
+    /// <summary>EML rows that still run as EML mods (kiln-eml, or EML's own loader) though their package is ShroudForge's
+    /// (<see cref="IsSfOwned"/>): no ShroudForge runs them this start, so their ShroudForge settings do nothing, and the
+    /// row says so. Not a row kiln-eml says ShroudForge runs (<see cref="RunsUnderSf"/>: the group could not take it, as
+    /// when kiln-shroudforge's status of this start is missing).</summary>
+    private static void SfSettingsUnused(Builder b)
+    {
+        if (!b.Mods.TryGetValue("eml", out var rows)) return;
+        for (var i = 0; i < rows.Count; i++)
+            if (rows[i] is { State: ModRunState.Loaded or ModRunState.Waiting } m && !RunsUnderSf(m) && IsSfOwned(m.Folder))
+            {
+                var said = KilnText.T("catalog.sf.settings_unused");
+                rows[i] = m with { Help = m.Help is { Length: > 0 } h ? $"{h} {said}" : said };
+            }
+    }
+
+    /// <summary>kiln-eml's row says ShroudForge runs the package (own-loader, "runs under ShroudForge (hosted by Kiln)" or
+    /// "(its own loader)": kiln-eml discover.rs aside_entries).</summary>
+    private static bool RunsUnderSf(CatalogMod m) =>
+        m.Word == "own-loader" && m.Reason?.Contains("under ShroudForge", StringComparison.Ordinal) == true;
+
+    /// <summary>A moved EML row (<see cref="TakeSfPackages"/>) whose words are kiln-eml's to keep where ShroudForge (or
+    /// Kiln's interpreter) has none of its own about the package: the profile has it off, or it runs although the profile
+    /// has it off (kiln-eml discover.rs off_but_present, which says how to stop it).</summary>
+    internal static bool KeepsEmlWords(CatalogMod m) =>
+        m.Word == "disabled" || (m.Word == "own-loader" && m.Reason?.Contains(" although it is off in the profile", StringComparison.Ordinal) == true);
 
     /// <summary>A legacy EML package in ShroudForge's folder (mod.json and src/mod.lua, no extended.mod.json, no other
     /// engine's manifest, not a copy Kiln placed for another kind): its mod.json's id, name and version, switched off.</summary>
@@ -1527,8 +1678,11 @@ internal static class ModCatalog
     /// activation kept because it changed is still the one the engine runs). The settings a player changes there are the
     /// ones the launcher's next profile update keeps (it compares <c>extended.mod.json</c> without them). A folder of that
     /// name without Kiln's marker is the player's own: it serves the entry in the normal path modes too, so it is the row
-    /// as well when it holds the same package (the same <c>mod.json</c> id as the entry's copy).</summary>
-    internal static string? EngineRunFolder(CatalogSources src, ProfileEntry e)
+    /// as well when it holds the same package (the same <c>mod.json</c> id as the entry's copy).
+    ///
+    /// <paramref name="markerKind"/>: the kind Kiln's marker names (the entry's own by default); the launcher's
+    /// compatibility entry, a shroudforge copy of an EML entry, runs Kiln's EML copy (<see cref="Builder.RunFolder"/>).</summary>
+    internal static string? EngineRunFolder(CatalogSources src, ProfileEntry e, string? markerKind = null)
     {
         if (e.Id is not { Length: > 0 } id || PlacedRoot(src, e.Kind) is not { } root) return null;
         string placed;
@@ -1540,7 +1694,7 @@ internal static class ModCatalog
         catch (Exception) { return null; }
         if (SamePath(placed, e.Path) || !DirExists(placed)) return null;  // the profile names it already (the normal path modes)
         if (PlacedMarker(placed) is { } marker)
-            return string.Equals(marker.Kind, e.Kind, StringComparison.OrdinalIgnoreCase) && string.Equals(marker.Id, id, StringComparison.Ordinal)
+            return string.Equals(marker.Kind, markerKind ?? e.Kind, StringComparison.OrdinalIgnoreCase) && string.Equals(marker.Id, id, StringComparison.Ordinal)
                 ? placed : null;
         // the player's own folder of the same package (the launcher's sf_folder looks for the package id too)
         return ManifestId(placed) is { } own && own == ManifestId(e.Path) ? placed : null;

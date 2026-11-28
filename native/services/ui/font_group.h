@@ -75,6 +75,35 @@ inline uint32_t wanted(std::string_view kiln_language, uint32_t game_language) {
     return cjk(game_language) ? game_language : kNone;
 }
 
+// A UTF-8 text holds a rune only a Chinese, Japanese or Korean group's fonts have (the overlay's Latin font and the default
+// group's small fonts lack it): Hangul Jamo (U+1100..U+11FF), CJK radicals and punctuation to ideographs, kana included
+// (U+2E80..U+9FFF), Hangul syllables (U+AC00..U+D7AF), compatibility ideographs (U+F900..U+FAFF), fullwidth and halfwidth
+// forms (U+FF00..U+FFEF). All of these are three-byte sequences; malformed bytes are skipped.
+inline bool cjk_text(const char* s, size_t n) {
+    if (!s) return false;
+    const auto* p = reinterpret_cast<const unsigned char*>(s);
+    for (size_t i = 0; i < n; ++i) {
+        const unsigned char b = p[i];
+        if (b < 0xE1 || b > 0xEF || i + 2 >= n) continue;
+        const unsigned char c1 = p[i + 1], c2 = p[i + 2];
+        if ((c1 & 0xC0) != 0x80 || (c2 & 0xC0) != 0x80) continue;
+        const uint32_t cp = (static_cast<uint32_t>(b & 0x0F) << 12) | (static_cast<uint32_t>(c1 & 0x3F) << 6) | (c2 & 0x3F);
+        if ((cp >= 0x1100 && cp <= 0x11FF) || (cp >= 0x2E80 && cp <= 0x9FFF) || (cp >= 0xAC00 && cp <= 0xD7AF) ||
+            (cp >= 0xF900 && cp <= 0xFAFF) || (cp >= 0xFF00 && cp <= 0xFFEF))
+            return true;
+        i += 2;
+    }
+    return false;
+}
+
+// wanted(), and when that is none while Kiln was asked to draw text that needs a CJK group (text_cjk: kui::note_text saw
+// some, a mod's Chinese labels in a German game): the zh-CN group, whose sets cover Chinese, kana and Hangul (the game's
+// Noto Serif SC, then KR). HTR, 2026-11-27: Mineral Production Boxes' (Nexus 347) Chinese ShroudForge settings drew as ????.
+inline uint32_t wanted(std::string_view kiln_language, uint32_t game_language, bool text_cjk) {
+    const uint32_t w = wanted(kiln_language, game_language);
+    return w != kNone || !text_cjk ? w : kZhCn;
+}
+
 // The language whose glyphs look_info reports (KilnUiLookInfo.glyphs): Kiln's language when its script is not Latin, else
 // the game's when its is not, else none (Latin). A CJK one is the group of wanted(); a Cyrillic one is the default layer.
 inline uint32_t needed(std::string_view kiln_language, uint32_t game_language) {

@@ -1,6 +1,27 @@
 {
   "released": [
     {
+      "version": "0.2.0-dev.31.24",
+      "date": "2026-11-28",
+      "title": "ShroudForge mods in the right place",
+      "summary": "A ShroudForge mod that Kiln also counted as an EML mod is one row under ShroudForge in the Kiln menu, with its switch and settings, and Chinese, Japanese or Korean text in mods shows instead of question marks.",
+      "patch": true,
+      "features": [
+        {
+          "title": "One row per ShroudForge mod",
+          "text": "Mods such as Mineral Production Boxes, Endless Chests and Quiver & Spellbook are listed once, under ShroudForge, and their switch and settings change the copy ShroudForge runs (thanks HTR).",
+          "area": "compat",
+          "kind": "fix"
+        },
+        {
+          "title": "Chinese, Japanese and Korean text in mods",
+          "text": "Mod settings and names written in Chinese, Japanese or Korean show in an English (or any other) game: Kiln loads the game's own Chinese font the first time such text is drawn.",
+          "area": "content",
+          "kind": "fix"
+        }
+      ]
+    },
+    {
       "version": "0.2.0-dev.31.23",
       "date": "2026-11-27",
       "title": "Spell picker without the flicker",
