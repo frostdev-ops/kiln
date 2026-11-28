@@ -13,6 +13,7 @@ public override void OnLoad()
     Blocks.Define("hound", new PetBlock { Creature = "game:enemy_wildbeast_wolf_earlygame", Name = "Hound" });   // "my-mod:hound"
 
     // every choice spelled out, no Kiln.Blocks
+    if (!Capabilities.Is(Pets.DefinitionsCapability)) return;
     var def = Pets.Define(new PetDefinition
     {
         Id = "my-mod:duelist",
@@ -44,16 +45,28 @@ namespace DocSnippets.skill_api_pets_2
     {
         public async Task Run()
         {
-#line 84 "agent/skills/kiln-modding/references/api-pets.md"
+#line 85 "agent/skills/kiln-modding/references/api-pets.md"
+if (!Capabilities.Is(Pets.RecordsCapability) || !Capabilities.Is(Pets.SummonCapability)) return;   // ask the rows you call
 var key = CharacterData.KeyOf(player);                  // the character (never account-only)
 var given = await Pets.Grant(key, "my-mod:hound", PetRequest.New());       // a Ready record, no body yet
+if (!given.Ok) { Log.Info($"not given: {given.Refusal}"); return; }
 var who = PlayerRef.Of(player);
 var pet = given.Pet!.Id;
-await Pets.Summon(who, pet, PetRequest.New());          // a protected body 2 to 4 m away, following
-await Pets.Command(who, pet, PetOrder.Stay, EntityRef.None, PetRequest.New());
-await Pets.Command(who, pet, PetOrder.Attack, EntityRef.Of(enemy), PetRequest.New());   // your rule says when; Kiln checks the target
-await Pets.Revive(who, pet, PetRequest.New());          // stand at its recovery anchor; summon the anchor first
-await Pets.Release(who, pet, PetRequest.New());         // for good: a tombstone until a save holds it
+var r = await Pets.Summon(who, pet, PetRequest.New());  // a protected body 2 to 4 m away, following
+if (!r.Ok) Log.Info($"not out: {r.Refusal}");           // every request answers a PetResult: check it
+if (Capabilities.Is(Pets.FollowCapability))
+{
+    r = await Pets.Command(who, pet, PetOrder.Stay, EntityRef.None, PetRequest.New());
+    r = await Pets.Command(who, pet, PetOrder.Attack, EntityRef.Of(enemy), PetRequest.New());   // your rule says when; Kiln checks the target
+    if (r.Refusal == PetRefusal.TargetProtected) Log.Info("its rule protects that target");
+}
+if (Capabilities.Is(Pets.DownedCapability))
+{
+    r = await Pets.Revive(who, pet, PetRequest.New());  // stand at its recovery anchor; summon the anchor first
+    if (!r.Ok) Log.Info($"no revive: {r.Refusal}");
+}
+r = await Pets.Release(who, pet, PetRequest.New());     // for good: a tombstone until a save holds it
+if (!r.Ok) Log.Info($"not released: {r.Refusal}");
 foreach (var p in Pets.Of(key)) Log.Info($"{p.Label}: {p.Life} {p.Presence} {p.Health}/{p.HealthMax}");
 #line default
         }
@@ -72,7 +85,7 @@ namespace DocSnippets.skill_api_pets_3
     {
         public async Task Run()
         {
-#line 124 "agent/skills/kiln-modding/references/api-pets.md"
+#line 137 "agent/skills/kiln-modding/references/api-pets.md"
 Events.On<PetDowningEvent>(e =>                         // a down is coming: choose what it becomes (it cannot be refused)
 {
     if (e.Pet.Definition == "my-mod:hound" && FarFromOwner(e.Pet)) e.Outcome = PetDownedOutcome.Release;

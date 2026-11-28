@@ -13,7 +13,8 @@ public sealed class HoundMod : Mod
     [Command("hound", Description = "get a hound and bring it out", Permission = CommandPermission.Admin)]
     private async Task Hound(CommandContext c)
     {
-        if (!Capabilities.Is("pets.records")) throw new CommandException($"pets.records is off: {Capabilities.Why("pets.records")}");
+        if (!Capabilities.Is(Pets.RecordsCapability)) throw new CommandException($"pets.records is off: {Capabilities.Why(Pets.RecordsCapability)}");
+     if (!Capabilities.Is(Pets.SummonCapability)) throw new CommandException($"pets.summon is off: {Capabilities.Why(Pets.SummonCapability)}");
         var key = CharacterData.KeyOf(c.Source.Player);
         var given = await Pets.Grant(key, "hound-mod:hound", PetRequest.New());       // the id is <mod id>:<name>
         if (!given.Ok) throw new CommandException($"refused: {given.Reason}");
@@ -30,7 +31,7 @@ namespace DocSnippets.docs_modding_pets_2
     {
         public async Task Run()
         {
-#line 48 "docs/kiln/modding/pets.md"
+#line 49 "docs/kiln/modding/pets.md"
 // a game creature, by its creatures-registry id: asks nothing of players' games
 var hound = Blocks.Define("hound", new PetBlock { Creature = "game:enemy_wildbeast_wolf_earlygame", Name = "Hound" });
 
@@ -65,15 +66,28 @@ namespace DocSnippets.docs_modding_pets_3
     {
         public async Task Run()
         {
-#line 95 "docs/kiln/modding/pets.md"
+#line 96 "docs/kiln/modding/pets.md"
+if (!Capabilities.Is(Pets.RecordsCapability) || !Capabilities.Is(Pets.SummonCapability)) return;   // a joined client has neither
 var owner = CharacterData.KeyOf(player);              // the character
 var given = await Pets.Grant(owner, "my-mod:hound", PetRequest.New());
+if (!given.Ok) { Log.Info($"not given: {given.Refusal}"); return; }
 var who = PlayerRef.Of(player);
-await Pets.Summon(who, given.Pet!.Id, PetRequest.New());
-await Pets.Command(who, given.Pet.Id, PetOrder.Stay, EntityRef.None, PetRequest.New());
-await Pets.Command(who, given.Pet.Id, PetOrder.Attack, EntityRef.Of(enemy), PetRequest.New());   // checked against the pet's rule
-await Pets.Revive(who, given.Pet.Id, PetRequest.New());   // stand at its recovery anchor
-await Pets.Release(who, given.Pet.Id, PetRequest.New());
+var pet = given.Pet!.Id;
+var r = await Pets.Summon(who, pet, PetRequest.New());
+if (!r.Ok) Log.Info($"not out: {r.Refusal}");          // a refusal is a result: Capacity, NoSafeGround, ...
+if (Capabilities.Is(Pets.FollowCapability))
+{
+    r = await Pets.Command(who, pet, PetOrder.Stay, EntityRef.None, PetRequest.New());
+    r = await Pets.Command(who, pet, PetOrder.Attack, EntityRef.Of(enemy), PetRequest.New());   // checked against the pet's rule
+    if (r.Refusal == PetRefusal.TargetProtected) Log.Info("its rule protects that target");
+}
+if (Capabilities.Is(Pets.DownedCapability))
+{
+    r = await Pets.Revive(who, pet, PetRequest.New());  // stand at its recovery anchor
+    if (!r.Ok) Log.Info($"no revive: {r.Refusal}");
+}
+r = await Pets.Release(who, pet, PetRequest.New());
+if (!r.Ok) Log.Info($"not released: {r.Refusal}");
 foreach (var p in Pets.Of(owner)) Log.Info($"{p.Label}: {p.Life} {p.Presence} {p.Health}/{p.HealthMax}");
 #line default
         }
