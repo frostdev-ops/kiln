@@ -328,3 +328,35 @@ fn a_game_whose_profile_json_cannot_be_read_marks_nothing() {
     assert_eq!(e.code, ErrorCode::Conflict, "{e:?}");
     assert!(dirs.profile(&pid).join("config/expeditions.json").is_file());
 }
+
+#[cfg(unix)]
+#[test]
+fn a_file_that_cannot_go_keeps_its_snapshot_so_it_stays_marked() {
+    // review of 0.2.0-dev.31.31: a file that could not be removed (open in an editor on Windows, a read-only folder) lost
+    // its snapshot all the same, so it was no longer anybody's: listed with the installed files, editable, not clearable
+    use std::os::unix::fs::PermissionsExt;
+    let t = tmp("halfway");
+    let dirs = DataDirs::at(t.0.join("data"));
+    client(&dirs, &t.0.join("Enshrouded"));
+    let pid = profile_with(&dirs, &[]);
+    let cfg = dirs.profile(&pid).join("config");
+    seed(&cfg);
+    std::fs::set_permissions(cfg.join("emf"), std::fs::Permissions::from_mode(0o555)).unwrap();
+    let stuck = std::fs::File::create(cfg.join("emf/probe")).is_err(); // root writes everything
+    let files = vec!["emf/beastmaster.ini".to_string(), "expeditions.json".to_string()];
+    let r = mod_settings::clear_orphans_with(&dirs, &pid, &files, &mut nothing);
+    std::fs::set_permissions(cfg.join("emf"), std::fs::Permissions::from_mode(0o755)).unwrap();
+    let r = r.unwrap();
+    // the other file went, with its snapshot
+    assert!(!cfg.join("expeditions.json").exists() && !cfg.join(".schema/expeditions.json").exists());
+    let backup = PathBuf::from(r.backup.clone().expect("a backup"));
+    assert_eq!(read(&backup, &format!("profiles/{pid}/config/emf/beastmaster.ini")), "[general]\nmax_pets=3\n");
+    if stuck {
+        assert!(cfg.join("emf/beastmaster.ini").is_file());
+        assert!(cfg.join(".schema/emf/beastmaster.json").is_file(), "the snapshot stays with its file");
+        assert!(r.notes.iter().any(|n| n.contains("beastmaster.ini") && n.contains("stays")), "{:?}", r.notes);
+        assert!(r.notes.iter().any(|n| n.contains("beastmaster.json") && n.contains("stays")), "{:?}", r.notes);
+        assert!(!r.removed.iter().any(|p| p.contains("beastmaster")), "{:?}", r.removed);
+        assert!(orphaned(&dirs, &pid).contains(&"emf/beastmaster.ini".to_string()), "still marked: Clear can be pressed again");
+    }
+}

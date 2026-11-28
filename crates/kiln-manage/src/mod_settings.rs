@@ -188,15 +188,19 @@ pub fn clear_orphans_with(
         return Err(gone(f));
     }
     let base = PathBuf::from("profiles").join(tag(profile_id)).join("config");
+    // each file, then its snapshot (`groups`: their places in `items`)
     let mut items = Vec::new();
+    let mut groups = Vec::new();
     for f in &want {
         let snapshot = format!("{}/{}", crate::config::SCHEMA_DIR, Path::new(f).with_extension("json").to_string_lossy().replace('\\', "/"));
+        let from = items.len();
         for rel in [f.to_string(), snapshot] {
             let path = cfg.join(&rel);
             if std::fs::symlink_metadata(&path).is_ok_and(|m| m.is_file()) {
                 items.push(Item { path, root: dirs.root.clone(), what: What::File, backup: base.join(&rel) });
             }
         }
+        groups.push(from..items.len());
     }
     let mut report = SettingsRemoval::default();
     if items.is_empty() {
@@ -205,11 +209,23 @@ pub fn clear_orphans_with(
     let folder = format!("config-{}", tag(profile_id));
     let backup = backup_as(dirs, &folder, "config", profile_id, &mods, &items)?;
     report.backup = Some(backup.display().to_string());
-    for item in &items {
-        match take_out(item) {
-            Ok(true) => report.removed.push(item.label()),
-            Ok(false) => {}
-            Err(e) => report.notes.push(format!("{} stays: {} (a copy is in {})", item.label(), e.message, backup.display())),
+    for group in groups {
+        // a file that could not go keeps its snapshot (review of 0.2.0-dev.31.31): without it the file would be nobody's,
+        // listed with the installed files and no longer clearable; with it, it stays marked and Clear can run again
+        let mut stuck = false;
+        for item in &items[group] {
+            if stuck {
+                report.notes.push(format!("{} stays with its file (a copy is in {})", item.label(), backup.display()));
+                continue;
+            }
+            match take_out(item) {
+                Ok(true) => report.removed.push(item.label()),
+                Ok(false) => {}
+                Err(e) => {
+                    stuck = true;
+                    report.notes.push(format!("{} stays: {} (a copy is in {})", item.label(), e.message, backup.display()));
+                }
+            }
         }
     }
     Ok(report)
