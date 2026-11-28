@@ -170,7 +170,7 @@ class MapTextSignatures(unittest.TestCase):
         self.assertLess(0xC3656E, 0xC37B6B)
 
     def test_the_layer_keeps_each_slots_type_until_a_count_changes(self):
-        # review of 0.2.0-dev.31.31: the marker layer is rebuilt when a list count (or the custom-pin generation) is not
+        # 0.2.0-dev.31.30 (its review): the marker layer is rebuilt when a list count (or the custom-pin generation) is not
         # the last rebuild's; the rebuild keeps each entry's type in its item, and the canvas draws the item with that kept
         # type at the entry's live position. So a slot shows the icon of the row it held at the last rebuild, and Kiln
         # writes its map rows in a slot order without priority or distance (select.cpp admit; docs/re/map.md).

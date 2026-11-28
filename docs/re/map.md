@@ -299,7 +299,7 @@ everywhere the game names a map entry (the tooltip, the locator lists `0xbb9b80`
 `0xc2fb40`), through the same filter and escaping as a name another player wrote. What kiln.markers makes of it is
 below; for modders: docs/kiln/services/markers.md, "The map tooltip".
 
-**The tooltip text (0.2.0-dev.31.next, GitHub #160).** A marker with `MarkerMapLabel.NativeTooltip` and `markers.map_text`
+**The tooltip text (0.2.0-dev.31.30, GitHub #160).** A marker with `MarkerMapLabel.NativeTooltip` and `markers.map_text`
 on gets its text into its own entry's view: `+0x50` the record's bytes, `+0x58` their length, `+0x60` the game's hash of
 them (`map_list.cpp` `map_row`, `encode_entry`); everything else in the entry is as before, and `MapLabel.None` rows are
 byte for byte the rows of 31.29. `markers.map_text` is on when `markers.map` is and the sigdb feature
@@ -326,14 +326,14 @@ says so once, and `Set` keeps refusing NativeTooltip. What that rests on:
 - **Cost.** Kiln: one 64-bit FNV over at most 128 bytes per NativeTooltip row and Post; the steps in between copy the
   kept rows as before. The game: per frame while the cursor is on the icon, one copy, filter and escape of at most 128
   bytes (what it does for any named entry).
-**The layer keeps a slot's icon (review of 0.2.0-dev.31.31).** The marker layer `0xda4770` is rebuilt only when one of
+**The layer keeps a slot's icon (0.2.0-dev.31.30).** The marker layer `0xda4770` is rebuilt only when one of
 the four list counts or the custom-pin generation (`+0x36e9fc`) changed, or the map's filter and locator menus ask for
 it (the writers of canvas `+0xc1b4`; the canvas constructor `0xb20760` sets it too). The rebuild looks up each entry's
 type (`0xd32e90`) and keeps it in the item (`+8`); the canvas draws the item through `0xb20a40` with that kept type and
 the entry's live position (`+0x10`, `+0x20`). So a slot shows the icon of the row it held at the last rebuild. Until
 this review Kiln wrote its map rows best first (priority, then camera distance), so two rows of different icon types
 swapped slots, and icons, whenever the camera or a followed marker changed which was nearer, while the tooltip (named
-from the slot every frame) followed the row. Since 0.2.0-dev.31.31 the map's rows go into the list in a slot order
+from the slot every frame) followed the row. Since 0.2.0-dev.31.30 the map's rows go into the list in a slot order
 without priority or distance (source, namespace, generation, key; `select.cpp` `admit`), so a slot keeps its row while
 the set of admitted rows stays the same. Still open (pre-existing, not changed): a marker set again with another icon,
 or one marker replaced by another in the same Post, at the same count, keeps the old icon on an open map until the next
