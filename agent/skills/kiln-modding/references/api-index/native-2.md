@@ -1,4 +1,4 @@
-# Native ABI rows (mod API 0.2.26): part 2 of 3
+# Native ABI rows (mod API 0.2.27): part 2 of 3
 
 One line per row: header, `Table.row`, @offset, mod API, comment (native.md says more).
 
@@ -47,10 +47,10 @@ One line per row: header, `Table.row`, @offset, mod API, comment (native.md says
 
 ## services/kiln_item_costs.h — service `kiln.item_costs`
 ### KilnItemCostsApi — 40 bytes
-- kiln_item_costs.h `KilnItemCostsApi.submit` @8 `0.2.26` — Queues one cost; *ticket = its ticket (never 0).
-- kiln_item_costs.h `KilnItemCostsApi.peek` @16 `0.2.26` — The receipt now (QUEUED until it ran).
-- kiln_item_costs.h `KilnItemCostsApi.acknowledge` @24 `0.2.26` — The owner has the receipt: it is let go (its request id stays closed).
-- kiln_item_costs.h `KilnItemCostsApi.status` @32 `0.2.26` — What can be submitted now, and the counters.
+- kiln_item_costs.h `KilnItemCostsApi.submit` @8 `0.2.27` — Queues one cost; *ticket = its ticket (never 0).
+- kiln_item_costs.h `KilnItemCostsApi.peek` @16 `0.2.27` — The receipt now (QUEUED until it ran).
+- kiln_item_costs.h `KilnItemCostsApi.acknowledge` @24 `0.2.27` — The owner has the receipt: it is let go (its request id stays closed).
+- kiln_item_costs.h `KilnItemCostsApi.status` @32 `0.2.27` — What can be submitted now, and the counters.
 
 ## services/kiln_items.h — service `kiln.items`
 ### KilnItemsApi — 392 bytes
@@ -127,12 +127,12 @@ One line per row: header, `Table.row`, @offset, mod API, comment (native.md says
 
 ## services/kiln_labbot.h — service `kiln.labbot`
 ### KilnLabBotApi — 56 bytes
-- kiln_labbot.h `KilnLabBotApi.status` @8 `0.2.26` — Any thread.
-- kiln_labbot.h `KilnLabBotApi.join` @16 `0.2.26` — Starts a bot's join; *out_id names it.
-- kiln_labbot.h `KilnLabBotApi.leave` @24 `0.2.26` — Ends the bot's game (KILN_LABBOT_LEAVE_*): a logout unless DROP.
-- kiln_labbot.h `KilnLabBotApi.info` @32 `0.2.26` — Any thread.
-- kiln_labbot.h `KilnLabBotApi.list` @40 `0.2.26` — Every remembered bot (live ones and the last LEFT/FAILED of each slot), newest first; *count = how many...
-- kiln_labbot.h `KilnLabBotApi.input` @48 `0.2.26` — since dev.32 labbot-2: check header.size ---- Sets parts of the bot's client input (KILN_LABBOT_INPUT_*)...
+- kiln_labbot.h `KilnLabBotApi.status` @8 `0.2.27` — Any thread.
+- kiln_labbot.h `KilnLabBotApi.join` @16 `0.2.27` — Starts a bot's join; *out_id names it.
+- kiln_labbot.h `KilnLabBotApi.leave` @24 `0.2.27` — Ends the bot's game (KILN_LABBOT_LEAVE_*): a logout unless DROP.
+- kiln_labbot.h `KilnLabBotApi.info` @32 `0.2.27` — Any thread.
+- kiln_labbot.h `KilnLabBotApi.list` @40 `0.2.27` — Every remembered bot (live ones and the last LEFT/FAILED of each slot), newest first; *count = how many...
+- kiln_labbot.h `KilnLabBotApi.input` @48 `0.2.27` — since dev.32 labbot-2: check header.size ---- Sets parts of the bot's client input (KILN_LABBOT_INPUT_*)...
 
 ## services/kiln_launch.h — service `kiln.launch`
 ### KilnLaunchApi — 24 bytes
@@ -233,12 +233,12 @@ One line per row: header, `Table.row`, @offset, mod API, comment (native.md says
 - kiln_npcspeech.h `KilnNpcSpeechApi.text` @24 `0.2.23` — The texts of a loca tag: "text" or {"en": "...", "de": "..."} ("*" = every language), UTF-8 JSON.
 - kiln_npcspeech.h `KilnNpcSpeechApi.clear_all` @32 `0.2.23` — Ends every override and Say (a world's end, a reset).
 - kiln_npcspeech.h `KilnNpcSpeechApi.status` @40 `0.2.23` — Any thread.
-- kiln_npcspeech.h `KilnNpcSpeechApi.set_lines` @48 `0.2.26` — since 0.2.0-dev.32 (appended; check header.size >= offsetof(KilnNpcSpeechApi, dialog_status) +...
-- kiln_npcspeech.h `KilnNpcSpeechApi.next` @56 `0.2.26` — PICK_HOST lines: the index (0..n-1) the next open of that kind shows, or KILN_SPEECH_LINE_GAME; it stays...
-- kiln_npcspeech.h `KilnNpcSpeechApi.events` @64 `0.2.26` — Up to max events since the last call, oldest first (*n of them).
-- kiln_npcspeech.h `KilnNpcSpeechApi.dialog_status` @72 `0.2.26` — Any thread.
-- kiln_npcspeech.h `KilnNpcSpeechApi.menu_say` @80 `0.2.26` — One text (a tag) in the speech box of the NPC's dialogue menu on this game: now if it is open, else when...
-- kiln_npcspeech.h `KilnNpcSpeechApi.topics` @88 `0.2.26` — The NPC's Kiln topics (0..KILN_SPEECH_MAX_TOPICS; replaces the last call's, n 0 clears): rows after the...
+- kiln_npcspeech.h `KilnNpcSpeechApi.set_lines` @48 `0.2.27` — since 0.2.0-dev.32 (appended; check header.size >= offsetof(KilnNpcSpeechApi, dialog_status) +...
+- kiln_npcspeech.h `KilnNpcSpeechApi.next` @56 `0.2.27` — PICK_HOST lines: the index (0..n-1) the next open of that kind shows, or KILN_SPEECH_LINE_GAME; it stays...
+- kiln_npcspeech.h `KilnNpcSpeechApi.events` @64 `0.2.27` — Up to max events since the last call, oldest first (*n of them).
+- kiln_npcspeech.h `KilnNpcSpeechApi.dialog_status` @72 `0.2.27` — Any thread.
+- kiln_npcspeech.h `KilnNpcSpeechApi.menu_say` @80 `0.2.27` — One text (a tag) in the speech box of the NPC's dialogue menu on this game: now if it is open, else when...
+- kiln_npcspeech.h `KilnNpcSpeechApi.topics` @88 `0.2.27` — The NPC's Kiln topics (0..KILN_SPEECH_MAX_TOPICS; replaces the last call's, n 0 clears): rows after the...
 
 ## services/kiln_pacing.h — service `kiln.pacing`
 ### KilnPacingApi — 48 bytes
@@ -250,17 +250,17 @@ One line per row: header, `Table.row`, @offset, mod API, comment (native.md says
 
 ## services/kiln_pets.h — service `kiln.pets`
 ### KilnPetsApi — 96 bytes
-- kiln_pets.h `KilnPetsApi.bind` @8 `0.2.26` — A guard row for a body the owner bound in kiln.creature_control.
-- kiln_pets.h `KilnPetsApi.activate` @16 `0.2.26` — A staging row becomes a pet's guarded body (its final lease is Active).
-- kiln_pets.h `KilnPetsApi.inspect_body` @24 `0.2.26` — The row now.
-- kiln_pets.h `KilnPetsApi.collect_dirty` @32 `0.2.26` — Up to 'capacity' rows with DownPending or ProtectionLost, oldest latch first; *needs_rescan = 1 when more...
-- kiln_pets.h `KilnPetsApi.retire_binding` @40 `0.2.26` — The owner destroyed the body: its row goes (the broker keeps its root denied for the world epoch).
-- kiln_pets.h `KilnPetsApi.death_policy` @48 `0.2.26` — kiln.decisions' native death guard: KILN_DEATH_GUARD_SKIP (1) for a guarded body (latching DownPending...
-- kiln_pets.h `KilnPetsApi.hit_policy` @56 `0.2.26` — The pet target rule for one hit: KILN_PET_HIT_DENY (1) denies the whole hit before ApplyHit (no health...
-- kiln_pets.h `KilnPetsApi.involved` @64 `0.2.26` — 1 when the entity is a guarded pet body of this world epoch (kiln.combat asks before it reads anything).
-- kiln_pets.h `KilnPetsApi.set_owner_entity` @72 `0.2.26` — The owner's player entity changed (a login): owner heals and hostile pairs follow it.
-- kiln_pets.h `KilnPetsApi.set_hostile` @80 `0.2.26` — Declares (on 1) or ends (on 0) a consensual hostility between two player entities, for pets of the...
-- kiln_pets.h `KilnPetsApi.withdraw` @88 `0.2.26` — Two-phase protection loss, phase 1: every row is marked ProtectionLost at once (and stays guarded); new...
+- kiln_pets.h `KilnPetsApi.bind` @8 `0.2.27` — A guard row for a body the owner bound in kiln.creature_control.
+- kiln_pets.h `KilnPetsApi.activate` @16 `0.2.27` — A staging row becomes a pet's guarded body (its final lease is Active).
+- kiln_pets.h `KilnPetsApi.inspect_body` @24 `0.2.27` — The row now.
+- kiln_pets.h `KilnPetsApi.collect_dirty` @32 `0.2.27` — Up to 'capacity' rows with DownPending or ProtectionLost, oldest latch first; *needs_rescan = 1 when more...
+- kiln_pets.h `KilnPetsApi.retire_binding` @40 `0.2.27` — The owner destroyed the body: its row goes (the broker keeps its root denied for the world epoch).
+- kiln_pets.h `KilnPetsApi.death_policy` @48 `0.2.27` — kiln.decisions' native death guard: KILN_DEATH_GUARD_SKIP (1) for a guarded body (latching DownPending...
+- kiln_pets.h `KilnPetsApi.hit_policy` @56 `0.2.27` — The pet target rule for one hit: KILN_PET_HIT_DENY (1) denies the whole hit before ApplyHit (no health...
+- kiln_pets.h `KilnPetsApi.involved` @64 `0.2.27` — 1 when the entity is a guarded pet body of this world epoch (kiln.combat asks before it reads anything).
+- kiln_pets.h `KilnPetsApi.set_owner_entity` @72 `0.2.27` — The owner's player entity changed (a login): owner heals and hostile pairs follow it.
+- kiln_pets.h `KilnPetsApi.set_hostile` @80 `0.2.27` — Declares (on 1) or ends (on 0) a consensual hostility between two player entities, for pets of the...
+- kiln_pets.h `KilnPetsApi.withdraw` @88 `0.2.27` — Two-phase protection loss, phase 1: every row is marked ProtectionLost at once (and stays guarded); new...
 
 ## services/kiln_playeranim.h — service `kiln.playeranim`
 ### KilnPlayerAnimApi — 104 bytes
@@ -371,11 +371,11 @@ One line per row: header, `Table.row`, @offset, mod API, comment (native.md says
 
 ## services/kiln_registry_view.h — service `kiln.registry.view`
 ### KilnRegistryViewApi — 48 bytes
-- kiln_registry_view.h `KilnRegistryViewApi.views_json` @8 `0.2.26` — Every view: {"format": 1, "views": [{"name", "tier": "stable" | "advanced", "fields": n, "registry"?...
-- kiln_registry_view.h `KilnRegistryViewApi.fields_json` @16 `0.2.26` — One view's fields: {"view", "tier", "fields": [{"path", "type": "int" | "float" | "bool" | "enum" |...
-- kiln_registry_view.h `KilnRegistryViewApi.read` @24 `0.2.26` — One field of one entry, as JSON.
-- kiln_registry_view.h `KilnRegistryViewApi.select` @32 `0.2.26` — The ids a selector names, as a JSON array in the view's order: an id, a case-insensitive glob over ids...
-- kiln_registry_view.h `KilnRegistryViewApi.entry_json` @40 `0.2.26` — Every field of one entry: {"view", "id", "tier", "fields": {"\<path>": value}, "refused": {"\<path>"...
+- kiln_registry_view.h `KilnRegistryViewApi.views_json` @8 `0.2.27` — Every view: {"format": 1, "views": [{"name", "tier": "stable" | "advanced", "fields": n, "registry"?...
+- kiln_registry_view.h `KilnRegistryViewApi.fields_json` @16 `0.2.27` — One view's fields: {"view", "tier", "fields": [{"path", "type": "int" | "float" | "bool" | "enum" |...
+- kiln_registry_view.h `KilnRegistryViewApi.read` @24 `0.2.27` — One field of one entry, as JSON.
+- kiln_registry_view.h `KilnRegistryViewApi.select` @32 `0.2.27` — The ids a selector names, as a JSON array in the view's order: an id, a case-insensitive glob over ids...
+- kiln_registry_view.h `KilnRegistryViewApi.entry_json` @40 `0.2.27` — Every field of one entry: {"view", "id", "tier", "fields": {"\<path>": value}, "refused": {"\<path>"...
 
 ## services/kiln_render.h — service `kiln.render`
 ### KilnRenderApi — 152 bytes

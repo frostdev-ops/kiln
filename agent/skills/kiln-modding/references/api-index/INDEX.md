@@ -1,4 +1,4 @@
-# Kiln mod API index (mod API 0.2.26)
+# Kiln mod API index (mod API 0.2.27)
 
 Every public type and member of the mod API, one line each, to grep: a name (`BlockAt`), a word of what it does (`refusal`), a mod API (`0.2.15` finds what that release added). Then open that assembly's file: its name is the `KilnServices` entry (`Items.md` needs `<KilnServices>Items</KilnServices>`; `Api.md` needs none). A file that was too large is a map (`Blocks.md`) of its parts (`Blocks-items.md`).
 

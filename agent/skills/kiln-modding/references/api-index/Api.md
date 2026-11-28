@@ -792,7 +792,7 @@ enum: Handles, Messages
 
 ## Mods — The mod list, per-mod state and inter-mod messages.
 - `static All { get; } -> IReadOnlyList<ModEntry>` — Every mod Kiln found, in load order (loaded first), then the ones that did not load.
-- `const ApiVersion = "0.2.26" -> string` — The Kiln mod API version this Kiln implements; a manifest's `apiVersion` is checked against it.
+- `const ApiVersion = "0.2.27" -> string` — The Kiln mod API version this Kiln implements; a manifest's `apiVersion` is checked against it.
 - `static BootState(string modId) -> BootModReport` `0.2.3` — A mod's part in this process's boot generation (Mod.OnBoot, chapter 08): its state, its committed definitions...
 - `static Current { get; } -> ModEntry?` — The mod whose code is running on this thread (null outside mod code).
 - `static Get(string id) -> ModEntry?` — The mod with `id`, loaded or not; null when Kiln never saw it.
