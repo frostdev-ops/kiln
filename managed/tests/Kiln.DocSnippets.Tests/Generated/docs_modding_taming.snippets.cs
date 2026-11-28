@@ -12,6 +12,7 @@ public sealed class WolfTamerMod : Mod
     [Command("tame begin", Description = "start taming the nearest wolf (3 m)")]
     private async Task Begin(CommandContext c)
     {
+        if (!Taming.Available) throw new CommandException($"taming is off: {Capabilities.Why(Taming.Capability)}");
         var who = PlayerRef.Of(c.Source.Player);
         var at = World.Position(c.Source.Player) ?? throw new CommandException("your position is not known");
         foreach (var wolf in Creatures.Near(at, 3))
@@ -28,6 +29,7 @@ public sealed class WolfTamerMod : Mod
     [Command("tame step", Description = "the step that takes no item (weaken)")]
     private async Task Step(CommandContext c)
     {
+        if (!Taming.Available) throw new CommandException($"taming is off: {Capabilities.Why(Taming.Capability)}");
         var who = PlayerRef.Of(c.Source.Player);
         var p = _attempts[who];
         var r = await Taming.Advance(who, p.Id, TamingRequest.New(p.Token));
@@ -38,6 +40,7 @@ public sealed class WolfTamerMod : Mod
     [Command("tame feed", Description = "pay the feeding step from the first slot that can")]
     private async Task Feed(CommandContext c)
     {
+        if (!Taming.Available) throw new CommandException($"taming is off: {Capabilities.Why(Taming.Capability)}");
         var who = PlayerRef.Of(c.Source.Player);
         var p = _attempts[who];
         var choices = Taming.Choices(who, p.Id);
@@ -56,7 +59,7 @@ namespace DocSnippets.docs_modding_taming_2
     {
         public async Task Run()
         {
-#line 95 "docs/kiln/modding/taming.md"
+#line 98 "docs/kiln/modding/taming.md"
 Blocks.Define("tame-wolf", new PetBlock { Creature = "game:enemy_wildbeast_wolf_earlygame", Name = "Tamed Wolf" });
 var defined = Taming.Define(new TamingDefinition
 {
@@ -78,7 +81,7 @@ namespace DocSnippets.docs_modding_taming_3
     {
         public async Task Run()
         {
-#line 156 "docs/kiln/modding/taming.md"
+#line 159 "docs/kiln/modding/taming.md"
 var bait = Blocks.Define("wolf-bait", new ItemBlock { Name = "Wolf Bait", Stack = 20 });
 var pet = Blocks.Define("tame-wolf", new PetBlock { Creature = "game:enemy_wildbeast_wolf_earlygame", Name = "Tamed Wolf" });
 Blocks.Define("wolf", new TamingBlock
@@ -105,7 +108,8 @@ namespace DocSnippets.docs_modding_taming_4
     {
         public async Task Run()
         {
-#line 186 "docs/kiln/modding/taming.md"
+#line 189 "docs/kiln/modding/taming.md"
+if (!Taming.Available) return;                              // taming.steps: a server world runs
 var r = await Taming.Begin(player, EntityRef.Of(wolf), "my-mod:wolf", TamingRequest.New());
 var p = r.Progress!;                                        // p.Token: the challenge, the revision and the step
 r = await Taming.Advance(player, p.Id, TamingRequest.New(p.Token));   // weaken: no selection

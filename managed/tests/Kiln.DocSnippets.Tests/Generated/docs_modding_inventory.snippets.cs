@@ -16,13 +16,11 @@ namespace DocSnippets.docs_modding_inventory_2
         public async Task Run()
         {
 #line 86 "docs/kiln/modding/inventory.md"
+if (!Items.Available || !Items.CheckedMovesAvailable) return;    // kiln.items, and checked moves on this Kiln
 var seen = Items.Read(player)!.Slots.First(s => s.Item == flint);   // what the player dragged
 var spot = Items.Read(chest)!.Slots.First(s => s.IsEmpty);          // where they dropped it
-if (Items.CheckedMovesAvailable)
-{
-    MoveResult r = await Items.MoveChecked(player, seen, chest, 3, spot);   // exactly 3, exactly into that slot
-    if (r.Status == ItemsStatus.SlotChanged) { /* the view was old: send the player a fresh one */ }
-}
+MoveResult r = await Items.MoveChecked(player, seen, chest, 3, spot);   // exactly 3, exactly into that slot
+if (r.Status == ItemsStatus.SlotChanged) { /* the view was old: send the player a fresh one */ }
 #line default
         }
     }

@@ -43,6 +43,7 @@ The player weakens a wolf to 40 % health, then feeds it two bait items. A server
        [Command("tame begin", Description = "start taming the nearest wolf (3 m)")]
        private async Task Begin(CommandContext c)
        {
+           if (!Taming.Available) throw new CommandException($"taming is off: {Capabilities.Why(Taming.Capability)}");
            var who = PlayerRef.Of(c.Source.Player);
            var at = World.Position(c.Source.Player) ?? throw new CommandException("your position is not known");
            foreach (var wolf in Creatures.Near(at, 3))
@@ -59,6 +60,7 @@ The player weakens a wolf to 40 % health, then feeds it two bait items. A server
        [Command("tame step", Description = "the step that takes no item (weaken)")]
        private async Task Step(CommandContext c)
        {
+           if (!Taming.Available) throw new CommandException($"taming is off: {Capabilities.Why(Taming.Capability)}");
            var who = PlayerRef.Of(c.Source.Player);
            var p = _attempts[who];
            var r = await Taming.Advance(who, p.Id, TamingRequest.New(p.Token));
@@ -69,6 +71,7 @@ The player weakens a wolf to 40 % health, then feeds it two bait items. A server
        [Command("tame feed", Description = "pay the feeding step from the first slot that can")]
        private async Task Feed(CommandContext c)
        {
+           if (!Taming.Available) throw new CommandException($"taming is off: {Capabilities.Why(Taming.Capability)}");
            var who = PlayerRef.Of(c.Source.Player);
            var p = _attempts[who];
            var choices = Taming.Choices(who, p.Id);
@@ -183,6 +186,7 @@ Every action sends a `TamingRequest`: your request id and the token of the last 
 resend the same action after a network hiccup. It is the same shape as Kiln.Pets' `PetRequest`.
 
 ```csharp
+if (!Taming.Available) return;                              // taming.steps: a server world runs
 var r = await Taming.Begin(player, EntityRef.Of(wolf), "my-mod:wolf", TamingRequest.New());
 var p = r.Progress!;                                        // p.Token: the challenge, the revision and the step
 r = await Taming.Advance(player, p.Id, TamingRequest.New(p.Token));   // weaken: no selection

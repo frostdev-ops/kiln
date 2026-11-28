@@ -83,13 +83,11 @@ stack, or another piece of gear. `Items.MoveChecked` (since 0.2.0-dev.32) takes 
 only while they still hold that:
 
 ```csharp
+if (!Items.Available || !Items.CheckedMovesAvailable) return;    // kiln.items, and checked moves on this Kiln
 var seen = Items.Read(player)!.Slots.First(s => s.Item == flint);   // what the player dragged
 var spot = Items.Read(chest)!.Slots.First(s => s.IsEmpty);          // where they dropped it
-if (Items.CheckedMovesAvailable)
-{
-    MoveResult r = await Items.MoveChecked(player, seen, chest, 3, spot);   // exactly 3, exactly into that slot
-    if (r.Status == ItemsStatus.SlotChanged) { /* the view was old: send the player a fresh one */ }
-}
+MoveResult r = await Items.MoveChecked(player, seen, chest, 3, spot);   // exactly 3, exactly into that slot
+if (r.Status == ItemsStatus.SlotChanged) { /* the view was old: send the player a fresh one */ }
 ```
 
 - The source must still hold the item and the count it held, and gear the same item entity with the same stamp

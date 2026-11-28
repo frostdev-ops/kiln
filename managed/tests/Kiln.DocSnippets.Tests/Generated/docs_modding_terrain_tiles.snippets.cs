@@ -10,6 +10,7 @@ public sealed class MoundMod : Mod
     [Command("mound", Description = "raise a mound next to you", Permission = CommandPermission.Admin)]
     private async Task Mound(CommandContext c)
     {
+        if (!Build.Available || !Capabilities.Is("terrain.overlays")) throw new CommandException("terrain overlays are off on this server");
         var at = World.Position(c.Source.Player) ?? throw new CommandException("your position is not known");
         var heights = new float[16 * 16];
         for (var z = 0; z < 16; z++)
