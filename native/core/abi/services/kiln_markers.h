@@ -43,8 +43,10 @@
  * "markers.map" (guarded native map icons), "markers.compass" (Kiln's drawn compass strip), "markers.world" (drawn
  * world labels), "markers.nameplates" (a world label that follows an entity), "markers.anchors.client",
  * "markers.anchors.server", "markers.send" (server layers and the built-in receiver's link), "markers.map_text"
- * (the native map tooltip; off in v1). A spec that asks for a surface whose row is off is KILN_ERR_UNAVAILABLE naming
- * that row; nothing is drawn partly.
+ * (the game's map tooltip shows a NATIVE_TOOLTIP marker's text: markers.map and the game build's tooltip check, sigdb
+ * markers.map_tooltip_text; WRONG_SIDE on a dedicated server). A spec that asks for a surface whose row is off is
+ * KILN_ERR_UNAVAILABLE naming that row; nothing is drawn partly. send takes NATIVE_TOOLTIP: each player whose client
+ * cannot show it is refused for that spec (REQUIRES_CLIENT).
  */
 #ifndef KILN_MARKERS_H
 #define KILN_MARKERS_H
@@ -66,7 +68,8 @@ enum {
     KILN_MARKER_ACCEPTED = 0,          /* stored (also when identical: affected 0) */
     KILN_MARKER_NOT_FOUND = 1,         /* no record of that key, no such entity, no such icon */
     KILN_MARKER_FULL = 2,              /* a count, queue or text limit (header comment) would be exceeded */
-    KILN_MARKER_REQUIRES_CLIENT = 3,   /* a recipient runs no Kiln (vanilla) or has no marker channel */
+    KILN_MARKER_REQUIRES_CLIENT = 3,   /* a recipient runs no Kiln (vanilla), has no marker channel, or cannot show what
+                                          the spec asks for (the map, NATIVE_TOOLTIP) */
     KILN_MARKER_NOT_READY = 4,         /* no world of the needed kind, owner not ready, a peer's handshake pending */
     KILN_MARKER_PARTIAL = 5,           /* a server store committed; some recipients queued, some refused */
     KILN_MARKER_INVALID_ANCHOR = 6,    /* the follow handle is not a live lease of this owner and world */
@@ -108,7 +111,8 @@ enum {
     KILN_MARKER_NOT_REQUESTED = 13,
 };
 
-/* KilnMarkerSpec.map_label_mode. NATIVE_TOOLTIP needs the MAP surface and the markers.map_text row (off in v1). */
+/* KilnMarkerSpec.map_label_mode. NATIVE_TOOLTIP: the text is also the title of the game's map tooltip; it needs the MAP
+ * surface and, for set_local, the markers.map_text row. */
 enum { KILN_MARKER_LABEL_NONE = 0, KILN_MARKER_LABEL_NATIVE_TOOLTIP = 1 };
 
 /* KilnMarkerIcon.flags (catalog metadata) */

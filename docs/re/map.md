@@ -296,8 +296,40 @@ Read 2026-11-28 from the client exe (capstone over `.pdata` and call/rip xrefs, 
 
 So the normal list already has a per-row text field the tooltip honours first: route (a). A row's text view is its name
 everywhere the game names a map entry (the tooltip, the locator lists `0xbb9b80`/`0xcf1fd0`/`0xcf2900`, the panel
-`0xc2fb40`), through the same filter and escaping as a name another player wrote. What kiln.markers makes of it:
-docs/kiln/services/markers.md.
+`0xc2fb40`), through the same filter and escaping as a name another player wrote. What kiln.markers makes of it is
+below; for modders: docs/kiln/services/markers.md, "The map tooltip".
+
+**The tooltip text (0.2.0-dev.31.next, GitHub #160).** A marker with `MarkerMapLabel.NativeTooltip` and `markers.map_text`
+on gets its text into its own entry's view: `+0x50` the record's bytes, `+0x58` their length, `+0x60` the game's hash of
+them (`map_list.cpp` `map_row`, `encode_entry`); everything else in the entry is as before, and `MapLabel.None` rows are
+byte for byte the rows of 31.29. `markers.map_text` is on when `markers.map` is and the sigdb feature
+`markers.map_tooltip_text` resolved with the text view at `+0x50`/`+0x58`/`+0x60`; else it is off with its reason, kiln.log
+says so once, and `Set` keeps refusing NativeTooltip. What that rests on:
+- **Lifetime.** The view points into kiln.markers' text arena: interned once, in 64 KiB chunks that never move and are
+  never freed while the process lives. A removed marker's or an old text's bytes stay valid, so a view the game still
+  holds is never a dangling pointer. The game copies the bytes (PlayerText) each time it names the entry and keeps only
+  its copy, in its own string buffer.
+- **Encoding.** Both sides are UTF-8 bytes with a length, no terminator. Kiln's text rule (at most 128 bytes, strict
+  UTF-8, no control characters) is inside PlayerText's 1 KiB buffer and the filter's 1024-byte limit; the escaping can at
+  most double it. CJK goes through as bytes; the game draws it with its own font group (its default group carries Noto
+  Serif SC and KR), not with Kiln's overlay fonts of 0.2.0-dev.31.24.
+- **Thread.** Kiln writes the entries at the client Post and after every client SimStep (MapKeep, "The list in a frame"),
+  on the main thread after the step's jobs joined; the UI frame that names the hovered entry runs on the same thread
+  outside SimStep. The two never overlap.
+- **No stale text.** The text, position and type of a row come from the same Post's snapshot and are written together,
+  whole (the entry is cleared first). The hover is a slot below the current count, hit-tested again every frame, and the
+  tooltip names it from the slot each frame (step 1). A removed marker is in no row the next Post writes; the slot it
+  had is then another Kiln row (with that row's text), a game row (the append cleared the view) or beyond the count.
+  Turning NativeTooltip off (or the row going off) writes the row without a view from the next Post on.
+- **Game rows untouched.** Kiln writes only beyond the game's count, as before; the game's own rows get their views from
+  the append (cleared) and replicate (an entity's CustomPlayerString), never from Kiln.
+- **Cost.** Kiln: one 64-bit FNV over at most 128 bytes per NativeTooltip row and Post; the steps in between copy the
+  kept rows as before. The game: per frame while the cursor is on the icon, one copy, filter and escape of at most 128
+  bytes (what it does for any named entry).
+Found while reading, not changed here: the marker layer keeps each slot's type and icon from its last rebuild (a list
+count change, or the map's filter and locator menus asking for one: the writers of canvas `+0xc1b4`), so a marker that
+changes its icon while the counts stay the same can show its old icon until then; the tooltip is named from the slot
+and follows at once.
 
 ### Compass, projection and names [static] [refl]
 

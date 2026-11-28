@@ -29,7 +29,8 @@ internal static class MarkersCaps
     public const string AnchorsServer = "markers.anchors.server";
     /// <summary>Server layers and the built-in receiver's link.</summary>
     public const string Send = "markers.send";
-    /// <summary>The native map tooltip (off in v1).</summary>
+    /// <summary>The native map tooltip shows a marker's text (MarkerMapLabel.NativeTooltip): markers.map and the tooltip check
+    /// (sigdb markers.map_tooltip_text) on a game client; WrongSide on a dedicated server, which sends such markers.</summary>
     public const string MapText = "markers.map_text";
     /// <summary>sigdb: the guards of the native map list.</summary>
     public const string ClientMap = "markers.client_map";
