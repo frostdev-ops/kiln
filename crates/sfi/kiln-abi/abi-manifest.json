@@ -1386,6 +1386,45 @@
       },
       "sha256": "412190b331e2e4fdecea72d08cff829b7b5a3c5c9a2883793619bf490714253c"
     },
+    "native/core/abi/services/kiln_client_game_input.h": {
+      "function_macros": [],
+      "inline_helpers": [],
+      "layouts": {
+        "KilnClientGameInputApi": {
+          "align": 8,
+          "fields": {
+            "header": 0,
+            "last": 8,
+            "repeat": 24,
+            "subscribe": 16,
+            "unsubscribe": 32
+          },
+          "size": 40
+        },
+        "KilnGameInputSample": {
+          "align": 8,
+          "fields": {
+            "age_ns": 64,
+            "client_session": 8,
+            "digital": 48,
+            "flags": 40,
+            "gate": 44,
+            "held": 16,
+            "held_item": 36,
+            "held_kind": 32,
+            "player": 4,
+            "press": 24,
+            "pressed": 20,
+            "release": 28,
+            "sequence": 56,
+            "size": 0,
+            "step": 12
+          },
+          "size": 72
+        }
+      },
+      "sha256": "16e99f99bebca3cd516a5b69feed3dd644f6574387a686e1621892d6bd7d7ecc"
+    },
     "native/core/abi/services/kiln_combat.h": {
       "function_macros": [
         "KILN_COMBAT_MASK"
@@ -10384,7 +10423,7 @@
   },
   "outputs": {
     "src/bindings.rs": "134028a6a9914076cab3f71f98d356141d4fe36c4d7f51bac6a11819501ed935",
-    "src/layout.rs": "de428635d2d63e96799597a18ac24a3207cdc9e673ef575685b0a464d3481de5",
+    "src/layout.rs": "b76fb838006730a32a87641ec5eb89943165ec63cb9cc8efd82612d7f0467bb5",
     "src/services/kiln_abilities.rs": "a24dff6123db80e30ed1b2e33f87c772a40982ec3ce379347ca96bb81579f6cb",
     "src/services/kiln_assets.rs": "e7fe4eb1c4d53ad31eeaf05be06f41c551a49362ad5bd4174465ec18a03effe0",
     "src/services/kiln_assets_vfx.rs": "90ed8ce5ad512bbf4f002db3277bc3b439d648ca437a58d4477eac4ce46c3b81",
@@ -10398,6 +10437,7 @@
     "src/services/kiln_chat.rs": "79e3b08c8c6678ece24cdbfd1cc62011acf5501a5185f4b323db61e459c0b4e7",
     "src/services/kiln_client.rs": "76d3a26b8c1dce6a03621ce0d2f10392113fda59a2ac83a5d837939641e73b13",
     "src/services/kiln_client_crosshair.rs": "09a1563a385122b9a6c5952bc016876c03c4c72a31fe41ef76ccff8702a27dda",
+    "src/services/kiln_client_game_input.rs": "d9aec3ebad991061a4e0b56768001874c66c46b32daeca6c798347c1789a2ce0",
     "src/services/kiln_combat.rs": "9169650eb5d67472f057e80219789229e51a5d7e17435b5d39af0434c8880006",
     "src/services/kiln_component_changes.rs": "91d043f6b4257e141af61bc4659fcb8a5d3be65dbcdfac9d338dc9910f108288",
     "src/services/kiln_content.rs": "288d63c1d976da8ee9ee96e0a07ef115f70dc33e87ab91a1bce630cc37eb28b4",
@@ -10470,7 +10510,7 @@
     "src/services/kiln_world.rs": "3cb0272179db9c198f154ce6c008837e4bb95245a2ec62993be78879c4b330b8",
     "src/services/kiln_world_budget.rs": "b196426492d0525df1317c08e4927f3f3ff35817990bed8f2b58c02d174bab98",
     "src/services/kiln_worldtables.rs": "3d423bb8cfd5235f82230a1942bbc334d86b55d343e5e5880c671a57d1469fce",
-    "src/services/mod.rs": "ff80f65ba3f1bbe1a2c97ad75826ecabb47456dfc87cdeda348ddfafa42bc7ec"
+    "src/services/mod.rs": "a680f09da2a9154fa069b3064cf8052b073e9b0dadf63020a4fda6eaaec15260"
   },
   "schema": 1,
   "target": "x86_64-pc-windows-msvc"

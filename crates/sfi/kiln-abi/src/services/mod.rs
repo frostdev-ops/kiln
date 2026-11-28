@@ -13,6 +13,7 @@ pub mod kiln_caps;
 pub mod kiln_chat;
 pub mod kiln_client;
 pub mod kiln_client_crosshair;
+pub mod kiln_client_game_input;
 pub mod kiln_combat;
 pub mod kiln_component_changes;
 pub mod kiln_content;

@@ -57,7 +57,9 @@
 #include "../../../plugins/compat/original_code_service.h"
 #include "client_building_input.h"
 #include "client_crosshair.h"
+#include "client_game_input.h"
 #include "services/kiln_client_crosshair.h"
+#include "services/kiln_client_game_input.h"
 #include "service.h"
 
 namespace kiln::caps {
@@ -143,6 +145,8 @@ std::atomic<bool> g_client_service{false};  // kiln.client was available when th
 std::atomic<uint64_t> g_building_seen{0};   // building_input::generation() the row was last built from
 std::atomic<bool> g_crosshair_service{false};  // kiln.client.crosshair was available when the rows were built
 std::atomic<uint64_t> g_crosshair_seen{0};     // crosshair::generation() the row was last built from
+std::atomic<bool> g_game_input_service{false};  // kiln.client.game_input was available when the rows were built
+std::atomic<uint64_t> g_game_input_seen{0};     // game_input::generation() the row was last built from
 
 // ---- small helpers ----
 bool name_ok(std::string_view n) {
@@ -545,11 +549,45 @@ void refresh_crosshair() {
     });
 }
 
+// kiln.client.game_input (docs/kiln/services/client.md "Game input"): the game client only, with the service running
+// and its hooks ready (installed at the first use) or installed. Read lock-free at every registry call, as the crosshair
+// row is, so a first use's install, or its final failure (faulted), reaches the row.
+void set_game_input_locked(std::vector<Event>& ev) {
+    g_game_input_seen.store(game_input::generation(), std::memory_order_release);  // before the state it describes
+    const char* why = nullptr;
+    bool installed = false;
+    const bool producer = game_input::usable(&why, &installed);
+    const Verdict v =
+        !g_hooks ? Verdict{KILN_CAP_UNAVAILABLE, KILN_CAP_REASON_POLICY, "not started in safe idle: " + g_safe_idle}
+        : image().side != KILN_SIDE_CLIENT
+            ? Verdict{KILN_CAP_UNAVAILABLE, KILN_CAP_REASON_WRONG_SIDE, "game input belongs to a game client"}
+        : !g_game_input_service.load(std::memory_order_acquire)
+            ? Verdict{KILN_CAP_UNAVAILABLE, KILN_CAP_REASON_SERVICE_MISSING, "kiln.client.game_input did not start"}
+        : !producer ? Verdict{KILN_CAP_UNAVAILABLE,
+                              static_cast<uint32_t>(game_input::install_failed() ? KILN_CAP_REASON_FAULTED
+                                                                                 : KILN_CAP_REASON_SYMBOL_MISSING),
+                              why ? why : ""}
+        : installed ? Verdict{KILN_CAP_AVAILABLE, KILN_CAP_REASON_NONE,
+                              "the game's local input writer and input message are hooked"}
+                    : Verdict{KILN_CAP_AVAILABLE, KILN_CAP_REASON_NONE,
+                              "the game's input sites are ready on this build; they are hooked at the first use"};
+    set_core_locked("client.game_input", kService, v.state, v.reason, v.text, "core", 0, ev);
+}
+void refresh_game_input() {
+    if (!g_rows_built.load(std::memory_order_acquire)) return;
+    if (game_input::generation() == g_game_input_seen.load(std::memory_order_acquire)) return;
+    op([&](std::vector<Event>& ev) {
+        set_game_input_locked(ev);
+        return 0;
+    });
+}
+
 // The tick hook faulted (or came back) since the rows were built: its rows follow.
 void refresh_tick() {
     refresh_tasks_pool();
     refresh_building_input();
     refresh_crosshair();
+    refresh_game_input();
     if (!g_rows_built.load(std::memory_order_acquire) || !g_hooks) return;
     const uint8_t bits = tick_bits();
     if (bits == g_tick_seen.load(std::memory_order_acquire)) return;
@@ -993,6 +1031,11 @@ void core_rows(bool hooks, bool verified, const std::string& safe_idle) {
             return s.name == KILN_CLIENT_CROSSHAIR_SERVICE && s.available;
         }), std::memory_order_release);
         set_crosshair_locked(ev);
+        // kiln.client.game_input (set_game_input_locked; refresh_game_input follows the producer)
+        g_game_input_service.store(std::any_of(services.begin(), services.end(), [](const Svc& s) {
+            return s.name == KILN_CLIENT_GAME_INPUT_SERVICE && s.available;
+        }), std::memory_order_release);
+        set_game_input_locked(ev);
         // kiln.net's Steam peer-to-peer messages (docs/kiln/services/net-steam-messages.md). kiln-net.dll
         // reports the row itself (pending, available, or why Steam is missing); in safe idle it does not load, so the
         // core says why. Its "did not start" is service_dll's.

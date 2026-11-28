@@ -10,6 +10,7 @@
 // first submit (client_building_input.h, the lazy producer), never at the start: a game without a mod that builds never
 // has it. A held client gate row (native/core/gates) would still keep it out entirely.
 #include <atomic>
+#include <mutex>
 
 #include "../api.h"
 #include "../gates.h"
@@ -115,17 +116,70 @@ const char* read_layout(building_input::Layout* l) {
     return nullptr;
 }
 
-uintptr_t g_observation = 0;           // client/InputObserved, when the producer can be installed
+uintptr_t g_observation = 0;           // client/InputObserved, when the build has it (ready_observation)
+const char* g_observation_why = "kiln.client has not started";  // observation_ready()'s reason while 0
 building_input::Layout g_layout_ready{};  // the build's layout, read at the start
 
-// The lazy producer's installer: the first submit's thread, under building_input's install mutex (once at a time; a
-// refusal for threads that could not be checked is tried again by later submits, up to building_input::kInstallAttempts,
-// any other failure is final). The link is a checked installation: when it is the first link on the instruction (kiln.rules'
-// camera check, at the same instruction, may already have placed the detour; then only kiln.hooks' cells change),
-// the detour is written with every other thread stopped and checked to stand outside the replaced bytes, and refused,
-// nothing written, when any thread could not be checked. Its handler reads registers only, so kiln.rules' link sees
-// them unchanged before and after.
-building_input::Install install_producer(building_input::Layout* layout, const char** why) {
+// The observation link, shared by building input and game input (client_input.h): installed once, at the first need of
+// either. A checked installation: when it is the first link on the instruction (kiln.rules' camera check, at the same
+// instruction, may already have placed the detour; then only kiln.hooks' cells change), the detour is written with
+// every other thread stopped and checked to stand outside the replaced bytes, and refused, nothing written, when any
+// thread could not be checked. Its handler reads registers only, so kiln.rules' link sees them unchanged before and after.
+std::mutex g_link_mu;
+client_input::Link g_link = client_input::Link::Again;  // Again: not installed (yet); under g_link_mu
+bool g_link_tried = false;
+
+// Once (observation_ready(), from whichever service starts first): whether the build has the observation point and the
+// local player can be known. Reads sigdb itself, so it does not depend on the order the services start in.
+std::once_flag g_observation_once;
+void ready_observation() {
+    uintptr_t site = 0;
+    int64_t lpd = -1;
+    if (!hooks_enabled()) {
+        g_observation_why = "hooks are off (safe idle)";
+    } else if (!sigdb::feature("client.local_player") || !sigdb::feature("singletons") ||
+               !sigdb::constant("client.local_player.entity", &lpd) || lpd < 0) {
+        g_observation_why = "the local player is not known on this game build (sigdb client.local_player)";
+    } else if (!sigdb::feature(kObservation) || !sigdb::symbol("client/InputObserved", &site) || !site) {
+        g_observation_why = "sigdb client.input_observation (the local input writer's observation point) is not resolved "
+                            "on this game build";
+    } else {
+        int64_t world = -1, step = -1;
+        if (!sigdb::constant("client/input.world", &world) || world < 0 || world > 0xff ||
+            !sigdb::constant("client/input.step", &step) || step < 0 || step > 0x7ffffff0) {
+            g_observation_why = "a client.input_observation constant (the client world's pointer or its step) did not "
+                                "resolve";
+            return;
+        }
+        g_site = {static_cast<uint32_t>(world), static_cast<uint32_t>(step)};  // the visit's own reads, for every consumer
+        g_observation = site;
+        g_observation_why = nullptr;
+    }
+}
+
+}  // namespace
+
+namespace client_input {
+
+bool observation_ready(const char** why) {
+    std::call_once(g_observation_once, &ready_observation);
+    if (g_observation) return true;
+    if (why) *why = g_observation_why;
+    return false;
+}
+
+Link ensure_link(const char** why) {
+    std::call_once(g_observation_once, &ready_observation);
+    std::lock_guard lock(g_link_mu);
+    if (g_link != Link::Again && g_link_tried) {
+        if (g_link == Link::Failed && why) *why = "hooking the local input observation point failed (kiln.log says why)";
+        return g_link;
+    }
+    if (!g_observation) {
+        if (why) *why = g_observation_why;
+        return Link::Failed;
+    }
+    g_link_tried = true;
     hooks::chain::Order o;
     o.label = "kiln.client/InputObserved";
     KilnHandle h = 0;
@@ -136,17 +190,44 @@ building_input::Install install_producer(building_input::Layout* layout, const c
     if (rc != KILN_OK && unchecked) {
         // nothing written: kiln.hooks could not check every thread (it names them above); a later request tries again
         KLOG_W("client: hooking the local input observation point (client/InputObserved) was refused: %u thread(s) "
-               "could not be checked; a later building input request tries again",
+               "could not be checked; a later request tries again",
                static_cast<unsigned>(unchecked));
-        *why = "hooking the local input observation point was refused on every attempt: threads that could not be "
-               "checked (kiln.log says which)";
-        return building_input::Install::Again;
+        if (why) *why = "hooking the local input observation point was refused: threads that could not be checked "
+                        "(kiln.log says which)";
+        g_link = Link::Again;
+        return g_link;
     }
     if (rc != KILN_OK) {
-        KLOG_E("client: hooking the local input observation point (client/InputObserved) at the first building input "
-               "request failed (%d); building input stays off until the game restarts", rc);
-        *why = "hooking the local input observation point failed at the first request (kiln.log says why)";
-        return building_input::Install::Failed;
+        KLOG_E("client: hooking the local input observation point (client/InputObserved) failed (%d); building input and "
+               "game input stay off until the game restarts", rc);
+        if (why) *why = "hooking the local input observation point failed (kiln.log says why)";
+        g_link = Link::Failed;
+        return g_link;
+    }
+    KLOG_I("client: the local input observation point is hooked (+0x%llx)",
+           static_cast<unsigned long long>(g_observation - image().base));
+    g_link = Link::Bound;
+    return g_link;
+}
+
+}  // namespace client_input
+
+namespace {
+
+// The lazy building input producer's installer: the first submit's thread, under building_input's install mutex (once
+// at a time; a refusal for threads that could not be checked is tried again by later submits, up to
+// building_input::kInstallAttempts, any other failure is final). The observation link may already be in (game input).
+building_input::Install install_producer(building_input::Layout* layout, const char** why) {
+    switch (client_input::ensure_link(why)) {
+        case client_input::Link::Again:
+            if (!*why || !**why)
+                *why = "hooking the local input observation point was refused on every attempt: threads that could not "
+                       "be checked (kiln.log says which)";
+            return building_input::Install::Again;
+        case client_input::Link::Failed:
+            return building_input::Install::Failed;
+        case client_input::Link::Bound:
+            break;
     }
     *layout = g_layout_ready;
     KLOG_I("client: building input bound at its first request (observation +0x%llx; cursorInput %u, digitalInput %u, "
@@ -160,13 +241,12 @@ building_input::Install install_producer(building_input::Layout* layout, const c
 // the reason kiln.caps shows.
 void install_building_input() {
     building_input::Layout layout{};
-    uintptr_t site = 0;
     const char* why = nullptr;  // still nullptr after the checks: ready for the first submit
     if (!hooks_enabled()) {
         why = "hooks are off (safe idle)";
     } else if (g_lpd_entity < 0) {
         why = "the local player is not known on this game build (sigdb client.local_player)";
-    } else if (!sigdb::feature(kObservation) || !sigdb::symbol("client/InputObserved", &site) || !site) {
+    } else if (!g_observation) {
         building_input::unbound_reason(nullptr);  // the default reason: no observation point on this build
         KLOG_I("client: building input unavailable: sigdb %s is not resolved on this game build", kObservation);
         return;
@@ -180,11 +260,10 @@ void install_building_input() {
         KLOG_I("client: building input not bound: %s", why);
         return;
     }
-    g_observation = site;
     g_layout_ready = layout;
     building_input::set_installer(&install_producer);
     KLOG_I("client: building input ready on this build (observation +0x%llx); hooked at the first request",
-           static_cast<unsigned long long>(site - image().base));
+           static_cast<unsigned long long>(g_observation - image().base));
 }
 
 building_input::Env env_for(KilnOwner owner) {
@@ -264,6 +343,7 @@ bool init() {
         g_lpd_entity = -1;
         KLOG_W("client: client.local_player unavailable on this build; local_player stays 0");
     }
+    client_input::observation_ready(nullptr);
     install_building_input();
     return true;
 }

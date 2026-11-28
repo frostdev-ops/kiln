@@ -20,6 +20,7 @@ inline unsigned long GetCurrentProcessId() { return 4242; }
 #include "../src/services/caps.cpp"
 #include "../src/services/client_building_input.cpp"  // the building input row asks it whether its producer is bound
 #include "../src/services/client_crosshair.cpp"  // the crosshair row asks it whether its producer is ready or bound
+#include "../src/services/client_game_input.cpp"  // the game input row asks it whether its hooks are ready or in
 
 #include <cstdarg>
 #include <barrier>
@@ -161,6 +162,7 @@ KILN_SERVICE(fakeno, "kiln.fakeno", 2, &kFakeTable, &init_no);
 KILN_SERVICE(fakehooks, "kiln.hooks", 2, &kFakeTable, &init_yes);
 KILN_SERVICE(fakeclient, "kiln.client", 1, &kFakeTable, &init_yes);
 KILN_SERVICE(fakecrosshair, "kiln.client.crosshair", 1, &kFakeTable, &init_yes);
+KILN_SERVICE(fakegameinput, "kiln.client.game_input", 1, &kFakeTable, &init_yes);
 
 namespace {
 namespace caps = kiln::caps;
@@ -768,6 +770,58 @@ void core_rows(const std::filesystem::path& dir) {
                   get("client.crosshair").text == "held by the client gate until its guided client checks pass",
               "crosshair: unbound, the row says the binder's reason");
         ch::reset_for_tests();
+        kiln::test_image.side = side;
+        reset();
+        caps::core_rows(true, true, "");
+    }
+    // kiln.client.game_input: the client only, its service running, its hooks ready (installed at the first use) or in;
+    // a failed first install is faulted; the producer's reason is the row's text while unbound
+    {
+        namespace gi = kiln::game_input;
+        const uint32_t side = kiln::test_image.side;
+        kiln::test_image.side = KILN_SIDE_CLIENT;
+        gi::reset_for_tests();
+        caps::core_rows(true, true, "");
+        const char* why = nullptr;
+        gi::usable(&why, nullptr);
+        CHECK(is("client.game_input", U, KILN_CAP_REASON_SYMBOL_MISSING) && get("client.game_input").text == why &&
+                  get("client.game_input").source == "core",
+              "game input: no verified sites on this build: unavailable, symbol-missing, with the producer's reason (%s)",
+              get("client.game_input").text.c_str());
+        gi::set_installer(+[](gi::Layout*, const char**) { return gi::Install::Bound; });
+        CHECK(is("client.game_input", A, 0) && get("client.game_input").text.find("hooked at the first use") != std::string::npos,
+              "game input: ready hooks read available, hooked at the first use, without a rebuild (%s)",
+              get("client.game_input").text.c_str());
+        KilnGameInputSample sample{};
+        sample.size = sizeof sample;
+        uint32_t reason = 0;
+        CHECK(gi::last({true, true, 0, nullptr}, &sample, &reason) == KILN_OK && reason == KILN_GAME_INPUT_REASON_NO_SAMPLE,
+              "game input: the first read installs and answers no sample");
+        CHECK(is("client.game_input", A, 0) &&
+                  get("client.game_input").text == "the game's local input writer and input message are hooked",
+              "game input: hooked after the rows were built: the row follows (%s)", get("client.game_input").text.c_str());
+        gi::reset_for_tests();
+        gi::set_installer(+[](gi::Layout*, const char** w) { *w = "the test install failed"; return gi::Install::Failed; });
+        caps::core_rows(true, true, "");
+        CHECK(gi::last({true, true, 0, nullptr}, &sample, &reason) == KILN_ERR_UNAVAILABLE,
+              "game input: a failed first install refuses the read");
+        CHECK(is("client.game_input", U, KILN_CAP_REASON_FAULTED) && get("client.game_input").text == "the test install failed",
+              "game input: a failed first install: unavailable, faulted, with its reason (%s)",
+              get("client.game_input").text.c_str());
+        gi::reset_for_tests();
+        gi::set_installer(+[](gi::Layout*, const char**) { return gi::Install::Bound; });
+        kiln_service_fakegameinput.available = false;
+        caps::core_rows(true, true, "");
+        CHECK(is("client.game_input", U, KILN_CAP_REASON_SERVICE_MISSING), "game input: kiln.client.game_input missing refuses");
+        kiln_service_fakegameinput.available = true;
+        caps::core_rows(false, false, "test idle");
+        CHECK(is("client.game_input", U, KILN_CAP_REASON_POLICY) &&
+                  get("client.game_input").text == "not started in safe idle: test idle",
+              "game input: safe idle says policy");
+        kiln::test_image.side = KILN_SIDE_SERVER;
+        caps::core_rows(true, true, "");
+        CHECK(is("client.game_input", U, KILN_CAP_REASON_WRONG_SIDE), "game input: a dedicated server says wrong side");
+        gi::reset_for_tests();
         kiln::test_image.side = side;
         reset();
         caps::core_rows(true, true, "");
