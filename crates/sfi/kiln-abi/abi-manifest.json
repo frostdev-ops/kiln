@@ -3428,6 +3428,15 @@
           },
           "size": 24
         },
+        "KilnItemsCheckedMoveRequest": {
+          "align": 8,
+          "fields": {
+            "base": 0,
+            "destination": 56,
+            "source": 40
+          },
+          "size": 72
+        },
         "KilnItemsEquipRequest": {
           "align": 8,
           "fields": {
@@ -3892,6 +3901,16 @@
           },
           "size": 32
         },
+        "KilnItemsSlotWitness": {
+          "align": 4,
+          "fields": {
+            "count": 4,
+            "item": 0,
+            "pide": 8,
+            "stamp": 12
+          },
+          "size": 16
+        },
         "KilnItemsSocketRoll": {
           "align": 4,
           "fields": {
@@ -4156,7 +4175,7 @@
           "size": 40
         }
       },
-      "sha256": "95dc56ec73156d04329d5309cf499acbc78c9c2980175a58a2be2eb03dffe117"
+      "sha256": "1cabf6fa8cf3d1737b770c160eac0a19e8ff8f3076d9c1829280bdae9b2a9c98"
     },
     "native/core/abi/services/kiln_items_inventory_kinds.h": {
       "function_macros": [],
@@ -10365,7 +10384,7 @@
   },
   "outputs": {
     "src/bindings.rs": "134028a6a9914076cab3f71f98d356141d4fe36c4d7f51bac6a11819501ed935",
-    "src/layout.rs": "b9cdfdfde6bd2d9b90ef8dac6b8cc69870531db9269979aef17e029ad270a995",
+    "src/layout.rs": "de428635d2d63e96799597a18ac24a3207cdc9e673ef575685b0a464d3481de5",
     "src/services/kiln_abilities.rs": "a24dff6123db80e30ed1b2e33f87c772a40982ec3ce379347ca96bb81579f6cb",
     "src/services/kiln_assets.rs": "e7fe4eb1c4d53ad31eeaf05be06f41c551a49362ad5bd4174465ec18a03effe0",
     "src/services/kiln_assets_vfx.rs": "90ed8ce5ad512bbf4f002db3277bc3b439d648ca437a58d4477eac4ce46c3b81",
@@ -10395,7 +10414,7 @@
     "src/services/kiln_gameplay.rs": "697b6e9a231122dd29e33b1b96bc050afd822950077bc1ca2d5d1caabf70fe43",
     "src/services/kiln_gemcraft.rs": "07cb3321ad95f3ec8b694f78a02d561a14002338c8ee536b2df6fe17c8f1a4e6",
     "src/services/kiln_hooks.rs": "d3ff34a15e0da4580df5ffcdd09dafd5d31d949e3cafcfc3924bf9d2c729c1b6",
-    "src/services/kiln_items.rs": "997cdc279dc7704128c8d47efff8cd395652e0b93679a9c34848d6c54b6d5519",
+    "src/services/kiln_items.rs": "b0c11e99a56546276015ef5ba2bb7a0057c080763b9cd0267e02eeeb71bb64d0",
     "src/services/kiln_items_inventory_kinds.rs": "8527dd431495bac7067076e59756f8ca82c3113c07e79603247356dee89c3fe2",
     "src/services/kiln_items_storage.rs": "391c254d91450e0f3c935d59c3d4917ce6aafe49fd7b645d1de00ee38f6d1c07",
     "src/services/kiln_launch.rs": "6ffbec313079a115faf49075248fc663d858f91a38d4a804f09c1deeae4dc61b",

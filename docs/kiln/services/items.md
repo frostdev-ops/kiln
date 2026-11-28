@@ -282,6 +282,32 @@ a player wears: for example, `Items.Unequip(player, EquipmentSlot.ArmourHead)` (
 `Items.Equip`. Moving
 between two slots of one chest is not offered.
 
+**Checked moves** (since 0.2.0-dev.31.30, asked for by Flamebound Ledger; experimental in 31.x,
+[KILNX033](../modding/analyzers.md#kilnx033), and normal API in 0.2.0-dev.32). `Items.Move` names its source by slot number,
+so a request made on an old view (a drag and drop from a terminal's list, a request sent twice) moves whatever is in that
+slot when it runs. `Items.MoveChecked(from, expected, to, count, destination)` moves `count` items of `expected` (an
+`InventorySlot` from `Items.Read`) only while that slot still holds what the read saw: the item and the count, and for gear
+the same item entity with the same stamp (`expected.Ref`). With `destination` (a slot of `to` from a read), that slot must
+still hold what it held (empty: still empty), and the whole count lands there or nothing moves; without one, Kiln chooses
+as for `Items.Move` and a part may move (`Partial`). kiln.items checks both slots inside the move's own inventory
+transaction, in the step it runs, so nothing changes between the check and the move.
+- `SlotChanged`: a slot no longer holds what was read. `NoRoom`: the destination cannot take the whole count (full,
+  another item, or room for part). `Refused`: as for `Items.Move`, and anything that would land elsewhere. In each case the
+  move is rolled back and both inventories are as before.
+- A request that already ran finds its source changed and is `SlotChanged`: it commits once. A plain stack has no
+  identity: a stack of the same item and count put in its place passes.
+- No `MoveOptions`: a player's equipped or held items and the action bar are refused, as by `Items.Move` without options.
+- `Items.CheckedMovesAvailable`, the way a mod detects the feature: capability `items.move`, the kiln_items program
+  running, and a kiln.items that has checked moves (an older runtime: false, and `MoveChecked` is `Unavailable` saying to
+  update Kiln). Gear also needs `items.instances` (without it no read carries a stamp: `Unavailable`). A Kiln older than
+  0.2.0-dev.31.30 has neither member: a mod that loads there too finds them by reflection.
+- C: set `KILN_ITEMS_MOVE_CHECKED` on a STACK move and pass a `KilnItemsCheckedMoveRequest` (`size` at least its sizeof)
+  with the two `KilnItemsSlotWitness`; an older kiln.items refuses the flag. `status2` reports `KILN_ITEMS_HAS_CHECKED_MOVE`
+  in `reserved`.
+- Tests: `native/services/items/tests/move_test.cpp` (`checked_move_test`), `managed/tests/Kiln.Items.Tests/CheckedMoveTests.cs`;
+  the game's side: Flamebound Ledger's lab fixture (a deposit into a magic chest, a stale drag refused, a withdraw into an
+  exact bag slot, a request sent twice moving once). The guide: [modding/inventory.md](../modding/inventory.md#checked-moves).
+
 C (header size >= `sizeof(KilnItemsApi)` of v3): `move` (a `KilnItemsMoveRequest`: STACK, QUICK_STACK or MOVE_ALL; callback with a
 `KilnItemsMoveResult` and its ledger, tick thread Pre), `container_name` (tick thread), `transfer_rule` / `transfer_listen` /
 `transfer_report` / `transfer_end` (the first registration installs the hooks), `status2`. A transfer handler runs inside the game's

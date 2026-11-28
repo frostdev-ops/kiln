@@ -347,6 +347,7 @@ enum {
     KILN_ITEMS_MOVE_ACTIONBAR = 0x04u, /* STACK: may take from and fill a player's action-bar pages (default: refused
                                           as a source, skipped as a destination); MOVE_ALL: takes the action bar along
                                           (default: it stays) */
+    KILN_ITEMS_MOVE_CHECKED = 0x10u,   /* STACK: requires KilnItemsCheckedMoveRequest and exact slot witnesses */
     KILN_ITEMS_MOVE_SILENT = 0x08u,    /* QUICK_STACK / MOVE_ALL: no transfer rules or events (the caller is a handler) */
 };
 
@@ -369,6 +370,26 @@ typedef struct KilnItemsMoveRequest {
                             arrived anywhere else, or items lost on the way, roll the move back as REFUSED. */
 } KilnItemsMoveRequest;
 
+/* Read from a slot of its holder. Plain items have pide/stamp zero. For a named destination only, all zeros
+ * means it must still be empty. Item entity stamps are those returned in the inventory slot by kiln.items v4. */
+typedef struct KilnItemsSlotWitness {
+    KilnItemId item;
+    uint32_t count;
+    KilnEntity pide;
+    uint32_t stamp;
+} KilnItemsSlotWitness;
+
+/* The original 40-byte request remains valid. Setting CHECKED adds this tail and requires KILN_MOVE_STACK.
+ * A specified destination must still match and receive the entire requested count in that exact slot. */
+typedef struct KilnItemsCheckedMoveRequest {
+    KilnItemsMoveRequest base;
+    KilnItemsSlotWitness source;
+    KilnItemsSlotWitness destination;
+} KilnItemsCheckedMoveRequest;
+
+/* KilnItemsStatus2.reserved bits. Older runtimes report zero and refuse the checked request flag. */
+#define KILN_ITEMS_HAS_CHECKED_MOVE 0x01u
+
 /* One piece of the ledger: `amount` of `item` left `from_slot` and arrived in `to_slot`. Gear (a stack with an item
  * entity) moves whole: `pide` is the item entity that moved with it (the same entity before and after). */
 typedef struct KilnItemsMoveChange {
@@ -386,9 +407,11 @@ typedef struct KilnItemsMoveChange {
 typedef struct KilnItemsMoveResult {
     uint32_t size;          /* sizeof(KilnItemsMoveResult) of kiln.items */
     int32_t status;         /* KILN_ITEMS_DONE (all moved), PARTIAL (only `done` of `requested` fit / were allowed),
-                               NO_ROOM (nothing moved: no room, or nothing to move), NOT_ENOUGH (STACK: `count` is more
+                               NO_ROOM (nothing moved: no room, or nothing to move;
+                               CHECKED: the named slot cannot take the whole count), NOT_ENOUGH (STACK: `count` is more
                                than the stack holds), NO_INVENTORY (an entity has no initialized InventorySetup),
-                               SLOT_CHANGED (the slot is not one of `from`'s, or holds nothing), REFUSED (the game
+                               SLOT_CHANGED (the slot is not one of `from`'s, or holds nothing; CHECKED: a slot does
+                               not hold what its witness says), REFUSED (the game
                                refused; an equipped slot without KILN_ITEMS_MOVE_EQUIPPED; a transfer rule or handler
                                canceled it: `canceled`), UNAVAILABLE, DROPPED */
     uint64_t ticket;
@@ -528,7 +551,7 @@ typedef struct KilnItemsStatus2 {
     uint64_t transfers_canceled; /* of them canceled by a rule or handler */
     uint64_t moves_done;         /* move requests that moved something */
     uint32_t names_found;        /* container_name lookups that found a name */
-    uint32_t reserved;
+    uint32_t reserved;           /* KILN_ITEMS_HAS_* bits (KILN_ITEMS_HAS_CHECKED_MOVE); 0 from an older kiln.items */
     char detail[160];            /* the reason when a part is off; NUL-terminated */
 } KilnItemsStatus2;
 
