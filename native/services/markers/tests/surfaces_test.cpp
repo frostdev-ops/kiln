@@ -153,6 +153,56 @@ void order_is_exact() {
     kmk_test::end("selection order: priority, camera distance, source, namespace, generation, key (no insertion order)");
 }
 
+// The game's marker layer keeps each slot's type and icon from its last rebuild, which runs only when a list count changes
+// (client 0xda4770: the item's type at +8 from 0xd32e90, drawn through 0xb20a40 with the entry's live position;
+// docs/re/map.md, "The tooltip's name"). So Kiln's map rows must keep their slots while the camera or a followed marker
+// moves: a reorder by distance at the same count would draw each row's icon at another row's position, and with
+// MapLabel.NativeTooltip the tooltip (named from the slot every frame) would disagree with the icon under the cursor.
+void map_slots_stay_put_as_the_camera_moves() {
+    kmk_test::begin();
+    std::vector<ClientRow> rows = {row("waypoints", "chest", KILN_MARKER_MAP | KILN_MARKER_COMPASS),
+                                   row("waypoints", "camp", KILN_MARKER_MAP | KILN_MARKER_COMPASS),
+                                   row("other", "spot", KILN_MARKER_MAP | KILN_MARKER_COMPASS, KILN_MARKER_RECEIVED)};
+    rows[0].rec.x = 3000, rows[1].rec.x = 3500, rows[2].rec.x = 4000;  // along x, 500 m apart
+    rows[0].rec.icon = 0xffe5e444u, rows[1].rec.icon = 0x3a761350u, rows[2].rec.icon = 0x5eba3084u;
+    rows[1].rec.priority = 3;  // a priority picks who gets in when room is short, not where a row sits in the list
+    std::vector<Candidate> c;
+    for (const auto& r : rows) c.push_back(cand(r));
+    View west = view_all(), east = view_all();
+    with_camera(&west, 2900, 820, 1500);
+    with_camera(&east, 4100, 820, 1500);
+    std::vector<Admitted> adm;
+    std::vector<uint32_t> at_west[3], at_east[3];
+    admit(west, c, &adm, at_west);
+    admit(east, c, &adm, at_east);
+    // the compass stays best first (priority, then distance), so its order does follow the camera
+    CHECK(at_west[kSurfCompass] == (std::vector<uint32_t>{1, 0, 2}));
+    CHECK(at_east[kSurfCompass] == (std::vector<uint32_t>{1, 2, 0}));
+    // the map's slots: source, namespace, generation, key, wherever the camera is
+    const std::vector<uint32_t> slots = {1, 0, 2};  // local waypoints/camp, local waypoints/chest, received other/spot
+    CHECK(at_west[kSurfMap] == slots);
+    CHECK(at_east[kSurfMap] == slots);
+    // a followed marker that passes another one keeps its slot too (now nearer the west camera than the chest)
+    c[2].x = 2950;
+    admit(west, c, &adm, at_west);
+    CHECK(at_west[kSurfMap] == slots);
+    // what the game's list gets: the same icon in each Kiln slot from one Post to the next
+    std::vector<uint32_t> icons_west, icons_east;
+    for (uint32_t i : at_west[kSurfMap]) icons_west.push_back(rows[i].rec.icon);
+    for (uint32_t i : at_east[kSurfMap]) icons_east.push_back(rows[i].rec.icon);
+    CHECK(icons_west == icons_east);
+    // room for one: admission still takes the best (priority, then the nearest), so the order only changes the slots
+    View tight = view_all(1);
+    with_camera(&tight, 4100, 820, 1500);
+    rows[1].rec.priority = 0;
+    c[1].priority = 0;
+    c[2].x = 4000;
+    admit(tight, c, &adm, at_east);
+    CHECK(at_east[kSurfMap] == (std::vector<uint32_t>{2}));
+    CHECK_EQ(adm[0].reason[kSurfMap], static_cast<uint32_t>(KILN_MARKER_MAP_CAPACITY));
+    kmk_test::end("map slots: Kiln's map rows keep their list order as the camera or a followed marker moves (the game's layer keeps a slot's icon until a count changes)");
+}
+
 void m03_map_capacity() {
     kmk_test::begin();
     FakeUi f;
@@ -855,6 +905,7 @@ void map_text_row_follows_the_map_and_its_guards() {
 
 int main() {
     order_is_exact();
+    map_slots_stay_put_as_the_camera_moves();
     m03_map_capacity();
     m04_camera_range();
     m14_visibility_collapse();

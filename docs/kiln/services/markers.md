@@ -93,6 +93,10 @@ var r = Markers.Set(new MarkerSpec("chest3", new WorldPosition(7460.2, 975.6, 47
   not shown. Pick another icon for a named marker.
 - **Changes.** A new `Text`, a move and a removal show at the next client step (60 Hz), together with the icon. The game's
   own markers and the player's own pins keep their names: Kiln writes the text only into its own rows of the map list.
+- **Known issue: a changed icon.** The game's map keeps each of its marker slots' icons until the number of markers
+  changes or the map's filter is used. A marker set again with another `Icon` (or one marker replaced by another in the
+  same step) while the number of map markers stays the same can keep the old icon on an open map until then; its text and
+  position follow at once. Kiln keeps its markers in the same slots while the camera or a followed marker moves.
 - **Server markers.** `Markers.Send` takes `MarkerMapLabel.NativeTooltip`. A player whose Kiln shows the tooltip (their
   client's `markers.map_text` on, with this version or later) gets the marker; any other player is refused for it
   (`RequiresClient`, counted in `Refused`) and sees nothing of it. Send that player the same key with

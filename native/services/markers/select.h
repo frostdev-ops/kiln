@@ -9,6 +9,12 @@
 // room, SURFACE_BUDGET when Kiln's own budget is spent), else READY. Eligible rows are ordered exactly: priority
 // descending, squared 3D camera distance ascending (infinite without a camera), source (local before received),
 // namespace (byte order), publisher generation ascending, key (byte order). No insertion-order tie.
+//
+// That order decides which rows a surface takes. The compass and world surfaces draw them in it; the map writes the rows
+// it took in slot order instead: source, namespace, generation, key (no priority, no distance). The game's marker layer
+// keeps each list slot's type and icon until a list count changes (docs/re/map.md, "The tooltip's name"), so a row that
+// changed slots as the camera or a followed marker moved would show another row's icon (and, with
+// MapLabel.NativeTooltip, a tooltip that disagrees with the icon under the cursor).
 #ifndef KILN_MARKERS_SELECT_H
 #define KILN_MARKERS_SELECT_H
 #include <cstdint>
@@ -59,8 +65,8 @@ struct Admitted {
 // A point inside the world (chapter 04 §4.2 bounds): x and z in [-1000, 12000], y in [-1000, 5000], finite.
 bool position_valid(double x, double y, double z);
 
-// Fills out (one per candidate, same order). order[s] receives the indexes admitted on surface s, best first (the order
-// the map list and the drawn surfaces use).
+// Fills out (one per candidate, same order). order[s] receives the indexes admitted on surface s: best first for the drawn
+// surfaces, in slot order for the map (the order its rows go into the game's list).
 void admit(const View& view, const std::vector<Candidate>& rows, std::vector<Admitted>* out, std::vector<uint32_t> order[3]);
 
 // The camera's heading in radians from its view direction: atan2(forward.x, forward.z), north (+Z) = 0, east (+X) =

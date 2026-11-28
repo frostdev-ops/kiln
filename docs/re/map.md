@@ -326,10 +326,19 @@ says so once, and `Set` keeps refusing NativeTooltip. What that rests on:
 - **Cost.** Kiln: one 64-bit FNV over at most 128 bytes per NativeTooltip row and Post; the steps in between copy the
   kept rows as before. The game: per frame while the cursor is on the icon, one copy, filter and escape of at most 128
   bytes (what it does for any named entry).
-Found while reading, not changed here: the marker layer keeps each slot's type and icon from its last rebuild (a list
-count change, or the map's filter and locator menus asking for one: the writers of canvas `+0xc1b4`), so a marker that
-changes its icon while the counts stay the same can show its old icon until then; the tooltip is named from the slot
-and follows at once.
+**The layer keeps a slot's icon (review of 0.2.0-dev.31.31).** The marker layer `0xda4770` is rebuilt only when one of
+the four list counts or the custom-pin generation (`+0x36e9fc`) changed, or the map's filter and locator menus ask for
+it (the writers of canvas `+0xc1b4`; the canvas constructor `0xb20760` sets it too). The rebuild looks up each entry's
+type (`0xd32e90`) and keeps it in the item (`+8`); the canvas draws the item through `0xb20a40` with that kept type and
+the entry's live position (`+0x10`, `+0x20`). So a slot shows the icon of the row it held at the last rebuild. Until
+this review Kiln wrote its map rows best first (priority, then camera distance), so two rows of different icon types
+swapped slots, and icons, whenever the camera or a followed marker changed which was nearer, while the tooltip (named
+from the slot every frame) followed the row. Since 0.2.0-dev.31.31 the map's rows go into the list in a slot order
+without priority or distance (source, namespace, generation, key; `select.cpp` `admit`), so a slot keeps its row while
+the set of admitted rows stays the same. Still open (pre-existing, not changed): a marker set again with another icon,
+or one marker replaced by another in the same Post, at the same count, keeps the old icon on an open map until the next
+rebuild; the tooltip follows at once. A fix would have to make the layer rebuild (a count change or one of the game's
+own triggers), which is not a small change for a 31.x patch.
 
 ### Compass, projection and names [static] [refl]
 
