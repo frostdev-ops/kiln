@@ -71,6 +71,7 @@ pub const KILN_ITEMS_GEM_SLOT: i32 = 512;
 pub const KILN_ITEMS_GEM_SLOT_ANY: i32 = 1024;
 pub const KILN_ITEMS_GIVE_EQUIP_DRY_RUN: u32 = 2;
 pub const KILN_ITEMS_GIVE_EQUIP_TAKE: u32 = 4;
+pub const KILN_ITEMS_HAS_CHECKED_MOVE: u32 = 1;
 pub const KILN_ITEMS_INSTANCES_EXHAUSTED: i32 = 2;
 pub const KILN_ITEMS_INSTANCES_ON: i32 = 1;
 pub const KILN_ITEMS_INSTANCE_DURABILITY: i32 = 32;
@@ -90,6 +91,7 @@ pub const KILN_ITEMS_MAX_FUEL_CHANGES: u32 = 16;
 pub const KILN_ITEMS_MAX_INVENTORIES: u32 = 32;
 pub const KILN_ITEMS_MAX_MOVE_CHANGES: u32 = 16;
 pub const KILN_ITEMS_MOVE_ACTIONBAR: i32 = 4;
+pub const KILN_ITEMS_MOVE_CHECKED: i32 = 16;
 pub const KILN_ITEMS_MOVE_DRY_RUN: i32 = 1;
 pub const KILN_ITEMS_MOVE_EQUIPPED: i32 = 2;
 pub const KILN_ITEMS_MOVE_SILENT: i32 = 8;
@@ -370,6 +372,23 @@ pub struct KilnItemsMoveRequest {
     pub count: u32,
     pub slot: KilnSlotId,
     pub to_slot: KilnSlotId,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct KilnItemsSlotWitness {
+    pub item: KilnItemId,
+    pub count: u32,
+    pub pide: KilnEntity,
+    pub stamp: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct KilnItemsCheckedMoveRequest {
+    pub base: KilnItemsMoveRequest,
+    pub source: KilnItemsSlotWitness,
+    pub destination: KilnItemsSlotWitness,
 }
 
 #[repr(C)]

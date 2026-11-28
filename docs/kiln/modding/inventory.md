@@ -75,6 +75,44 @@ players and the save follow, as after a drag and drop.
 - It runs in the next sim step, in kiln.items' program, like give and take; the task completes on the tick thread one step
   later. A mod that unloads drops its callbacks. `Items.MovesAvailable` says whether this game build has it.
 
+### Checked moves
+
+`Items.Move` names its source by slot number: when it runs, it moves whatever is in that slot then. A move a player asked
+for on an old view (a drag and drop in a mod's own inventory screen, a request that arrives twice) can then move another
+stack, or another piece of gear. `Items.MoveChecked` (since 0.2.0-dev.31.30) takes the slots as a read listed them and
+moves only while they still hold that. Detect it through `Items.CheckedMovesAvailable`:
+
+```csharp
+var seen = Items.Read(player)!.Slots.First(s => s.Item == flint);   // what the player dragged
+var spot = Items.Read(chest)!.Slots.First(s => s.IsEmpty);          // where they dropped it
+if (Items.CheckedMovesAvailable)
+{
+    MoveResult r = await Items.MoveChecked(player, seen, chest, 3, spot);   // exactly 3, exactly into that slot
+    if (r.Status == ItemsStatus.SlotChanged) { /* the view was old: send the player a fresh one */ }
+}
+```
+
+- The source must still hold the item and the count it held, and gear the same item entity with the same stamp
+  (`seen.Ref`). The destination, when you give one, must still hold what it held (an empty slot: still empty), and the
+  whole count must fit there: nothing goes to another slot and nothing moves in part. Without a destination Kiln chooses,
+  as for `Items.Move`, and a part may move (`Partial`).
+- kiln.items checks this inside the move's own transaction, in the step the move runs, so nothing can change between the
+  check and the move.
+- `SlotChanged`: a slot changed (read again). `NoRoom`: the destination cannot take the whole count. `Refused`: as for
+  `Items.Move`. Nothing moved then, in either inventory.
+- The same request twice moves once: the second finds its source changed. A plain stack has no identity, so a stack of the
+  same item and count put in its place passes.
+- No options: equipped and held items and the action bar are refused, as by `Items.Move` without options.
+- `Items.CheckedMovesAvailable` is false while moves are off (then `MoveChecked` is `Unavailable` and says why) and on a
+  runtime whose kiln.items has no checked moves (`Unavailable`, saying to update Kiln). Gear also needs capability
+  `items.instances`; without it a checked move of gear is `Unavailable`.
+- In 31.x both members are experimental, [KILNX033](analyzers.md#kilnx033): 0.2.0-dev.31.30 keeps mod API 0.2.26, so a
+  mod opts in with `<NoWarn>$(NoWarn);KILNX033</NoWarn>`. On a Kiln older than 0.2.0-dev.31.30 neither member exists: a
+  mod that also loads there finds `CheckedMovesAvailable` and `MoveChecked` by reflection and takes a missing member as
+  false (as Flamebound Ledger does), or requires `"kiln": ">=0.2.0-dev.31.30"` in its manifest's dependencies. In
+  0.2.0-dev.32 they are normal API.
+- The test kit does not model moves: offline, `CheckedMovesAvailable` is false and `MoveChecked` is `Unavailable`.
+
 ## Using a consumable for a player (0.2.0-dev.30.3)
 
 To make a player eat, drink or use a potion from code, put the item in one of their own slots and call

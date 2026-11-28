@@ -4103,8 +4103,30 @@
   ],
   "upcoming": [
     {
-      "version": "0.2.0-dev.32",
+      "version": "0.2.0-dev.31.30",
       "status": "next",
+      "title": "Flamebound Ledger without a host setup",
+      "summary": "Flamebound Ledger no longer needs its own Kiln host setup: Kiln now provides the framework for checked item moves, which the Ledger's next version uses.",
+      "patch": true,
+      "features": [
+        {
+          "title": "Flamebound Ledger runs on Kiln as it is",
+          "text": "Flamebound Ledger's item transfers no longer need the Ledger's own Kiln host setup, which only worked on one Kiln version. From this release the Ledger uses Kiln's checked moves; update the Ledger when its new version is out.",
+          "area": "core",
+          "kind": "improved",
+          "gamePending": true
+        },
+        {
+          "title": "Checked item moves for mods",
+          "text": "Kiln provides the framework for checked item moves: a mod can move items out of a slot only while the slot still holds what the mod last saw, and only into the exact slot it names, so a drag made on an old view or a request sent twice never moves the wrong items. Experimental in this patch, normal API from 0.2.0-dev.32.",
+          "area": "api",
+          "gamePending": true
+        }
+      ]
+    },
+    {
+      "version": "0.2.0-dev.32",
+      "status": "planned",
       "title": "Pets, taming and more registries",
       "summary": "Kiln makes pets and taming possible for mods, and adds registries for creatures, spells, buffs, perks, stations, skills, world rules, limits and loot.",
       "features": [
