@@ -3055,7 +3055,23 @@
     "file": "Archivo",
     "cantRead": "No se puede leer",
     "saved": "Guardado",
-    "revert": "Revertir"
+    "revert": "Revertir",
+    "orphans": {
+      "group": "No instalados: se guardan por si los vuelves a añadir",
+      "badge": "No instalado",
+      "hint": "{name} no está instalado. Sus ajustes se guardan por si lo vuelves a añadir. Aquí son de solo lectura: los cambios no hacen nada hasta que el mod vuelva.",
+      "clear": "Borrar ajustes",
+      "clearAll": "Borrar todo",
+      "clearFor": "Borrar los ajustes de {name}",
+      "confirmOne": "¿Borrar los ajustes de {name}?",
+      "confirmAll": "¿Borrar los ajustes de todos los mods no instalados?",
+      "confirmBody": "Kiln copia antes estos archivos en sus copias de seguridad de ajustes, para que puedas devolverlos a mano. Los ajustes de los mods instalados nunca se tocan. Si vuelves a añadir el mod más tarde, empezará con sus valores por defecto.",
+      "confirmAction": "Borrar",
+      "cleared": "Ajustes borrados",
+      "clearedDetail": "Hay una copia en {path}.",
+      "nothing": "Nada que borrar",
+      "nothingDetail": "Esos archivos ya no estaban."
+    }
   },
   "dataFolderSettings": {
     "dialogFailed": "No se pudo abrir el diálogo de carpetas",

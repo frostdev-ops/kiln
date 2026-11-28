@@ -3055,7 +3055,23 @@
     "file": "Datei",
     "cantRead": "Nicht lesbar",
     "saved": "Gespeichert",
-    "revert": "Verwerfen"
+    "revert": "Verwerfen",
+    "orphans": {
+      "group": "Nicht installiert: für den Fall aufbewahrt, dass du sie wieder hinzufügst",
+      "badge": "Nicht installiert",
+      "hint": "{name} ist nicht installiert. Die Einstellungen bleiben erhalten, falls du sie wieder hinzufügst. Hier sind sie schreibgeschützt: Änderungen bewirken nichts, solange die Mod fehlt.",
+      "clear": "Einstellungen löschen",
+      "clearAll": "Alle löschen",
+      "clearFor": "Einstellungen von {name} löschen",
+      "confirmOne": "Einstellungen von {name} löschen?",
+      "confirmAll": "Die Einstellungen aller nicht installierten Mods löschen?",
+      "confirmBody": "Kiln kopiert diese Dateien zuerst in seine Einstellungs-Backups, damit du sie von Hand zurückholen kannst. Die Einstellungen installierter Mods werden nie angerührt. Fügst du die Mod später wieder hinzu, startet sie mit ihren Standardwerten.",
+      "confirmAction": "Löschen",
+      "cleared": "Einstellungen gelöscht",
+      "clearedDetail": "Eine Kopie liegt in {path}.",
+      "nothing": "Nichts zu löschen",
+      "nothingDetail": "Diese Dateien waren schon weg."
+    }
   },
   "dataFolderSettings": {
     "dialogFailed": "Der Ordnerdialog konnte nicht geöffnet werden",

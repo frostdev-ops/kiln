@@ -3055,7 +3055,23 @@
     "file": "Arquivo",
     "cantRead": "Não dá para ler",
     "saved": "Salvo",
-    "revert": "Reverter"
+    "revert": "Reverter",
+    "orphans": {
+      "group": "Não instalados: guardados para quando você adicionar de volta",
+      "badge": "Não instalado",
+      "hint": "{name} não está instalado. As configurações dele são guardadas para quando você adicioná-lo de volta. Aqui ficam somente leitura: mudar algo não faz nada até o mod voltar.",
+      "clear": "Limpar configurações",
+      "clearAll": "Limpar tudo",
+      "clearFor": "Limpar as configurações de {name}",
+      "confirmOne": "Limpar as configurações de {name}?",
+      "confirmAll": "Limpar as configurações de todos os mods não instalados?",
+      "confirmBody": "O Kiln copia antes esses arquivos para os backups de configurações, para você poder devolvê-los à mão. As configurações dos mods instalados nunca são tocadas. Se você adicionar o mod de novo mais tarde, ele começa com os valores padrão.",
+      "confirmAction": "Limpar",
+      "cleared": "Configurações limpas",
+      "clearedDetail": "Há uma cópia em {path}.",
+      "nothing": "Nada para limpar",
+      "nothingDetail": "Esses arquivos já tinham sumido."
+    }
   },
   "dataFolderSettings": {
     "dialogFailed": "Não foi possível abrir a janela de pastas",

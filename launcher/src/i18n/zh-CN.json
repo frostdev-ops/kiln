@@ -3449,7 +3449,23 @@
     "file": "文件",
     "cantRead": "无法读取",
     "saved": "已保存",
-    "revert": "还原"
+    "revert": "还原",
+    "orphans": {
+      "group": "未安装：保留着，以便你重新添加",
+      "badge": "未安装",
+      "hint": "{name} 未安装。其设置会保留，以便你重新添加。这里为只读：模组回来之前，修改不会有任何效果。",
+      "clear": "清除设置",
+      "clearAll": "全部清除",
+      "clearFor": "清除 {name} 的设置",
+      "confirmOne": "清除 {name} 的设置？",
+      "confirmAll": "清除所有未安装模组的设置？",
+      "confirmBody": "Kiln 会先把这些文件复制到设置备份中，你可以手动放回。已安装模组的设置绝不会被改动。以后重新添加该模组时，它会从默认值开始。",
+      "confirmAction": "清除",
+      "cleared": "设置已清除",
+      "clearedDetail": "副本在 {path}。",
+      "nothing": "没有可清除的内容",
+      "nothingDetail": "这些文件已经不在了。"
+    }
   },
   "dataFolderSettings": {
     "dialogFailed": "未能打开文件夹选择窗口",

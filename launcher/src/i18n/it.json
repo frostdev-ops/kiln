@@ -3055,7 +3055,23 @@
     "file": "File",
     "cantRead": "Illeggibile",
     "saved": "Salvato",
-    "revert": "Ripristina"
+    "revert": "Ripristina",
+    "orphans": {
+      "group": "Non installati: conservati nel caso li aggiunga di nuovo",
+      "badge": "Non installato",
+      "hint": "{name} non è installato. Le sue impostazioni vengono conservate nel caso lo aggiunga di nuovo. Qui sono in sola lettura: le modifiche non servono finché la mod non torna.",
+      "clear": "Cancella impostazioni",
+      "clearAll": "Cancella tutto",
+      "clearFor": "Cancella le impostazioni di {name}",
+      "confirmOne": "Cancellare le impostazioni di {name}?",
+      "confirmAll": "Cancellare le impostazioni di tutte le mod non installate?",
+      "confirmBody": "Kiln copia prima questi file nei suoi backup delle impostazioni, così puoi rimetterli a mano. Le impostazioni delle mod installate non vengono mai toccate. Se aggiungi di nuovo la mod più tardi, ripartirà dai valori predefiniti.",
+      "confirmAction": "Cancella",
+      "cleared": "Impostazioni cancellate",
+      "clearedDetail": "Una copia si trova in {path}.",
+      "nothing": "Niente da cancellare",
+      "nothingDetail": "Quei file erano già spariti."
+    }
   },
   "dataFolderSettings": {
     "dialogFailed": "Impossibile aprire la scelta della cartella",

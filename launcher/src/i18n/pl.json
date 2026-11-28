@@ -3169,7 +3169,23 @@
     "file": "Plik",
     "cantRead": "Nie można odczytać",
     "saved": "Zapisano",
-    "revert": "Przywróć"
+    "revert": "Przywróć",
+    "orphans": {
+      "group": "Niezainstalowane: zachowane na wypadek, gdy dodasz je ponownie",
+      "badge": "Niezainstalowany",
+      "hint": "{name} nie jest zainstalowany. Jego ustawienia są zachowane na wypadek ponownego dodania. Tutaj są tylko do odczytu: zmiany nic nie dają, dopóki mod nie wróci.",
+      "clear": "Wyczyść ustawienia",
+      "clearAll": "Wyczyść wszystko",
+      "clearFor": "Wyczyść ustawienia: {name}",
+      "confirmOne": "Wyczyścić ustawienia: {name}?",
+      "confirmAll": "Wyczyścić ustawienia wszystkich niezainstalowanych modów?",
+      "confirmBody": "Kiln najpierw kopiuje te pliki do kopii zapasowych ustawień, więc możesz je przywrócić ręcznie. Kiln nigdy nie rusza ustawień zainstalowanych modów. Jeśli później dodasz mod ponownie, zacznie od wartości domyślnych.",
+      "confirmAction": "Wyczyść",
+      "cleared": "Ustawienia wyczyszczone",
+      "clearedDetail": "Kopia jest w {path}.",
+      "nothing": "Nie ma czego czyścić",
+      "nothingDetail": "Tych plików już nie było."
+    }
   },
   "dataFolderSettings": {
     "dialogFailed": "Nie udało się otworzyć okna wyboru folderu",

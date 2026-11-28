@@ -3559,7 +3559,23 @@
     "file": "File",
     "cantRead": "Can't read it",
     "saved": "Saved",
-    "revert": "Revert"
+    "revert": "Revert",
+    "orphans": {
+      "group": "Not installed: kept for when you add it back",
+      "badge": "Not installed",
+      "hint": "{name} is not installed. Its settings are kept for when you add it back. They are read-only here: changes do nothing until the mod is back.",
+      "clear": "Clear settings",
+      "clearAll": "Clear all",
+      "clearFor": "Clear the settings of {name}",
+      "confirmOne": "Clear the settings of {name}?",
+      "confirmAll": "Clear the settings of every mod that is not installed?",
+      "confirmBody": "Kiln copies these files to its settings backups first, so you can put them back by hand. The settings of mods you have installed are never touched. If you add the mod again later, it starts from its defaults.",
+      "confirmAction": "Clear",
+      "cleared": "Settings cleared",
+      "clearedDetail": "A copy is in {path}.",
+      "nothing": "Nothing to clear",
+      "nothingDetail": "Those files were already gone."
+    }
   },
   "dataFolderSettings": {
     "dialogFailed": "Could not open the folder dialog",

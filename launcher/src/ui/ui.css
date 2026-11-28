@@ -319,6 +319,10 @@
 .k-list-item.selected { background: var(--k-warm-2); }
 .k-item-title { color: var(--k-text-0); font-weight: 500; font-size: 17px; }
 .k-item-sub { color: var(--k-text-2); font-size: 15px; }
+/* the Configs window's files of mods that are not installed (components/ConfigEditor.tsx): a heading row, dimmed entries */
+.k-config-orphan-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; background: var(--k-warm-1); box-shadow: inset 0 -1px 0 var(--k-line); }
+.k-config-orphan .k-item-title { color: var(--k-text-2); font-weight: 400; }
+.k-config-orphan-note { margin-bottom: 12px; }
 
 /* ---------------------------------------------------------------- dialogs */
 .k-modal-backdrop { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; padding: 20px;

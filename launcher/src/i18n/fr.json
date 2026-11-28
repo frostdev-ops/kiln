@@ -3055,7 +3055,23 @@
     "file": "Fichier",
     "cantRead": "Illisible",
     "saved": "Enregistré",
-    "revert": "Rétablir"
+    "revert": "Rétablir",
+    "orphans": {
+      "group": "Non installés : conservés au cas où vous les rajoutez",
+      "badge": "Non installé",
+      "hint": "{name} n'est pas installé. Ses paramètres sont conservés au cas où vous le rajoutez. Ils sont en lecture seule ici : les modifications ne servent à rien tant que le mod n'est pas revenu.",
+      "clear": "Effacer les paramètres",
+      "clearAll": "Tout effacer",
+      "clearFor": "Effacer les paramètres de {name}",
+      "confirmOne": "Effacer les paramètres de {name} ?",
+      "confirmAll": "Effacer les paramètres de tous les mods non installés ?",
+      "confirmBody": "Kiln copie d'abord ces fichiers dans ses sauvegardes de paramètres, pour que vous puissiez les remettre à la main. Les paramètres des mods installés ne sont jamais touchés. Si vous rajoutez le mod plus tard, il repartira de ses valeurs par défaut.",
+      "confirmAction": "Effacer",
+      "cleared": "Paramètres effacés",
+      "clearedDetail": "Une copie se trouve dans {path}.",
+      "nothing": "Rien à effacer",
+      "nothingDetail": "Ces fichiers avaient déjà disparu."
+    }
   },
   "dataFolderSettings": {
     "dialogFailed": "Impossible d'ouvrir la boîte de dialogue de dossier",
