@@ -326,6 +326,7 @@ says so once, and `Set` keeps refusing NativeTooltip. What that rests on:
 - **Cost.** Kiln: one 64-bit FNV over at most 128 bytes per NativeTooltip row and Post; the steps in between copy the
   kept rows as before. The game: per frame while the cursor is on the icon, one copy, filter and escape of at most 128
   bytes (what it does for any named entry).
+
 **The layer keeps a slot's icon (0.2.0-dev.31.30).** The marker layer `0xda4770` is rebuilt only when one of
 the four list counts or the custom-pin generation (`+0x36e9fc`) changed, or the map's filter and locator menus ask for
 it (the writers of canvas `+0xc1b4`; the canvas constructor `0xb20760` sets it too). The rebuild looks up each entry's
