@@ -29,6 +29,10 @@
 #           lists the false positives, a reason each), no "since 0.2.0-dev.N" claim is earlier than managed/api-history.tsv's
 #           first release of the name, the skill's pinned build and mod API are the current ones (Kiln.Mods.ApiVersion) and
 #           versions.md has a row for each mod API, and every page docs-map.md names exists. A finding fails the stage
+#   snippets tools/docs-site/snippets.py --check: the C# fences of the pages tools/docs-site/snippets.json covers are all
+#           listed, and managed/tests/Kiln.DocSnippets.Tests/Generated is made from the pages as they are now; the build stage
+#           then compiles them with the Kiln analyzers, every warning an error (a gone member, a wrong signature, a result
+#           thrown away, an unguarded capability: at the page's line)
 #   build   every managed project with a PublicAPI.Shipped.txt (found by that file, so gate 1, the PublicApiAnalyzers
 #           record, runs), Kiln.Host and the unit test projects: one Release build of one generated solution
 #           ($KILN_OUT/check/check.slnx), so each project is built once
@@ -187,6 +191,15 @@ case $rc in
      tail -20 "$work/drift.log"
      failed+=(drift) ;;
 esac
+# snippets
+t=$SECONDS
+if python3 -I "$repo/tools/docs-site/snippets.py" --check >"$work/snippets.log" 2>&1; then
+  result snippets OK $((SECONDS - t)) "$(tail -1 "$work/snippets.log" | sed 's/^snippets: //') (compiled in the build stage: Kiln.DocSnippets.Tests)"
+else
+  result snippets FAILED $((SECONDS - t)) "the docs' C# snippets and Generated/ differ (python3 -I tools/docs-site/snippets.py writes it):"
+  head -40 "$work/snippets.log"
+  failed+=(snippets)
+fi
 
 # build
 t=$SECONDS

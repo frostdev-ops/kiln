@@ -1,0 +1,54 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The C# snippets of the skill and docs/kiln, compiled with the Kiln analyzers and every warning an error: a snippet that
+       names a member that is gone, has a wrong signature, throws a result away (KILN120) or calls a capability-gated member
+       unguarded (KILN121) fails this build at its page and line (#line). Generated/*.snippets.cs come from the pages through
+       tools/docs-site/snippets.py and snippets.json; never edit them. Nothing here runs a snippet: compiling is the check. -->
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Kiln.DocSnippetsTests</RootNamespace>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- what a snippet may leave out without being wrong: docs, unused names, an async body without await, unreachable
+         code after an early return, experimental API (the pages say so), and the same block name on two pages (KILN110:
+         every snippet is a mod of its own) -->
+    <NoWarn>$(NoWarn);CS1591;CS0168;CS0169;CS0219;CS0162;CS0414;CS0649;CS1998;CS4014;CS8321;KILN110;KILNX001;KILNX002;KILNX031</NoWarn>
+    <!-- what the Kiln.Sdk passes to the analyzers for a mod: every service these snippets use -->
+    <KilnServicesList>Blocks,Build,Chat,Combat,Content,Creatures,Items,Pets,Players,Registry,Saves,Settings,Spawn,Taming,Terrain,Ui,World</KilnServicesList>
+    <KilnModId>doc-snippets</KilnModId>
+  </PropertyGroup>
+  <ItemGroup>
+    <CompilerVisibleProperty Include="KilnServicesList" />
+    <CompilerVisibleProperty Include="KilnModId" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Kiln" />
+    <Using Include="Kiln.Registry" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit.v3" Version="3.1.0" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../services/Kiln.Blocks/Kiln.Blocks.csproj" />
+    <ProjectReference Include="../../services/Kiln.Build/Kiln.Build.csproj" />
+    <ProjectReference Include="../../services/Kiln.Chat/Kiln.Chat.csproj" />
+    <ProjectReference Include="../../services/Kiln.Combat/Kiln.Combat.csproj" />
+    <ProjectReference Include="../../services/Kiln.Content/Kiln.Content.csproj" />
+    <ProjectReference Include="../../services/Kiln.Creatures/Kiln.Creatures.csproj" />
+    <ProjectReference Include="../../services/Kiln.Items/Kiln.Items.csproj" />
+    <ProjectReference Include="../../services/Kiln.Pets/Kiln.Pets.csproj" />
+    <ProjectReference Include="../../services/Kiln.Players/Kiln.Players.csproj" />
+    <ProjectReference Include="../../services/Kiln.Registry/Kiln.Registry.csproj" />
+    <ProjectReference Include="../../services/Kiln.Saves/Kiln.Saves.csproj" />
+    <ProjectReference Include="../../services/Kiln.Settings/Kiln.Settings.csproj" />
+    <ProjectReference Include="../../services/Kiln.Spawn/Kiln.Spawn.csproj" />
+    <ProjectReference Include="../../services/Kiln.Taming/Kiln.Taming.csproj" />
+    <ProjectReference Include="../../services/Kiln.Terrain/Kiln.Terrain.csproj" />
+    <ProjectReference Include="../../services/Kiln.Ui/Kiln.Ui.csproj" />
+    <ProjectReference Include="../../services/Kiln.World/Kiln.World.csproj" />
+    <ProjectReference Include="../../Kiln.TestKit/Kiln.TestKit.csproj" />
+    <ProjectReference Include="../../Kiln.Analyzers/src/Kiln.Analyzers/Kiln.Analyzers.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" Private="false" />
+  </ItemGroup>
+</Project>

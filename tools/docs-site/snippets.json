@@ -1,0 +1,131 @@
+{
+  "about": "tools/docs-site/snippets.py: how each C# fence of these pages compiles in managed/tests/Kiln.DocSnippets.Tests. Fences count from 1, C# fences only.",
+  "pages": {
+    "agent/skills/kiln-modding/references/api-pets.md": { "cover": "all", "fences": {
+      "1": { "wrap": "members" },
+      "2": { "wrap": "method", "stubs": ["EntityId player", "EntityId enemy"] },
+      "3": { "wrap": "method", "stubs": ["bool FarFromOwner(PetSnapshot pet) => false", "bool OnCooldown(CharacterKey owner) => false"] }
+    } },
+    "agent/skills/kiln-modding/references/api-taming.md": { "cover": "all", "fences": {
+      "1": { "wrap": "method" },
+      "2": { "wrap": "method", "stubs": ["PlayerRef player", "EntityId wolf"] }
+    } },
+    "agent/skills/kiln-modding/references/api-npcs.md": { "cover": "all", "fences": {
+      "1": { "wrap": "method", "stubs": ["EntityId npc"] },
+      "2": { "wrap": "method", "stubs": ["EntityId npc", "HashSet<EntityId> fed"] },
+      "3": { "wrap": "method", "stubs": ["EntityId npc", "void FeedNpc(EntityId npc) { }"] }
+    } },
+    "agent/skills/kiln-modding/references/api-registry.md": { "cover": "all", "fences": {
+      "1": { "wrap": "file" },
+      "2": { "wrap": "file", "types": ["public sealed class Settings { public int Level { get; set; } = 1; }"] },
+      "3": { "wrap": "method" }
+    } },
+    "agent/skills/kiln-modding/references/api-items.md": { "cover": "listed", "fences": {
+      "5": { "wrap": "method", "stubs": ["EntityId player"] }
+    } },
+    "docs/kiln/modding/pets.md": { "cover": "all", "fences": {
+      "1": { "wrap": "file" },
+      "2": { "wrap": "method" },
+      "3": { "wrap": "method", "stubs": ["EntityId player", "EntityId enemy"] }
+    } },
+    "docs/kiln/modding/taming.md": { "cover": "all", "fences": {
+      "1": { "wrap": "file" },
+      "2": { "wrap": "method" },
+      "3": { "wrap": "method" },
+      "4": { "wrap": "method", "stubs": ["PlayerRef player", "EntityId wolf"] }
+    } },
+    "docs/kiln/modding/npc-dialogue.md": { "cover": "all", "fences": {
+      "1": { "wrap": "file" }
+    } },
+    "docs/kiln/modding/item-costs.md": { "cover": "all", "fences": {
+      "1": { "wrap": "file", "stubs": ["void GiveTheBlessing(EntityId player) { }"] }
+    } },
+    "docs/kiln/modding/terrain-tiles.md": { "cover": "all", "fences": {
+      "1": { "wrap": "file" }
+    } },
+    "docs/kiln/modding/inventory.md": { "cover": "listed", "fences": {
+      "2": { "wrap": "method", "stubs": ["EntityId player", "EntityId chest", "ItemId flint"] }
+    } },
+    "docs/kiln/services/pets.md": { "cover": "all", "fences": {
+      "1": { "skip": "a signature listing of the contract (no bodies, no modifiers), not code" },
+      "2": { "skip": "a signature listing of the contract (no bodies, no modifiers), not code" }
+    } },
+    "docs/kiln/services/taming.md": { "cover": "all", "fences": {
+      "1": { "wrap": "method", "stubs": ["ItemId meat", "ItemId whistle"] }
+    } },
+    "docs/kiln/services/npc-speech.md": { "cover": "all", "fences": {
+      "1": { "wrap": "method", "stubs": ["EntityId npc"] },
+      "2": { "wrap": "method", "stubs": ["EntityId npc", "HashSet<EntityId> fed", "void Feed(EntityId npc, EntityId player) { }"] },
+      "3": { "wrap": "test", "stubs": ["EntityId npc"] },
+      "4": { "wrap": "test", "stubs": ["EntityId npc", "EntityId player"], "before": ["using var h = new KilnHarness();"] }
+    } },
+    "docs/kiln/modding/registries/README.md": { "cover": "all", "fences": {
+      "1": { "wrap": "file" },
+      "2": { "wrap": "method", "attrs": "[RegistryEntryPoints(RegistryEntryPoint.GameStart | RegistryEntryPoint.WorldLoad)]",
+             "method": "public override void OnRegistry(RegistryContext context)",
+             "before": ["if (!Kiln.Registry.Registries.Available) return;", "var registry = Kiln.Registry.Registries.For(context);"] },
+      "3": { "wrap": "method" },
+      "4": { "wrap": "file", "types": ["public sealed class Settings { public int Level { get; set; } = 1; }"] }
+    } },
+    "docs/kiln/modding/registries/abilities.md": { "cover": "all", "fences": {
+      "1": { "wrap": "method", "attrs": "[RegistryEntryPoints(RegistryEntryPoint.GameStart | RegistryEntryPoint.WorldLoad)]",
+             "method": "public override void OnRegistry(RegistryContext context)",
+             "before": ["if (!Kiln.Registry.Registries.Available) return;"] }
+    } },
+    "docs/kiln/modding/registries/arsenals.md": { "cover": "all", "fences": {
+      "1": { "wrap": "method", "attrs": "[RegistryEntryPoints(RegistryEntryPoint.GameStart | RegistryEntryPoint.WorldLoad)]",
+             "method": "public override void OnRegistry(RegistryContext context)",
+             "before": ["if (!Kiln.Registry.Registries.Available) return;", "var registry = Kiln.Registry.Registries.For(context);"] }
+    } },
+    "docs/kiln/modding/registries/balance.md": { "cover": "all", "fences": { "1": { "wrap": "file" } } },
+    "docs/kiln/modding/registries/buffs.md": { "cover": "all", "fences": { "1": { "wrap": "file" } } },
+    "docs/kiln/modding/registries/creatures.md": { "cover": "all", "fences": {
+      "1": { "wrap": "method", "attrs": "[RegistryEntryPoints(RegistryEntryPoint.GameStart | RegistryEntryPoint.WorldLoad)]",
+             "method": "public override void OnRegistry(RegistryContext context)",
+             "before": ["if (!Kiln.Registry.Registries.Available) return;", "var registry = Kiln.Registry.Registries.For(context);"] }
+    } },
+    "docs/kiln/modding/registries/difficulty.md": { "cover": "all", "fences": { "1": { "wrap": "file" } } },
+    "docs/kiln/modding/registries/drops.md": { "cover": "all", "fences": {
+      "1": { "wrap": "method", "attrs": "[RegistryEntryPoints(RegistryEntryPoint.GameStart | RegistryEntryPoint.WorldLoad)]",
+             "method": "public override void OnRegistry(RegistryContext context)",
+             "before": ["if (!Kiln.Registry.Registries.Available) return;", "var registry = Kiln.Registry.Registries.For(context);"] }
+    } },
+    "docs/kiln/modding/registries/items.md": { "cover": "all", "fences": { "1": { "wrap": "file" } } },
+    "docs/kiln/modding/registries/limits.md": { "cover": "all", "fences": { "1": { "wrap": "file" } } },
+    "docs/kiln/modding/registries/loot.md": { "cover": "all", "fences": {
+      "1": { "wrap": "method", "attrs": "[RegistryEntryPoints(RegistryEntryPoint.GameStart | RegistryEntryPoint.WorldLoad)]",
+             "method": "public override void OnRegistry(RegistryContext context)",
+             "before": ["if (!Kiln.Registry.Registries.Available) return;", "var registry = Kiln.Registry.Registries.For(context);"] }
+    } },
+    "docs/kiln/modding/registries/lootRules.md": { "cover": "all", "fences": {
+      "1": { "wrap": "file", "types": ["public sealed class Settings { public int Level { get; set; } = 1; }"] }
+    } },
+    "docs/kiln/modding/registries/perks.md": { "cover": "all", "fences": {
+      "1": { "wrap": "method", "attrs": "[RegistryEntryPoints(RegistryEntryPoint.GameStart | RegistryEntryPoint.WorldLoad)]",
+             "method": "public override void OnRegistry(RegistryContext context)",
+             "before": ["if (!Kiln.Registry.Registries.Available) return;", "var registry = Kiln.Registry.Registries.For(context);"] }
+    } },
+    "docs/kiln/modding/registries/randomLoot.md": { "cover": "all", "fences": {
+      "1": { "wrap": "method", "attrs": "[RegistryEntryPoints(RegistryEntryPoint.GameStart | RegistryEntryPoint.WorldLoad)]",
+             "method": "public override void OnRegistry(RegistryContext context)",
+             "before": ["if (!Kiln.Registry.Registries.Available) return;", "var registry = Kiln.Registry.Registries.For(context);"] }
+    } },
+    "docs/kiln/modding/registries/recipes.md": { "cover": "all", "fences": {
+      "1": { "wrap": "method", "attrs": "[RegistryEntryPoints(RegistryEntryPoint.GameStart | RegistryEntryPoint.WorldLoad)]",
+             "method": "public override void OnRegistry(RegistryContext context)",
+             "before": ["if (!Kiln.Registry.Registries.Available) return;", "var registry = Kiln.Registry.Registries.For(context);"] }
+    } },
+    "docs/kiln/modding/registries/skills.md": { "cover": "all", "fences": {
+      "1": { "wrap": "method", "attrs": "[RegistryEntryPoints(RegistryEntryPoint.GameStart | RegistryEntryPoint.WorldLoad)]",
+             "method": "public override void OnRegistry(RegistryContext context)",
+             "before": ["if (!Kiln.Registry.Registries.Available) return;", "var registry = Kiln.Registry.Registries.For(context);"] }
+    } },
+    "docs/kiln/modding/registries/stations.md": { "cover": "all", "fences": {
+      "1": { "wrap": "method", "attrs": "[RegistryEntryPoints(RegistryEntryPoint.GameStart | RegistryEntryPoint.WorldLoad)]",
+             "method": "public override void OnRegistry(RegistryContext context)",
+             "before": ["if (!Kiln.Registry.Registries.Available) return;", "var registry = Kiln.Registry.Registries.For(context);"] }
+    } },
+    "docs/kiln/modding/registries/views.md": { "cover": "all", "fences": { "1": { "wrap": "method" } } },
+    "docs/kiln/modding/registries/world.md": { "cover": "all", "fences": { "1": { "wrap": "file" } } }
+  }
+}
