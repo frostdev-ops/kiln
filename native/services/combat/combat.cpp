@@ -44,6 +44,10 @@
 #include "services/kiln_world.h"
 
 using namespace kc;
+namespace kc::speed {  // action_speed.cpp: kiln.combat.speed, published by this plugin too
+void boot(const KilnApi* api, KilnOwner owner);
+void on_ready();
+}  // namespace kc::speed
 static_assert(sizeof(KilnCombatEvent) == 144, "KilnCombatEvent layout (managed mirror: Kiln.Combat/Native.cs)");
 static_assert(sizeof(KilnAttributeIds) == 28 && sizeof(KilnAttributeValue) == 40, "attribute layouts (managed mirror: Kiln.Combat/Native.cs)");
 
@@ -1980,6 +1984,7 @@ bool install_hooks() {
 }
 
 void KILN_CALL on_ready(void*) {
+    kc::speed::on_ready();
     char path[1024] = {};
     size_t len = 0;
     if (g_api->path(KILN_PATH_DATA, path, sizeof path - 32, &len) == KILN_OK) {
@@ -2059,6 +2064,7 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
                                ? api->subscribe_world(owner, &on_world_event, nullptr, &wh)
                                : KILN_ERR_UNAVAILABLE;
     if (wrc != KILN_OK) LOGI("no world events (rc %d): per-world state resets when a new server world starts", wrc);
+    kc::speed::boot(api, owner);  // kiln.combat.speed (action speed): its own table, links only once a rate is set
     // Published even when parts are off on this build: those functions return KILN_ERR_UNAVAILABLE, status() says so.
     return api->register_service(owner, KilnStr{KILN_COMBAT_SERVICE, std::strlen(KILN_COMBAT_SERVICE)}, &kTable);
 }
