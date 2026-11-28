@@ -338,6 +338,8 @@ if (!ActionSpeed.Available) Log.Warn(ActionSpeed.Status.Reason);
 ```
 - **Kinds:** `Melee` (light and heavy attacks, combos and recovery), `Bow` (draw and fire durations and the shot;
   not staffs or wands), `Tool` (axe, pickaxe and the like). `ActionKind`'s numbers are 0, 1 and 2, on the wire and in C.
+  `ActionKind` is in Kiln.Api (namespace `Kiln`), so Kiln.Client's `GameInputSample.HeldKind` uses it too; Kiln.Combat
+  forwards it, so a mod built against the preview SDK (where it sat in Kiln.Combat) still loads.
 - **Per mod:** each mod's values are its own (ModContext). Across mods the effective value is the product of every mod's
   value (a mod's `Set` for a player, else its `SetDefault`, else 1), clamped to [`Min` 0.5, `Max` 10]. A mod's values
   go when it unloads. A player who leaves loses every mod's values for that id (a later player may get it). A value

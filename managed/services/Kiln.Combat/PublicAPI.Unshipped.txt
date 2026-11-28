@@ -1,8 +1,8 @@
 #nullable enable
-Kiln.ActionKind
-Kiln.ActionKind.Bow = 1 -> Kiln.ActionKind
-Kiln.ActionKind.Melee = 0 -> Kiln.ActionKind
-Kiln.ActionKind.Tool = 2 -> Kiln.ActionKind
+Kiln.ActionKind (forwarded, contained in Kiln.Api)
+Kiln.ActionKind.Bow = 1 -> Kiln.ActionKind (forwarded, contained in Kiln.Api)
+Kiln.ActionKind.Melee = 0 -> Kiln.ActionKind (forwarded, contained in Kiln.Api)
+Kiln.ActionKind.Tool = 2 -> Kiln.ActionKind (forwarded, contained in Kiln.Api)
 const Kiln.ActionSpeed.Max = 10 -> double
 const Kiln.ActionSpeed.MeleeSamplingAbove = 2 -> double
 const Kiln.ActionSpeed.Min = 0.5 -> double

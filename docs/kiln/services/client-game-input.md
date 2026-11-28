@@ -51,7 +51,7 @@ var autoRelease = GameInput.OnSample((ref GameInputSample s) =>
 | `GameInput.OnSample(handler)` | calls `handler(ref sample)` at each sample while the gates are open, on the game's main thread, until the returned handle is disposed or the mod unloads; five throws in a row remove it |
 | `GameInput.Repeat(action, interval, whileHeld = null)` | presses `action` for one sample, releases it until `interval` (at least 50 ms) after that press, presses again, while `whileHeld` is true (default: the action itself is held) and the gates are open; ends when disposed, when the world ends (it belongs to the world of its first sample) or when the mod unloads |
 | `GameInputSample.Player` | the local player |
-| `GameInputSample.HeldKind` | `ActionKind?` of the held item: Melee, Bow, Tool, or null |
+| `GameInputSample.HeldKind` | `ActionKind?` of the held item: Melee, Bow, Tool, or null (`ActionKind` is in Kiln.Api: no Kiln.Combat reference needed) |
 | `GameInputSample.BowFullyDrawn` | a bow draw has reached its effective charge duration (`ActionSpeed` included) |
 | `GameInputSample.IsHeld(action)` | the action as the game sampled it, before any handler |
 | `GameInputSample.Press(action)` / `Release(action)` | down / up for this sample; the later call wins, also across handlers (they run in the order they subscribed); only inside the sample's own handler call |

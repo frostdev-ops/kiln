@@ -5,6 +5,10 @@
 // ActionSpeedRelay.cs.
 using System;
 
+// ActionKind moved to Kiln.Api in 0.2.0-dev.31.30 (Kiln.Client needs it too); mods built against the preview SDK, where
+// it sat in Kiln.Combat, still find it through this forward.
+[assembly: System.Runtime.CompilerServices.TypeForwardedTo(typeof(Kiln.ActionKind))]
+
 namespace Kiln;
 
 /// <summary>An effective action speed changed (<see cref="ActionSpeed.Changed"/>).</summary>
