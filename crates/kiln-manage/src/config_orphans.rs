@@ -43,16 +43,32 @@ impl Installed {
     }
 
     /// Every mod of the profile (on or off), the Library and the known game folders. Never fails: a place that could not
-    /// be read is [`Installed::incomplete`], and then nothing is called orphaned.
+    /// be read is [`Installed::incomplete`], and then nothing is called orphaned (the places after it are not read, so
+    /// [`Installed::has`] may miss a mod then).
     ///
     /// The game folders: what the Mods list shows as found (a mod the player put there: its id, its name and its file
     /// or folder name), and the folders Kiln kept at the last activation (a mod removed from the profile whose folder
     /// had changed files stays, and its loader may still run it).
     pub fn read(dirs: &DataDirs, profile_id: &str) -> Installed {
+        Self::read_until(dirs, profile_id, None)
+    }
+
+    /// [`Installed::read`] for the mods of some files (`ids`, [`owner_of`]): the places are read in order (the profile,
+    /// the Library, then each known game) only while one of `ids` is still missing (review of 0.2.0-dev.31.31). A game
+    /// folder is a scan of all its mods folders, and `config_list` runs on every Mods page and every focus of the window,
+    /// so a profile whose files' mods the profile or the Library names reads no game folder. What it says of `ids` is
+    /// what [`Installed::read`] says.
+    pub fn read_for(dirs: &DataDirs, profile_id: &str, ids: &[String]) -> Installed {
+        Self::read_until(dirs, profile_id, Some(ids))
+    }
+
+    fn read_until(dirs: &DataDirs, profile_id: &str, ids: Option<&[String]>) -> Installed {
         let mut out = Installed::default();
         fn skip(out: &mut Installed, why: String) {
             out.incomplete.get_or_insert(why);
         }
+        // nothing more to learn: a place could not be read (nothing is marked), or every id asked for is found
+        let done = |out: &Installed| out.incomplete.is_some() || ids.is_some_and(|ids| ids.iter().all(|i| out.has(i)));
         let profile = match crate::profile::get(dirs, profile_id) {
             Ok(p) => Some(p),
             Err(e) => {
@@ -65,9 +81,15 @@ impl Installed {
                 out.names.extend(p.mods.list(k).iter().map(|m| lower(&m.id)));
             }
         }
+        if done(&out) {
+            return out;
+        }
         match crate::library::list(dirs, None) {
             Ok(entries) => out.names.extend(entries.iter().filter(|e| !e.versions.is_empty()).map(|e| lower(&e.id))),
             Err(e) => skip(&mut out, format!("the Library could not be read: {}", e.message)),
+        }
+        if done(&out) {
+            return out;
         }
         let games = match crate::game::known(dirs) {
             Ok(g) => g,
@@ -81,6 +103,9 @@ impl Installed {
             lower(name.rsplit_once('.').map_or(name, |(s, _)| s))
         };
         for g in &games {
+            if done(&out) {
+                break;
+            }
             if let Some(p) = &profile {
                 let rep = crate::found::scan(dirs, g, p);
                 if rep.truncated || !rep.unreadable.is_empty() {
@@ -93,12 +118,17 @@ impl Installed {
                     out.names.extend(m.profile_mod.iter().map(|i| lower(i)));
                 }
             }
-            if let Ok(Some(a)) = crate::profile::active(dirs, g) {
-                for r in &a.retained {
-                    let path = r.path.to_string_lossy();
-                    out.names.insert(stem(&path));
-                    out.names.insert(lower(path.trim_end_matches(['/', '\\']).rsplit(['/', '\\']).next().unwrap_or("")));
+            match crate::profile::active(dirs, g) {
+                Ok(Some(a)) => {
+                    for r in &a.retained {
+                        let path = r.path.to_string_lossy();
+                        out.names.insert(stem(&path));
+                        out.names.insert(lower(path.trim_end_matches(['/', '\\']).rsplit(['/', '\\']).next().unwrap_or("")));
+                    }
                 }
+                Ok(None) => {}
+                // the folders Kiln kept there are named in it (review of 0.2.0-dev.31.31: it was skipped)
+                Err(e) => skip(&mut out, format!("the profile.json of {} could not be read: {}", g.path.display(), e.message)),
             }
         }
         out
@@ -168,8 +198,14 @@ pub fn list_profile(dirs: &DataDirs, profile_id: &str) -> Result<Vec<ConfigFileI
         return Ok(vec![]);
     }
     let mut list = crate::config::list(&cfg)?;
-    if list.iter().any(|f| owner_of(f).is_some()) {
-        mark(&mut list, &Installed::read(dirs, profile_id));
+    let mut owners: Vec<String> = Vec::new();
+    for id in list.iter().filter_map(owner_of) {
+        if !owners.iter().any(|o| o.eq_ignore_ascii_case(&id)) {
+            owners.push(id);
+        }
+    }
+    if !owners.is_empty() {
+        mark(&mut list, &Installed::read_for(dirs, profile_id, &owners));
     }
     Ok(list)
 }

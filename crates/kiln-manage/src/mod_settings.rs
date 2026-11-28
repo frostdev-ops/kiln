@@ -163,23 +163,29 @@ pub fn clear_orphans_with(
         }
     }
     let cfg = dirs.profile(profile_id).join("config");
-    let mut list = if cfg.is_dir() { crate::config::list(&cfg)? } else { Vec::new() };
-    let installed = crate::config_orphans::Installed::read(dirs, profile_id);
-    if let Some(why) = installed.incomplete() {
-        return Err(Error::new(ErrorCode::Conflict, format!("Kiln cannot tell which mods are installed ({why}): nothing was cleared.")));
-    }
-    crate::config_orphans::mark(&mut list, &installed);
-    let mut mods: Vec<String> = Vec::new();
+    let list = if cfg.is_dir() { crate::config::list(&cfg)? } else { Vec::new() };
+    let gone = |f: &str| Error::new(ErrorCode::Conflict, format!("{f} is not the settings of a mod that is gone: it stays."));
+    // each file's mod (Kiln's own files and a file whose mod is not known have none: they stay), then whether those mods
+    // are installed anywhere, read now (`Installed::read_for`: the places only while one of them is missing)
+    let mut owners: Vec<(&str, String)> = Vec::new();
     for f in &want {
         let Some(info) = list.iter().find(|i| i.file == *f) else {
             return Err(Error::not_found(format!("No config {f} in this profile.")));
         };
-        if !info.orphaned {
-            return Err(Error::new(ErrorCode::Conflict, format!("{f} is not the settings of a mod that is gone: it stays.")));
+        owners.push((*f, crate::config_orphans::owner_of(info).ok_or_else(|| gone(f))?));
+    }
+    let mut mods: Vec<String> = Vec::new();
+    for (_, id) in &owners {
+        if !mods.iter().any(|m| m.eq_ignore_ascii_case(id)) {
+            mods.push(id.clone());
         }
-        if let Some(id) = crate::config_orphans::owner_of(info) && !mods.contains(&id) {
-            mods.push(id);
-        }
+    }
+    let installed = crate::config_orphans::Installed::read_for(dirs, profile_id, &mods);
+    if let Some(why) = installed.incomplete() {
+        return Err(Error::new(ErrorCode::Conflict, format!("Kiln cannot tell which mods are installed ({why}): nothing was cleared.")));
+    }
+    if let Some((f, _)) = owners.iter().find(|(_, id)| installed.has(id)) {
+        return Err(gone(f));
     }
     let base = PathBuf::from("profiles").join(tag(profile_id)).join("config");
     let mut items = Vec::new();

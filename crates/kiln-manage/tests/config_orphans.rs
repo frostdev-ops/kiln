@@ -271,3 +271,60 @@ fn clearing_waits_for_the_game_and_for_a_mod_that_came_back() {
     let r = mod_settings::clear_orphans_with(&dirs, &pid, &[], &mut nothing).unwrap();
     assert!(r.removed.is_empty() && r.backup.is_none());
 }
+
+#[test]
+fn a_game_folder_is_read_only_while_a_files_mod_is_still_missing() {
+    // review of 0.2.0-dev.31.31: config_list runs on every Mods page and every focus of the window; the profile and the
+    // Library name the mods of most files, so the game folders (a scan of every mods folder of every known game) are
+    // read only for the ids still missing. A place that cannot be read then matters only when an id is still missing
+    let t = tmp("lazy");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let game = t.0.join("Enshrouded");
+    let g = client(&dirs, &game);
+    let pid = profile_with(&dirs, &[(ModKind::Kiln, "expeditions", true), (ModKind::Emf, "beastmaster", false)]);
+    import(&dirs, &t.0, "night-sky");
+    put(&g.path, "greeneye/x/mod.json", b"{}");
+    #[cfg(unix)]
+    let unreadable = {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(g.path.join("greeneye"), std::fs::Permissions::from_mode(0o000)).unwrap();
+        std::fs::read_dir(g.path.join("greeneye")).is_err() // root reads everything
+    };
+    #[cfg(not(unix))]
+    let unreadable = false;
+    let ids = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    // in the profile (on or off) or in the Library: found without the game folder
+    let some = Installed::read_for(&dirs, &pid, &ids(&["Expeditions", "beastmaster", "night-sky"]));
+    assert_eq!(some.incomplete(), None, "{some:?}");
+    assert!(some.has("expeditions") && some.has("night-sky"));
+    assert_eq!(Installed::read_for(&dirs, &pid, &[]).incomplete(), None, "nothing asked: nothing to read");
+    // one that is nowhere: the game folder is read, and one that cannot be read means Kiln cannot tell
+    let gone = Installed::read_for(&dirs, &pid, &ids(&["expeditions", "gone"]));
+    assert_eq!(gone.incomplete().is_some(), unreadable, "{gone:?}");
+    assert!(!gone.has("gone"));
+    // the whole set reads every place
+    assert_eq!(Installed::read(&dirs, &pid).incomplete().is_some(), unreadable);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(g.path.join("greeneye"), std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+}
+
+#[test]
+fn a_game_whose_profile_json_cannot_be_read_marks_nothing() {
+    // review of 0.2.0-dev.31.31: the folders Kiln kept at the last activation come from the game's profile.json; one
+    // that cannot be read was skipped, so a mod only in such a folder looked gone
+    let t = tmp("badactive");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let g = client(&dirs, &t.0.join("Enshrouded"));
+    let pid = profile_with(&dirs, &[]);
+    seed(&dirs.profile(&pid).join("config"));
+    put(&g.path, kiln_manage::paths::game::PROFILE, b"{ not json");
+    let installed = Installed::read(&dirs, &pid);
+    assert!(installed.incomplete().is_some_and(|w| w.contains("profile.json")), "{installed:?}");
+    assert!(orphaned(&dirs, &pid).is_empty(), "the launcher cannot tell, so it says nothing");
+    let e = mod_settings::clear_orphans_with(&dirs, &pid, &["expeditions.json".to_string()], &mut nothing).unwrap_err();
+    assert_eq!(e.code, ErrorCode::Conflict, "{e:?}");
+    assert!(dirs.profile(&pid).join("config/expeditions.json").is_file());
+}
