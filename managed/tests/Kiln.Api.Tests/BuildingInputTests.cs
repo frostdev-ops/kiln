@@ -324,6 +324,9 @@ internal static unsafe class FakeBuildingTable
 
     public static void Menu() => _state = new BuildingInputNative.State { Side = 1, Session = 0, ClientSession = 2 };
 
+    // A dedicated server (KILN_SIDE_SERVER 0) with its world running (GameInputTests).
+    public static void Server() => _state = new BuildingInputNative.State { Side = 0, Session = 1 };
+
     public static nint Create(uint size)
     {
         var t = (BuildingInputNative.Table*)NativeMemory.AllocZeroed((nuint)sizeof(BuildingInputNative.Table));

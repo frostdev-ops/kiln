@@ -1,0 +1,154 @@
+{
+  "format": 1,
+  "side": "client",
+  "comment": "kiln.client.game_input on the game client (docs/kiln/services/client.md 'Game input'; docs/re/game-input.md). The samples come from kiln.client's observation of the local input writer (client-input.json, client.input_observation: one shared kiln.hooks link at client/InputObserved); this fragment adds what game input needs besides: the held item at that same point (the play state's held item id, the key of the writer's own item lookup), the input message's last instruction before it copies the record (the stale press guard's link), the client world's time getter (its step period), the keen::ecs::PlayerInputType bits of the actions Kiln names, and the keen::ecs::NetworkRangedWeapon fields the bow's draw is read from. The bits and the component layout are the reflected values on client 26430625 (sigdb/types/client/5d9ef2f1...); tools/sigport/tests/test_client_game_input.py checks each against the reflection and every pattern and call target against the exe. Found on client 26430625 (5d9ef2f1...); every pattern is pinned to its function and every constant is fixed, so another build refuses the feature instead of hooking the wrong place. Client only: the dedicated server has no local input writer and no outbound input message.",
+  "symbols": {
+    "@client/InputObserved.held": {
+      "comment": "the observation point itself (rbp = the client game's input object): rcx = [rbp + input.play], the play state, whose u32 at + play.held_item is the held item id the writer hands to the item registry's find (ItemRegistryFind 0xe94470, checked by the sigport test) right after; then the rdi it gets back is the held ItemInfo the writer's last mask store tests",
+      "find": [
+        {
+          "scope": {
+            "symbol": "client/InputObserved",
+            "size": 40
+          },
+          "pattern": "48 8B 8D {client/input.play:d32} 48 8B 95 ?? ?? ?? ?? 8B 89 {client/play.held_item:d32} E8 ?? ?? ?? ?? 4C 8D 85 ?? ?? ?? ?? 8B D3"
+        }
+      ]
+    },
+    "client/InputMessage": {
+      "comment": "the input message (the client frame's call after the local input writer, 'Input Message error' right after it): rcx = the result, rdx = its stream, r8d = the step it sends (the client world's step counter, the version the writer stamped), r9 = the client game's input object, whose local slot at + input.slot holds the last step sent (+0xc) and the local player's entity (+4, = input.entity)",
+      "find": [
+        {
+          "pattern": "4C 89 4C 24 20 44 89 44 24 18 48 89 54 24 10 48 89 4C 24 08 55 53 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 ?? ?? ?? ?? 48 81 EC ?? ?? ?? ?? 8B 9D ?? ?? ?? ?? 4D 8D A1 {client/input.slot:d32} 4D 8B F9 45 8B F0 48 8B F1 4C 89 65 ?? 41 39 1C 24"
+        }
+      ]
+    },
+    "client/InputMessageCopy": {
+      "comment": "the stale press guard's link: the first instruction after the message's 'step already sent' early return (cmp r14d, [slot + 0xc]; jne here), right before it copies the whole ClientPlayerInputData out of the record: r13 = the record (GetComponent of the local player's ClientPlayerInput, checked by the sigport test), edi = the local player's entity ([slot + 4]), r14d = the step this message sends. lea rcx, [rbp - 0x48] (4 bytes) and movaps [rsp + ...], xmm6 (8 bytes) are relocated; neither is rip-relative and no branch lands inside them (sigport test)",
+      "find": [
+        {
+          "scope": {
+            "symbol": "client/InputMessage",
+            "size": 256
+          },
+          "pattern": "41 8B 7C 24 04 48 8D 4D ?? 44 8B 05 ?? ?? ?? ?? 44 8B CF 49 8B 57 08 E8 ?? ?? ?? ?? 4C 8B 28 4D 85 ED 0F 84 ?? ?? ?? ?? 45 3B 74 24 0C 75 08 C6 06 01 E9 ?? ?? ?? ?? 48 8D 4D ?? 0F 29 B4 24 ?? ?? ?? ??",
+          "offset": 55
+        }
+      ]
+    },
+    "client/WorldTimeOf": {
+      "comment": "the client world's time getter: step 0 gives 0, an infinite period (INT64_MAX or INT64_MIN) itself, else step x period; step at + input.step, the period (keen::Time per step) at + world.period. Kiln computes the same from the two fields; the bow's draw compares it with NetworkRangedWeapon.stateStartTime as the game's ranged update does with its own clock",
+      "find": [
+        {
+          "pattern": "8B 91 {client/input.step:d32} 48 8B 81 {client/world.period:d32} 48 85 D2 75 03 33 C0 C3 48 B9 FF FF FF FF FF FF FF 7F 48 03 C8 48 83 F9 FD 77 04 48 0F AF C2 C3"
+        }
+      ]
+    }
+  },
+  "constants": {
+    "client/input.play": {
+      "comment": "the client game's input object: its play state (the UI play data: the HUD screen at +0x1cd8, the held item id at + play.held_item)",
+      "value": 15784
+    },
+    "client/play.held_item": {
+      "value": 85864
+    },
+    "client/input.slot": {
+      "comment": "the input object's local slot (the input message's): +4 the local player's entity (input.entity), +0xc the last step sent",
+      "value": 1624
+    },
+    "client/world.period": {
+      "value": 14777984
+    },
+    "client/pit.contextual_tap": {
+      "value": 6
+    },
+    "client/pit.block": {
+      "value": 30
+    },
+    "client/pit.evade": {
+      "value": 31
+    },
+    "client/pit.jump": {
+      "value": 32
+    },
+    "client/pit.ranged_arm": {
+      "value": 50
+    },
+    "client/pit.ranged_shoot": {
+      "value": 51
+    },
+    "client/pit.ranged_shoot_tap": {
+      "value": 52
+    },
+    "client/nrw.hash": {
+      "comment": "keen::ecs::NetworkRangedWeapon's type hash (GetComponent's key)",
+      "value": 2509838532
+    },
+    "client/nrw.size": {
+      "value": 112
+    },
+    "client/nrw.state": {
+      "comment": "currentState: keen::ranged_weapon::State (0 Holster, 1 Aim, 2 AimAndCharge, 3 Fire, 4 FireEaseOut)",
+      "value": 0
+    },
+    "client/nrw.type": {
+      "comment": "weaponParameters.weaponType: keen::ranged_weapon::WeaponType (0 Bow, 1 Staff, 2 Wand)",
+      "value": 8
+    },
+    "client/nrw.charge": {
+      "comment": "weaponParameters.chargeDuration (keen::Time), copied when a draw starts",
+      "value": 16
+    },
+    "client/nrw.start": {
+      "comment": "stateStartTime (keen::Time)",
+      "value": 40
+    },
+    "client/nrw.item": {
+      "comment": "weaponInstance.itemId (keen::ItemInstanceInfo +8)",
+      "value": 56
+    }
+  },
+  "features": {
+    "client.game_input_sites": {
+      "symbols": [
+        "client/InputObserved",
+        "@client/InputObserved.held",
+        "client/InputMessage",
+        "client/InputMessageCopy",
+        "client/WorldTimeOf",
+        "GetComponent"
+      ],
+      "constants": [
+        "client/cpi.digital",
+        "client/input.entity",
+        "client/input.world",
+        "client/input.step",
+        "client/input.play",
+        "client/play.held_item",
+        "client/input.slot",
+        "client/world.period",
+        "client/pit.mainhand",
+        "client/pit.mainhand_tap",
+        "client/pit.mainhand_hold",
+        "client/pit.mainhand_release",
+        "client/pit.contextual",
+        "client/pit.contextual_tap",
+        "client/pit.contextual_hold",
+        "client/pit.block",
+        "client/pit.evade",
+        "client/pit.jump",
+        "client/pit.ranged_arm",
+        "client/pit.ranged_shoot",
+        "client/pit.ranged_shoot_tap",
+        "client/nrw.hash",
+        "client/nrw.size",
+        "client/nrw.state",
+        "client/nrw.type",
+        "client/nrw.charge",
+        "client/nrw.start",
+        "client/nrw.item"
+      ]
+    }
+  }
+}

@@ -116,6 +116,12 @@ public static partial class Coverage
             "kit's harness is a server with no client world, so every submit throws KilnUnavailableException (offline). " +
             "Kiln.Api.Tests drive the managed side on a fake kiln.client table",
             BuildingInput.Capability);
+        Row("Game input (Kiln.Client, since 0.2.0-dev.31.30)", CoverageKind.Unavailable,
+            "no fake: GameInput reads and writes the local player's resolved actions in a game client's input writer; the kit's " +
+            "harness is a server with no client world, so GameInput.Available is false, IsHeld and WasPressed answer false and " +
+            "OnSample and Repeat throw InvalidOperationException. Kiln.Api.Tests drive the managed side on a fake " +
+            "kiln.client.game_input table",
+            "kiln.client.game_input", "client.game_input");
         Row("Steam peer messages (Kiln.Network)", CoverageKind.Unavailable,
             "no fake: SteamMessages moves a mod's own Steam networking messages through kiln.net and the game's Steam; the kit " +
             "has neither, so Open throws KilnUnavailableException (offline) and Status answers not answered. " +

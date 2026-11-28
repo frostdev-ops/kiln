@@ -188,6 +188,9 @@ Context.Scheduler.Post(() => { /* server tick thread: call services here */ });
 - `Client.Tick` handlers belong to the subscribing mod and end when it unloads. A handler that throws five times in a
   row is removed.
 
+### Game input (`GameInput`, since 0.2.0-dev.31.30, mod API 0.2.28)
+The local player's game actions after the game resolved its own input (bindings, controllers, menus), read from any thread, pressed or released for one input step in an `OnSample` handler, or repeated with `Repeat`. In-core service `kiln.client.game_input` v1 (`abi/services/kiln_client_game_input.h`); it shares kiln.client's observation of the local input writer with building input. Reference: [services/client-game-input.md](services/client-game-input.md); guide: [modding/game-input.md](modding/game-input.md).
+
 ### Mods and sides
 The core gives the side to the loader (`KilnBuildInfo.side` / `KilnApi.side`; Kiln.Host logs `side client`).
 Manifests say `"side": "server" | "client" | "both"`.

@@ -11,6 +11,7 @@ namespace {
 
 std::atomic<uint64_t> g_selection{0};  // session << 32 | entity: one atomic word, so a reader never mixes two
 std::atomic<uint64_t> g_visits{0}, g_visit_faults{0};
+std::atomic<Consumer> g_consumer{nullptr};
 
 bool guarded_read(void*, void* dst, uintptr_t src, size_t n) { return guard::copy(dst, src, n); }
 bool guarded_write(void*, uintptr_t dst, const void* src, size_t n) {
@@ -45,8 +46,13 @@ void visit(uintptr_t input, uintptr_t record, KilnEntity entity, const Site& sit
         g_visit_faults.fetch_add(1, std::memory_order_relaxed);
         return;
     }
+    const Selection s = selection();
+    if (const Consumer c = g_consumer.load(std::memory_order_acquire); c && s.entity && s.session && entity == s.entity)
+        c(record, input, world, entity, s.session, step);
     observe(record, entity, step);
 }
+
+void set_consumer(Consumer consumer) { g_consumer.store(consumer, std::memory_order_release); }
 
 Stats stats() { return {g_visits.load(std::memory_order_relaxed), g_visit_faults.load(std::memory_order_relaxed)}; }
 

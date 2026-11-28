@@ -95,6 +95,7 @@ row above and grows its own page.
 |---|---|
 | [camera.md](camera.md) | kiln.camera / `Kiln.Camera`: maintained stock-mode locks, render-only paths, follow profiles, lens and shake, final visual snapshots and projection helpers (since mod API 0.2.17) |
 | [client-crosshair.md](client-crosshair.md) | kiln.client.crosshair / `Crosshair` (Kiln.Client): a read-only copy of the game client's own crosshair hit (hit or miss, position, normal, distance, entity, voxel material) with session, step, sequence and age; any thread (since mod API 0.2.22) |
+| [client-game-input.md](client-game-input.md) | kiln.client.game_input / `GameInput` (Kiln.Client): the local player's game actions after the game resolved its input, pressed or released for one input step, repeated at an interval; menu, Kiln-UI and focus gates; stale presses cleared by Kiln (since mod API 0.2.28) |
 | [mod-values.md](mod-values.md) | `Kiln.ModValues` / kiln.mod-values: mods' own per-character counters, currencies and experience with levels; server ledger saved with the character, the owner's synced copy, carried progress |
 | [routines.md](routines.md) | kiln.routines / `Routines`, `RoutineBlock` (Kiln.Blocks): villager day plans (windows of the game day with the game's own idle, roam, sit, inspect and sleep tasks), keep-awake, manual commands that suspend a plan until `Resume`, assignments saved with the world |
 

@@ -22,6 +22,7 @@ internal static class ServiceNames
         "kiln.chat",
         "kiln.client",
         "kiln.client.crosshair",
+        "kiln.client.game_input",
         "kiln.combat",
         "kiln.combat.speed",
         "kiln.component_changes",
