@@ -4105,10 +4105,17 @@
     {
       "version": "0.2.0-dev.31.30",
       "status": "next",
-      "title": "Flamebound Ledger without a host setup",
-      "summary": "Flamebound Ledger no longer needs its own Kiln host setup: Kiln now provides the framework for checked item moves, which the Ledger's next version uses.",
+      "title": "Settings cleanup, map names and action speed",
+      "summary": "The Configs window marks and clears the settings of removed mods, Flamebound Ledger no longer needs its own host setup, and Kiln provides the framework for mods to name their map markers, change attack, bow and tool speed, and use the game's own input actions.",
       "patch": true,
       "features": [
+        {
+          "title": "Settings of removed mods are marked and can be cleared",
+          "text": "The Configs window no longer shows the settings of mods you removed as if they were live: they sit apart as \"Not installed\", read-only, and Clear or Clear all moves them into Kiln's settings backups. Your installed mods' settings are never touched (thanks HTR).",
+          "area": "launcher",
+          "kind": "improved",
+          "gamePending": true
+        },
         {
           "title": "Flamebound Ledger runs on Kiln as it is",
           "text": "Flamebound Ledger's item transfers no longer need the Ledger's own Kiln host setup, which only worked on one Kiln version. From this release the Ledger uses Kiln's checked moves; update the Ledger when its new version is out.",
@@ -4118,9 +4125,40 @@
         },
         {
           "title": "Checked item moves for mods",
-          "text": "Kiln provides the framework for checked item moves: a mod can move items out of a slot only while the slot still holds what the mod last saw, and only into the exact slot it names, so a drag made on an old view or a request sent twice never moves the wrong items. Experimental in this patch, normal API from 0.2.0-dev.32.",
+          "text": "Kiln provides the framework for checked item moves: a mod can move items out of a slot only while the slot still holds what the mod last saw, and only into the exact slot it names, so a drag made on an old view or a request sent twice never moves the wrong items.",
           "area": "api",
           "gamePending": true
+        },
+        {
+          "title": "Mod map markers can show their own names",
+          "text": "Kiln provides the framework for a mod's markers on the world map to show their own names in the game's map tooltip, such as \"Golden chest 3\", instead of \"Custom marker\" (thanks cykel-far, #160).",
+          "area": "content",
+          "gamePending": true
+        },
+        {
+          "title": "Mod markers keep their own icons on the map",
+          "text": "Two mod markers that moved past each other on the world map could show each other's icons until the map redrew its markers. Each mod marker now keeps its own icon.",
+          "area": "content",
+          "kind": "fix",
+          "gamePending": true
+        },
+        {
+          "title": "Attack, bow and tool speed for mods",
+          "text": "Kiln provides the framework for mods to make players attack, draw bows and swing tools faster or slower, on dedicated servers and in hosted games, with hits checked between frames at high speeds and joined players seeing their own character at the new speed (thanks to the Combat And Attack Tweaks author).",
+          "area": "api",
+          "gamePending": true
+        },
+        {
+          "title": "The game's own input actions for mods",
+          "text": "Kiln provides the framework for mods to see and press the game's own actions, such as attack, block, dodge and jump, as the game mapped them to your keys or controller, only while you are playing.",
+          "area": "api",
+          "gamePending": true
+        },
+        {
+          "title": "Ask for a missing API",
+          "text": "Kiln's modding guide for AI agents now tells them to help the mod author ask for a missing API on GitHub or in the Kiln Discord instead of building a workaround.",
+          "area": "tools",
+          "kind": "improved"
         }
       ]
     },
