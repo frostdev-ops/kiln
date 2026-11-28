@@ -1651,6 +1651,7 @@ static Kiln.Items.ArmorAvailable.get -> bool
 static Kiln.Items.Available.get -> bool
 static Kiln.Items.CanTransact.get -> bool
 static Kiln.Items.CaptureSet(Kiln.EntityId player) -> Kiln.EquipmentSetCaptureResult!
+static Kiln.Items.CheckedMovesAvailable.get -> bool
 static Kiln.Items.ContainerName(Kiln.EntityId entity) -> string?
 static Kiln.Items.ContainerNamesAvailable.get -> bool
 static Kiln.Items.ContainerRenameAvailable.get -> bool
@@ -1688,6 +1689,7 @@ static Kiln.Items.Held(Kiln.EntityId player) -> Kiln.ItemInstanceRef
 static Kiln.Items.Lookup(string! nameOrId) -> Kiln.ItemInfo?
 static Kiln.Items.Move(Kiln.EntityId from, Kiln.SlotId slot, Kiln.EntityId to, int count = 0, Kiln.MoveOptions options = Kiln.MoveOptions.None, Kiln.SlotId? toSlot = null) -> System.Threading.Tasks.Task<Kiln.MoveResult!>!
 static Kiln.Items.MoveAll(Kiln.EntityId from, Kiln.EntityId to, Kiln.MoveOptions options = Kiln.MoveOptions.None) -> System.Threading.Tasks.Task<Kiln.MoveResult!>!
+static Kiln.Items.MoveChecked(Kiln.EntityId from, Kiln.InventorySlot! expected, Kiln.EntityId to, int count, Kiln.InventorySlot? destination = null) -> System.Threading.Tasks.Task<Kiln.MoveResult!>!
 static Kiln.Items.MovesAvailable.get -> bool
 static Kiln.Items.PlanSet(Kiln.EntityId player, Kiln.EquipmentSet! set) -> Kiln.EquipmentSetPlanResult!
 static Kiln.Items.PlayerStorages.Of(Kiln.EntityId player) -> System.Collections.Generic.IReadOnlyList<Kiln.PlayerStorageInfo!>!

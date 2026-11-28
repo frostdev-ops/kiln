@@ -88,6 +88,23 @@ Kiln.CrosshairReason.Faulted = 4 -> Kiln.CrosshairReason
 Kiln.CrosshairReason.NoSample = 1 -> Kiln.CrosshairReason
 Kiln.CrosshairReason.None = 0 -> Kiln.CrosshairReason
 Kiln.CrosshairReason.Stale = 3 -> Kiln.CrosshairReason
+Kiln.GameAction
+Kiln.GameAction.Block = 2 -> Kiln.GameAction
+Kiln.GameAction.Dodge = 3 -> Kiln.GameAction
+Kiln.GameAction.Interact = 5 -> Kiln.GameAction
+Kiln.GameAction.Jump = 4 -> Kiln.GameAction
+Kiln.GameAction.PrimaryAttack = 0 -> Kiln.GameAction
+Kiln.GameAction.SecondaryAttack = 1 -> Kiln.GameAction
+Kiln.GameInput
+Kiln.GameInputHandler
+Kiln.GameInputSample
+Kiln.GameInputSample.BowFullyDrawn.get -> bool
+Kiln.GameInputSample.GameInputSample() -> void
+Kiln.GameInputSample.HeldKind.get -> Kiln.ActionKind?
+Kiln.GameInputSample.IsHeld(Kiln.GameAction action) -> bool
+Kiln.GameInputSample.Player.get -> Kiln.EntityId
+Kiln.GameInputSample.Press(Kiln.GameAction action) -> void
+Kiln.GameInputSample.Release(Kiln.GameAction action) -> void
 [KILNX002]Kiln.SteamGuard
 [KILNX002]Kiln.SteamGuardStatus
 [KILNX002]Kiln.SteamGuardStatus.Active.get -> bool
@@ -158,6 +175,12 @@ static Kiln.Crosshair.Read(out Kiln.CrosshairReason reason) -> Kiln.CrosshairHit
 static Kiln.Crosshair.TryGet(out Kiln.CrosshairHit hit) -> bool
 static Kiln.CrosshairHit.operator !=(Kiln.CrosshairHit left, Kiln.CrosshairHit right) -> bool
 static Kiln.CrosshairHit.operator ==(Kiln.CrosshairHit left, Kiln.CrosshairHit right) -> bool
+static Kiln.GameInput.Available.get -> bool
+static Kiln.GameInput.IsHeld(Kiln.GameAction action) -> bool
+static Kiln.GameInput.OnSample(Kiln.GameInputHandler! handler) -> System.IDisposable!
+static Kiln.GameInput.Repeat(Kiln.GameAction action, System.TimeSpan interval, System.Func<bool>? whileHeld = null) -> System.IDisposable!
+static Kiln.GameInput.WasPressed(Kiln.GameAction action) -> bool
+virtual Kiln.GameInputHandler.Invoke(ref Kiln.GameInputSample sample) -> void
 ~[KILNX002]override Kiln.SteamGuardStatus.Equals(object obj) -> bool
 ~[KILNX002]override Kiln.SteamGuardStatus.ToString() -> string
 ~override Kiln.CrosshairHit.Equals(object obj) -> bool

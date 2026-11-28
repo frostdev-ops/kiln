@@ -1,5 +1,1 @@
 #nullable enable
-Kiln.ActionKind
-Kiln.ActionKind.Bow = 1 -> Kiln.ActionKind
-Kiln.ActionKind.Melee = 0 -> Kiln.ActionKind
-Kiln.ActionKind.Tool = 2 -> Kiln.ActionKind

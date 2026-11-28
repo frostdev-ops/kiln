@@ -1263,6 +1263,10 @@ managed	Kiln.Abilities	~override Kiln.NativeArg.Equals(object obj) -> bool	0.2.0
 managed	Kiln.Abilities	~override Kiln.NativeArg.ToString() -> string	0.2.0-dev.29	0.2.4
 managed	Kiln.Abilities	~override Kiln.SocketedGem.Equals(object obj) -> bool	0.2.0-dev.29.11	0.2.5
 managed	Kiln.Abilities	~override Kiln.SocketedGem.ToString() -> string	0.2.0-dev.29.11	0.2.5
+managed	Kiln.Api	Kiln.ActionKind	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Api	Kiln.ActionKind.Bow = 1 -> Kiln.ActionKind	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Api	Kiln.ActionKind.Melee = 0 -> Kiln.ActionKind	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Api	Kiln.ActionKind.Tool = 2 -> Kiln.ActionKind	0.2.0-dev.31.30	0.2.28
 managed	Kiln.Api	Kiln.AdvancedApiAttribute	<=0.2.0-dev.26	<=0.2.1
 managed	Kiln.Api	Kiln.AdvancedApiAttribute.AdvancedApiAttribute() -> void	<=0.2.0-dev.26	<=0.2.1
 managed	Kiln.Api	Kiln.AnyThreadAttribute	<=0.2.0-dev.26	<=0.2.1
@@ -13140,6 +13144,23 @@ managed	Kiln.Client	Kiln.CrosshairReason.Faulted = 4 -> Kiln.CrosshairReason	0.2
 managed	Kiln.Client	Kiln.CrosshairReason.NoSample = 1 -> Kiln.CrosshairReason	0.2.0-dev.31.13	0.2.22
 managed	Kiln.Client	Kiln.CrosshairReason.None = 0 -> Kiln.CrosshairReason	0.2.0-dev.31.13	0.2.22
 managed	Kiln.Client	Kiln.CrosshairReason.Stale = 3 -> Kiln.CrosshairReason	0.2.0-dev.31.13	0.2.22
+managed	Kiln.Client	Kiln.GameAction	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Client	Kiln.GameAction.Block = 2 -> Kiln.GameAction	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Client	Kiln.GameAction.Dodge = 3 -> Kiln.GameAction	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Client	Kiln.GameAction.Interact = 5 -> Kiln.GameAction	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Client	Kiln.GameAction.Jump = 4 -> Kiln.GameAction	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Client	Kiln.GameAction.PrimaryAttack = 0 -> Kiln.GameAction	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Client	Kiln.GameAction.SecondaryAttack = 1 -> Kiln.GameAction	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Client	Kiln.GameInput	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Client	Kiln.GameInputHandler	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Client	Kiln.GameInputSample	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Client	Kiln.GameInputSample.BowFullyDrawn.get -> bool	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Client	Kiln.GameInputSample.GameInputSample() -> void	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Client	Kiln.GameInputSample.HeldKind.get -> Kiln.ActionKind?	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Client	Kiln.GameInputSample.IsHeld(Kiln.GameAction action) -> bool	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Client	Kiln.GameInputSample.Player.get -> Kiln.EntityId	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Client	Kiln.GameInputSample.Press(Kiln.GameAction action) -> void	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Client	Kiln.GameInputSample.Release(Kiln.GameAction action) -> void	0.2.0-dev.31.30	0.2.28
 managed	Kiln.Client	[KILNX002]Kiln.SteamGuard	<=0.2.0-dev.26	<=0.2.1
 managed	Kiln.Client	[KILNX002]Kiln.SteamGuardStatus	<=0.2.0-dev.26	<=0.2.1
 managed	Kiln.Client	[KILNX002]Kiln.SteamGuardStatus.Active.get -> bool	<=0.2.0-dev.26	<=0.2.1
@@ -13210,10 +13231,49 @@ managed	Kiln.Client	static Kiln.Crosshair.Read(out Kiln.CrosshairReason reason) 
 managed	Kiln.Client	static Kiln.Crosshair.TryGet(out Kiln.CrosshairHit hit) -> bool	0.2.0-dev.31.13	0.2.22
 managed	Kiln.Client	static Kiln.CrosshairHit.operator !=(Kiln.CrosshairHit left, Kiln.CrosshairHit right) -> bool	0.2.0-dev.31.13	0.2.22
 managed	Kiln.Client	static Kiln.CrosshairHit.operator ==(Kiln.CrosshairHit left, Kiln.CrosshairHit right) -> bool	0.2.0-dev.31.13	0.2.22
+managed	Kiln.Client	static Kiln.GameInput.Available.get -> bool	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Client	static Kiln.GameInput.IsHeld(Kiln.GameAction action) -> bool	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Client	static Kiln.GameInput.OnSample(Kiln.GameInputHandler! handler) -> System.IDisposable!	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Client	static Kiln.GameInput.Repeat(Kiln.GameAction action, System.TimeSpan interval, System.Func<bool>? whileHeld = null) -> System.IDisposable!	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Client	static Kiln.GameInput.WasPressed(Kiln.GameAction action) -> bool	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Client	virtual Kiln.GameInputHandler.Invoke(ref Kiln.GameInputSample sample) -> void	0.2.0-dev.31.30	0.2.28
 managed	Kiln.Client	~[KILNX002]override Kiln.SteamGuardStatus.Equals(object obj) -> bool	<=0.2.0-dev.26	<=0.2.1
 managed	Kiln.Client	~[KILNX002]override Kiln.SteamGuardStatus.ToString() -> string	<=0.2.0-dev.26	<=0.2.1
 managed	Kiln.Client	~override Kiln.CrosshairHit.Equals(object obj) -> bool	0.2.0-dev.31.13	0.2.22
 managed	Kiln.Client	~override Kiln.CrosshairHit.ToString() -> string	0.2.0-dev.31.13	0.2.22
+managed	Kiln.Combat	Kiln.ActionKind (forwarded, contained in Kiln.Api)	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Combat	Kiln.ActionKind.Bow = 1 -> Kiln.ActionKind (forwarded, contained in Kiln.Api)	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Combat	Kiln.ActionKind.Melee = 0 -> Kiln.ActionKind (forwarded, contained in Kiln.Api)	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Combat	Kiln.ActionKind.Tool = 2 -> Kiln.ActionKind (forwarded, contained in Kiln.Api)	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Combat	Kiln.ActionSpeed	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Combat	Kiln.ActionSpeedChanged	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Combat	Kiln.ActionSpeedChanged.ActionSpeedChanged() -> void	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Combat	Kiln.ActionSpeedChanged.ActionSpeedChanged(Kiln.EntityId Player, Kiln.ActionKind Kind, double Multiplier) -> void	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Combat	Kiln.ActionSpeedChanged.Deconstruct(out Kiln.EntityId Player, out Kiln.ActionKind Kind, out double Multiplier) -> void	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Combat	Kiln.ActionSpeedChanged.Equals(Kiln.ActionSpeedChanged other) -> bool	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Combat	Kiln.ActionSpeedChanged.Kind.get -> Kiln.ActionKind	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Combat	Kiln.ActionSpeedChanged.Kind.init -> void	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Combat	Kiln.ActionSpeedChanged.Multiplier.get -> double	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Combat	Kiln.ActionSpeedChanged.Multiplier.init -> void	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Combat	Kiln.ActionSpeedChanged.Player.get -> Kiln.EntityId	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Combat	Kiln.ActionSpeedChanged.Player.init -> void	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Combat	Kiln.ActionSpeedStatus	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Combat	Kiln.ActionSpeedStatus.<Clone>$() -> Kiln.ActionSpeedStatus!	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Combat	Kiln.ActionSpeedStatus.ActionSpeedStatus(bool Sequence, bool Graph, bool BowTiming, bool MeleeSampling, bool Prediction, string? Reason) -> void	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Combat	Kiln.ActionSpeedStatus.BowTiming.get -> bool	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Combat	Kiln.ActionSpeedStatus.BowTiming.init -> void	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Combat	Kiln.ActionSpeedStatus.Deconstruct(out bool Sequence, out bool Graph, out bool BowTiming, out bool MeleeSampling, out bool Prediction, out string? Reason) -> void	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Combat	Kiln.ActionSpeedStatus.Equals(Kiln.ActionSpeedStatus? other) -> bool	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Combat	Kiln.ActionSpeedStatus.Graph.get -> bool	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Combat	Kiln.ActionSpeedStatus.Graph.init -> void	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Combat	Kiln.ActionSpeedStatus.MeleeSampling.get -> bool	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Combat	Kiln.ActionSpeedStatus.MeleeSampling.init -> void	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Combat	Kiln.ActionSpeedStatus.Prediction.get -> bool	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Combat	Kiln.ActionSpeedStatus.Prediction.init -> void	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Combat	Kiln.ActionSpeedStatus.Reason.get -> string?	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Combat	Kiln.ActionSpeedStatus.Reason.init -> void	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Combat	Kiln.ActionSpeedStatus.Sequence.get -> bool	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Combat	Kiln.ActionSpeedStatus.Sequence.init -> void	0.2.0-dev.31.30	0.2.28
 managed	Kiln.Combat	Kiln.AttributeIds	<=0.2.0-dev.26	<=0.2.1
 managed	Kiln.Combat	Kiln.AttributeIds.AttributeIds() -> void	<=0.2.0-dev.26	<=0.2.1
 managed	Kiln.Combat	Kiln.AttributeIds.AttributeIds(Kiln.GameAttribute Kind, uint CurrentId, uint MinId, uint MaxId, uint ComponentHash, bool GameClamp) -> void	<=0.2.0-dev.26	<=0.2.1
@@ -13552,6 +13612,13 @@ managed	Kiln.Combat	Kiln.PlayerRespawnEvent.Involves(Kiln.EntityId entity) -> bo
 managed	Kiln.Combat	Kiln.PlayerRespawnEvent.Player.get -> Kiln.EntityId	<=0.2.0-dev.26	<=0.2.1
 managed	Kiln.Combat	Kiln.PlayerRespawnEvent.Position.get -> Kiln.WorldPosition	<=0.2.0-dev.26	<=0.2.1
 managed	Kiln.Combat	Kiln.PlayerRespawnEvent.Step.get -> ulong	<=0.2.0-dev.26	<=0.2.1
+managed	Kiln.Combat	const Kiln.ActionSpeed.Max = 10 -> double	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Combat	const Kiln.ActionSpeed.MeleeSamplingAbove = 2 -> double	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Combat	const Kiln.ActionSpeed.Min = 0.5 -> double	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Combat	override Kiln.ActionSpeedChanged.GetHashCode() -> int	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Combat	override Kiln.ActionSpeedStatus.Equals(object? obj) -> bool	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Combat	override Kiln.ActionSpeedStatus.GetHashCode() -> int	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Combat	override Kiln.ActionSpeedStatus.ToString() -> string!	0.2.0-dev.31.30	0.2.28
 managed	Kiln.Combat	override Kiln.AttributeIds.GetHashCode() -> int	<=0.2.0-dev.26	<=0.2.1
 managed	Kiln.Combat	override Kiln.AttributeReading.GetHashCode() -> int	<=0.2.0-dev.26	<=0.2.1
 managed	Kiln.Combat	override Kiln.AttributeReading.ToString() -> string!	<=0.2.0-dev.26	<=0.2.1
@@ -13567,6 +13634,19 @@ managed	Kiln.Combat	override Kiln.Health.ToString() -> string!	<=0.2.0-dev.26	<=
 managed	Kiln.Combat	override Kiln.HitResult.Equals(object? obj) -> bool	<=0.2.0-dev.26	<=0.2.1
 managed	Kiln.Combat	override Kiln.HitResult.GetHashCode() -> int	<=0.2.0-dev.26	<=0.2.1
 managed	Kiln.Combat	override Kiln.HitResult.ToString() -> string!	<=0.2.0-dev.26	<=0.2.1
+managed	Kiln.Combat	static Kiln.ActionSpeed.Available.get -> bool	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Combat	static Kiln.ActionSpeed.Changed -> System.Action<Kiln.ActionSpeedChanged>?	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Combat	static Kiln.ActionSpeed.Clear(Kiln.EntityId player) -> void	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Combat	static Kiln.ActionSpeed.Clear(Kiln.EntityId player, Kiln.ActionKind kind) -> void	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Combat	static Kiln.ActionSpeed.ClearDefault(Kiln.ActionKind kind) -> void	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Combat	static Kiln.ActionSpeed.Get(Kiln.EntityId player, Kiln.ActionKind kind) -> double	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Combat	static Kiln.ActionSpeed.Set(Kiln.EntityId player, Kiln.ActionKind kind, double multiplier) -> void	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Combat	static Kiln.ActionSpeed.SetDefault(Kiln.ActionKind kind, double multiplier) -> void	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Combat	static Kiln.ActionSpeed.Status.get -> Kiln.ActionSpeedStatus!	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Combat	static Kiln.ActionSpeedChanged.operator !=(Kiln.ActionSpeedChanged left, Kiln.ActionSpeedChanged right) -> bool	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Combat	static Kiln.ActionSpeedChanged.operator ==(Kiln.ActionSpeedChanged left, Kiln.ActionSpeedChanged right) -> bool	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Combat	static Kiln.ActionSpeedStatus.operator !=(Kiln.ActionSpeedStatus? left, Kiln.ActionSpeedStatus? right) -> bool	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Combat	static Kiln.ActionSpeedStatus.operator ==(Kiln.ActionSpeedStatus? left, Kiln.ActionSpeedStatus? right) -> bool	0.2.0-dev.31.30	0.2.28
 managed	Kiln.Combat	static Kiln.AttributeIds.operator !=(Kiln.AttributeIds left, Kiln.AttributeIds right) -> bool	<=0.2.0-dev.26	<=0.2.1
 managed	Kiln.Combat	static Kiln.AttributeIds.operator ==(Kiln.AttributeIds left, Kiln.AttributeIds right) -> bool	<=0.2.0-dev.26	<=0.2.1
 managed	Kiln.Combat	static Kiln.AttributeReading.operator !=(Kiln.AttributeReading left, Kiln.AttributeReading right) -> bool	<=0.2.0-dev.26	<=0.2.1
@@ -13601,6 +13681,8 @@ managed	Kiln.Combat	static Kiln.Health.operator ==(Kiln.Health left, Kiln.Health
 managed	Kiln.Combat	static Kiln.HitResult.operator !=(Kiln.HitResult? left, Kiln.HitResult? right) -> bool	<=0.2.0-dev.26	<=0.2.1
 managed	Kiln.Combat	static Kiln.HitResult.operator ==(Kiln.HitResult? left, Kiln.HitResult? right) -> bool	<=0.2.0-dev.26	<=0.2.1
 managed	Kiln.Combat	static readonly Kiln.DamageOptions.Default -> Kiln.DamageOptions!	<=0.2.0-dev.26	<=0.2.1
+managed	Kiln.Combat	~override Kiln.ActionSpeedChanged.Equals(object obj) -> bool	0.2.0-dev.31.30	0.2.28
+managed	Kiln.Combat	~override Kiln.ActionSpeedChanged.ToString() -> string	0.2.0-dev.31.30	0.2.28
 managed	Kiln.Combat	~override Kiln.AttributeIds.Equals(object obj) -> bool	<=0.2.0-dev.26	<=0.2.1
 managed	Kiln.Combat	~override Kiln.AttributeIds.ToString() -> string	<=0.2.0-dev.26	<=0.2.1
 managed	Kiln.Combat	~override Kiln.AttributeReading.Equals(object obj) -> bool	<=0.2.0-dev.26	<=0.2.1
@@ -18613,6 +18695,7 @@ managed	Kiln.Items	static Kiln.Items.ArmorAvailable.get -> bool	0.2.0-dev.30	0.2
 managed	Kiln.Items	static Kiln.Items.Available.get -> bool	<=0.2.0-dev.26	<=0.2.1
 managed	Kiln.Items	static Kiln.Items.CanTransact.get -> bool	<=0.2.0-dev.26	<=0.2.1
 managed	Kiln.Items	static Kiln.Items.CaptureSet(Kiln.EntityId player) -> Kiln.EquipmentSetCaptureResult!	0.2.0-dev.29	0.2.4
+managed	Kiln.Items	static Kiln.Items.CheckedMovesAvailable.get -> bool	0.2.0-dev.31.30	0.2.28
 managed	Kiln.Items	static Kiln.Items.ContainerName(Kiln.EntityId entity) -> string?	<=0.2.0-dev.26	<=0.2.1
 managed	Kiln.Items	static Kiln.Items.ContainerNamesAvailable.get -> bool	<=0.2.0-dev.26	<=0.2.1
 managed	Kiln.Items	static Kiln.Items.ContainerRenameAvailable.get -> bool	0.2.0-dev.30.3	0.2.13
@@ -18650,6 +18733,7 @@ managed	Kiln.Items	static Kiln.Items.Held(Kiln.EntityId player) -> Kiln.ItemInst
 managed	Kiln.Items	static Kiln.Items.Lookup(string! nameOrId) -> Kiln.ItemInfo?	<=0.2.0-dev.26	<=0.2.1
 managed	Kiln.Items	static Kiln.Items.Move(Kiln.EntityId from, Kiln.SlotId slot, Kiln.EntityId to, int count = 0, Kiln.MoveOptions options = Kiln.MoveOptions.None, Kiln.SlotId? toSlot = null) -> System.Threading.Tasks.Task<Kiln.MoveResult!>!	<=0.2.0-dev.26	<=0.2.1
 managed	Kiln.Items	static Kiln.Items.MoveAll(Kiln.EntityId from, Kiln.EntityId to, Kiln.MoveOptions options = Kiln.MoveOptions.None) -> System.Threading.Tasks.Task<Kiln.MoveResult!>!	<=0.2.0-dev.26	<=0.2.1
+managed	Kiln.Items	static Kiln.Items.MoveChecked(Kiln.EntityId from, Kiln.InventorySlot! expected, Kiln.EntityId to, int count, Kiln.InventorySlot? destination = null) -> System.Threading.Tasks.Task<Kiln.MoveResult!>!	0.2.0-dev.31.30	0.2.28
 managed	Kiln.Items	static Kiln.Items.MovesAvailable.get -> bool	<=0.2.0-dev.26	<=0.2.1
 managed	Kiln.Items	static Kiln.Items.PlanSet(Kiln.EntityId player, Kiln.EquipmentSet! set) -> Kiln.EquipmentSetPlanResult!	0.2.0-dev.29	0.2.4
 managed	Kiln.Items	static Kiln.Items.PlayerStorages.Of(Kiln.EntityId player) -> System.Collections.Generic.IReadOnlyList<Kiln.PlayerStorageInfo!>!	0.2.0-dev.30.7	0.2.16
@@ -32920,6 +33004,10 @@ native	services/kiln_abilities.h	services/kiln_abilities.h:KilnAbilitiesApi:sequ
 native	services/kiln_abilities.h	services/kiln_abilities.h:KilnAbilitiesApi:set_listener	<=0.2.0-dev.10	<=0.2.0
 native	services/kiln_abilities.h	services/kiln_abilities.h:KilnAbilitiesApi:set_wrap_dispatcher	<=0.2.0-dev.10	<=0.2.0
 native	services/kiln_abilities.h	services/kiln_abilities.h:KilnAbilitiesApi:status	<=0.2.0-dev.10	<=0.2.0
+native	services/kiln_action_speed.h	services/kiln_action_speed.h:KilnActionSpeedApi:item_kinds	0.2.0-dev.31.30	0.2.28
+native	services/kiln_action_speed.h	services/kiln_action_speed.h:KilnActionSpeedApi:set_item_kinds	0.2.0-dev.31.30	0.2.28
+native	services/kiln_action_speed.h	services/kiln_action_speed.h:KilnActionSpeedApi:set_rates	0.2.0-dev.31.30	0.2.28
+native	services/kiln_action_speed.h	services/kiln_action_speed.h:KilnActionSpeedApi:status	0.2.0-dev.31.30	0.2.28
 native	services/kiln_assets.h	services/kiln_assets.h:KilnAssetsApi:blob_add	<=0.2.0-dev.10	<=0.2.0
 native	services/kiln_assets.h	services/kiln_assets.h:KilnAssetsApi:blob_add_ex	0.2.0-dev.28	0.2.3
 native	services/kiln_assets.h	services/kiln_assets.h:KilnAssetsApi:blob_catalog_close	0.2.0-dev.28	0.2.3
@@ -33039,6 +33127,10 @@ native	services/kiln_client.h	services/kiln_client.h:KilnClientApi:state	<=0.2.0
 native	services/kiln_client.h	services/kiln_client.h:KilnClientApi:subscribe_tick	<=0.2.0-dev.10	<=0.2.0
 native	services/kiln_client.h	services/kiln_client.h:KilnClientApi:unsubscribe	<=0.2.0-dev.10	<=0.2.0
 native	services/kiln_client_crosshair.h	services/kiln_client_crosshair.h:KilnClientCrosshairApi:get	0.2.0-dev.31.13	0.2.22
+native	services/kiln_client_game_input.h	services/kiln_client_game_input.h:KilnClientGameInputApi:last	0.2.0-dev.31.30	0.2.28
+native	services/kiln_client_game_input.h	services/kiln_client_game_input.h:KilnClientGameInputApi:repeat	0.2.0-dev.31.30	0.2.28
+native	services/kiln_client_game_input.h	services/kiln_client_game_input.h:KilnClientGameInputApi:subscribe	0.2.0-dev.31.30	0.2.28
+native	services/kiln_client_game_input.h	services/kiln_client_game_input.h:KilnClientGameInputApi:unsubscribe	0.2.0-dev.31.30	0.2.28
 native	services/kiln_combat.h	services/kiln_combat.h:KilnCombatApi:attribute_add	0.2.0-dev.20	0.2.0
 native	services/kiln_combat.h	services/kiln_combat.h:KilnCombatApi:attribute_get	0.2.0-dev.20	0.2.0
 native	services/kiln_combat.h	services/kiln_combat.h:KilnCombatApi:attribute_ids	0.2.0-dev.20	0.2.0
