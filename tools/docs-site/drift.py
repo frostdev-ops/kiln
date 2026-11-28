@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: MIT
 """Doc drift checks: the skill and the repository's docs against the code they describe.
 
-  python3 -I tools/docs-site/drift.py [names|versions|facts|map|all ...] [--warn <check>,...] [--allow FILE] [--tree DIR]
+  python3 -I tools/docs-site/drift.py [names|versions|facts|map|stale|all ...] [--warn <check>,...] [--allow FILE] [--tree DIR]
 
-Four checks, run together by default (tools/check.sh, stage `drift`; no build needed):
+Five checks, run together by default (tools/check.sh, stage `drift`; no build needed):
 
   names     every `Type.Member` in backticks (and in a C# code fence) of agent/skills/kiln-modding/** and docs/kiln/** whose
             Type is a Kiln public type must be a public member of it: a member, a nested type, an enum value, a member it
@@ -24,6 +24,11 @@ Four checks, run together by default (tools/check.sh, stage `drift`; no build ne
             $KILN_WIKI_DIR; skipped when the folder is not there); the skill's relative links and #anchors resolve, and so do
             the `docs/kiln/...` pages and `Sample X` names in it.
 
+  stale     tools/docs-site/drift-stale.txt lists what the pages must not say any more, a fact the code now contradicts (a fake
+            that exists, a call shape that changed): a regular expression (Python, case-sensitive; (?i) for case), a file
+            glob and what is true instead, tab-separated. A line of a checked page that matches is a finding, with that text.
+            A line without the text, or a pattern that does not compile, is an error.
+
 tools/docs-site/drift-allow.txt lists the known false positives (sample names, csproj names, deliberate "do not do this"
 examples), one per line: check, name, file glob, reason, separated by tabs; a line without a reason, with an unknown check
 or one that matches nothing any more (a stale entry) is an error. --warn makes the named checks report without failing.
@@ -40,8 +45,9 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 SKILL = "agent/skills/kiln-modding"
-CHECKS = ("names", "versions", "facts", "map")
+CHECKS = ("names", "versions", "facts", "map", "stale")
 ALLOW = "tools/docs-site/drift-allow.txt"
+STALE = "tools/docs-site/drift-stale.txt"
 # a type whose members the build generates or whose name only looks like a type of the API
 SKIP_TYPES = {"Ecs", "Natives", "GameItems", "GameBuffs", "Programs", "Sigs", "Kiln", "GameTypes", "GameEvents"}
 OBJECT_MEMBERS = {"ToString", "Equals", "GetHashCode", "GetType", "ReferenceEquals", "MemberwiseClone", "Finalize"}
@@ -707,6 +713,43 @@ def check_map(root, wiki):
 # ---------------------------------------------------------------- the allow-list
 
 
+# ---------------------------------------------------------------- stale
+
+
+def stale_rules(root):
+    """([(line, compiled pattern, pattern text, glob, what is true)], [errors]) of tools/docs-site/drift-stale.txt."""
+    rules, errors = [], []
+    p = Path(root) / STALE
+    if not p.is_file():
+        return rules, errors
+    for n, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        c = [x.strip() for x in line.split("\t")]
+        if len(c) != 3 or not all(c):
+            errors.append(f"{STALE}:{n}: three tab-separated cells expected: pattern, file glob, what is true instead")
+            continue
+        try:
+            rules.append((n, re.compile(c[0]), c[0], c[1], c[2]))
+        except re.error as e:
+            errors.append(f"{STALE}:{n}: the pattern does not compile ({e})")
+    return rules, errors
+
+
+def check_stale(root, files):
+    rules, errors = stale_rules(root)
+    out = [Finding("stale", STALE, 0, "", e) for e in errors]
+    for f in files:
+        path = rel(root, f)
+        for n, line in enumerate(f.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+            for _, rx, text, glob, true in rules:
+                if fnmatch.fnmatch(path, glob):
+                    m = rx.search(line)
+                    if m:
+                        out.append(Finding("stale", path, n, text, f"says `{m.group(0)}`: {true}"))
+    return out
+
+
 class Allow:
     def __init__(self, path):
         self.rules, self.errors, self.used = [], [], set()
@@ -757,6 +800,8 @@ def run(root, checks, warn=(), allow_file=None, wiki=None, out=None):
             findings[c] = check_facts(root, model)
         elif c == "map":
             findings[c] = check_map(root, wiki_dir(wiki))
+        elif c == "stale":
+            findings[c] = check_stale(root, files)
     failed = False
     for e in allow.errors:
         print(f"drift: {e}", file=out)
@@ -782,7 +827,7 @@ def run(root, checks, warn=(), allow_file=None, wiki=None, out=None):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("checks", nargs="*", help="names, versions, facts, map or all (default: all)")
+    ap.add_argument("checks", nargs="*", help="names, versions, facts, map, stale or all (default: all)")
     ap.add_argument("--tree", default=str(HERE.parent.parent), help="the repository (default: this script's)")
     ap.add_argument("--warn", default="", help="checks that report without failing, comma separated")
     ap.add_argument("--allow", help=f"the allow-list (default: <tree>/{ALLOW})")

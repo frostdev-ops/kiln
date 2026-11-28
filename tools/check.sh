@@ -28,7 +28,8 @@
 #           `Type.Member` they name is public API (inherited and C# 14 extension members count; tools/docs-site/drift-allow.txt
 #           lists the false positives, a reason each), no "since 0.2.0-dev.N" claim is earlier than managed/api-history.tsv's
 #           first release of the name, the skill's pinned build and mod API are the current ones (Kiln.Mods.ApiVersion) and
-#           versions.md has a row for each mod API, and every page docs-map.md names exists. A finding fails the stage
+#           versions.md has a row for each mod API, every page docs-map.md names exists, and no page says what
+#           tools/docs-site/drift-stale.txt lists as contradicted by the code. A finding fails the stage
 #   snippets tools/docs-site/snippets.py --check: the C# fences of the pages tools/docs-site/snippets.json covers are all
 #           listed, and managed/tests/Kiln.DocSnippets.Tests/Generated is made from the pages as they are now; the build stage
 #           then compiles them with the Kiln analyzers, every warning an error (a gone member, a wrong signature, a result
@@ -183,7 +184,7 @@ t=$SECONDS
 python3 -I "$repo/tools/docs-site/drift.py" >"$work/drift.log" 2>&1
 rc=$?
 case $rc in
-  0) result drift OK $((SECONDS - t)) "names, versions, facts and map: no drift$(grep -q 'no wiki folder' "$work/drift.log" && echo " (wiki page names not checked: no frostdev.io wiki folder)")" ;;
+  0) result drift OK $((SECONDS - t)) "names, versions, facts, map and stale: no drift$(grep -q 'no wiki folder' "$work/drift.log" && echo " (wiki page names not checked: no frostdev.io wiki folder)")" ;;
   1) result drift FAILED $((SECONDS - t)) "the docs or the skill differ from the code (tools/docs-site/drift.py, allow-list drift-allow.txt):"
      grep -vE '^drift: [a-z]+ +OK' "$work/drift.log" | head -60
      failed+=(drift) ;;

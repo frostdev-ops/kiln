@@ -247,6 +247,47 @@ class Names(Case):
         self.assertEqual(got, {"Foo": ["Base", "IThing"], "S": ["IEquatable"]})
 
 
+class Stale(Case):
+    """dev.32 review-beta1: facts the code contradicts (the skill said there was no pet fake after KilnHarness.Pets landed)."""
+
+    def stale(self, rules, text, name="docs/kiln/page.md"):
+        self.repo.write("tools/docs-site/drift-stale.txt", "# comment\n" + rules)
+        self.repo.doc(text, name)
+        code, found, out = self.repo.run("stale")
+        return code, found["stale"], out
+
+    def test_a_listed_phrase_is_found_with_what_is_true(self):
+        code, found, out = self.stale("(?i)no pet fake\t*\tKilnHarness.Pets exists\n", "line\nThe kit has No pet fake yet.\n")
+        self.assertEqual(code, 1)
+        self.assertEqual([(f.path, f.line) for f in found], [("docs/kiln/page.md", 2)])
+        self.assertIn("says `No pet fake`: KilnHarness.Pets exists", out)
+
+    def test_the_glob_limits_the_pages(self):
+        code, found, _ = self.stale("no pet fake\tagent/*\tKilnHarness.Pets exists\n", "no pet fake\n")
+        self.assertEqual((code, found), (0, []))
+
+    def test_release_notes_are_history(self):
+        code, found, _ = self.stale("no pet fake\t*\tKilnHarness.Pets exists\n", "no pet fake\n", "docs/kiln/release-notes/0.2.0-dev.31.md")
+        self.assertEqual((code, found), (0, []))
+
+    def test_a_line_without_the_truth_or_a_bad_pattern_is_an_error(self):
+        code, found, out = self.stale("no pet fake\t*\n([\t*\tx\n", "fine\n")
+        self.assertEqual(code, 1)
+        self.assertIn("three tab-separated cells expected", out)
+        self.assertIn("the pattern does not compile", out)
+
+    def test_no_list_is_no_finding(self):
+        self.repo.doc("no pet fake\n")
+        code, found, _ = self.repo.run("stale")
+        self.assertEqual((code, found["stale"]), (0, []))
+
+    def test_the_repository_says_nothing_listed(self):
+        """the real list over the real pages"""
+        out = io.StringIO()
+        code, found = drift.run(HERE.parent.parent, ["stale"], set(), None, None, out)
+        self.assertEqual(found["stale"], [], out.getvalue())
+
+
 class Versions(Case):
     def versions(self, text):
         self.repo.doc(text)

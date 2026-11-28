@@ -1,0 +1,9 @@
+# What the skill and docs/kiln must not say any more: facts the code now contradicts. tools/docs-site/drift.py stale (check.sh's
+# drift stage) reports every line of a checked page that matches. Three tab-separated cells: a regular expression (Python,
+# case-sensitive; (?i) for case), a file glob (of the repository path), and what is true instead.
+(?i)no (?:TestKit |pet |taming )+fake	*	KilnHarness.Pets and KilnHarness.Taming fake pets and taming since 0.2.0-dev.32 (testing.md, unit-tests.md); only ItemCosts has no fake yet
+switch on the first word	*	decide a pet or taming refusal by r.Refusal (PetRefusal, TamingRefusal) since 0.2.0-dev.32; Reason is text for logs
+Reauthor\(RegistryEntryPoint	*	Registries.Reauthor() takes no entry point (only WorldLoad is authored again); Registry.Reauthor(point) never shipped
+"caps"\s*:	*	a pet definition's limits are "limits" in blocks JSON since 0.2.0-dev.32 (PetLimits); "caps" is a per-block error
+Of\(PlayerRef[^\n]*(?:throws|ArgumentException)	*	Pets.Of(PlayerRef) of a player not in game (or with no character here) is an empty list; only PlayerRef.None throws
+World\.Teleport\b	*	there is no World.Teleport: Teleport.To moves an entity (Kiln.Players' LabBots too)
