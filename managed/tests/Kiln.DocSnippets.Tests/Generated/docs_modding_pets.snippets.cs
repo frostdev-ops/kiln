@@ -72,8 +72,8 @@ var who = PlayerRef.Of(player);
 await Pets.Summon(who, given.Pet!.Id, PetRequest.New());
 await Pets.Command(who, given.Pet.Id, PetOrder.Stay, EntityRef.None, PetRequest.New());
 await Pets.Command(who, given.Pet.Id, PetOrder.Attack, EntityRef.Of(enemy), PetRequest.New());   // checked against the pet's rule
-await Pets.Revive(who, pet, PetRequest.New());        // stand at its recovery anchor
-await Pets.Release(who, pet, PetRequest.New());
+await Pets.Revive(who, given.Pet.Id, PetRequest.New());   // stand at its recovery anchor
+await Pets.Release(who, given.Pet.Id, PetRequest.New());
 foreach (var p in Pets.Of(owner)) Log.Info($"{p.Label}: {p.Life} {p.Presence} {p.Health}/{p.HealthMax}");
 #line default
         }
