@@ -4144,7 +4144,7 @@
         },
         {
           "title": "Attack, bow and tool speed for mods",
-          "text": "Kiln provides the framework for mods to make players attack, draw bows and swing tools faster or slower, on dedicated servers and in hosted games, with hits checked between frames at high speeds and joined players seeing their own character at the new speed (thanks to the Combat And Attack Tweaks author).",
+          "text": "Kiln provides the framework for mods to make players attack, draw bows and swing tools faster or slower, on dedicated servers and in hosted games, with joined players seeing their own character at the new speed (thanks to the Combat And Attack Tweaks author).",
           "area": "api",
           "gamePending": true
         },
