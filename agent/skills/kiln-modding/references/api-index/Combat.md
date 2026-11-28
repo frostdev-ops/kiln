@@ -1,5 +1,38 @@
 # Combat (Kiln.Combat)
 
+## ActionKind `0.2.26` — What an action speed applies to (`ActionSpeed`).
+enum: Melee, Bow, Tool
+
+## ActionSpeed `0.2.26` — Per-player speed multipliers for melee, bow and tool actions.
+- `static Available { get; } -> bool` — The sequence and graph scaling work in this game (server, host or joined client).
+- `static Changed -> Action<ActionSpeedChanged>?` — An effective value changed (any side).
+- `static Clear(EntityId player) -> void` — Removes all of this mod's values for one player.
+- `static Clear(EntityId player, ActionKind kind) -> void` — Removes this mod's value for one player and kind (its default applies again).
+- `static ClearDefault(ActionKind kind) -> void` — Removes this mod's default for `kind`.
+- `static Get(EntityId player, ActionKind kind) -> double` — The effective multiplier: every mod's value multiplied, clamped to [`ActionSpeed.Min`, `ActionSpeed.Max`].
+- `const Max = 10 -> double` — The largest effective multiplier.
+- `const MeleeSamplingAbove = 2 -> double` — Kiln samples melee contacts between frames while a player's effective melee multiplier is above this.
+- `const Min = 0.5 -> double` — The smallest effective multiplier.
+- `static Set(EntityId player, ActionKind kind, double multiplier) -> void` — Sets this mod's multiplier for one player; it overrides this mod's default for that player.
+- `static SetDefault(ActionKind kind, double multiplier) -> void` — Sets this mod's multiplier for `kind` for every player, now and later joins.
+- `static Status { get; } -> ActionSpeedStatus` — Which parts work here, with the reason for any that don't.
+
+## ActionSpeedChanged `0.2.26` — An effective action speed changed (`ActionSpeed.Changed`).
+- `ActionSpeedChanged()`
+- `ActionSpeedChanged(EntityId Player, ActionKind Kind, double Multiplier)`
+- `Kind { get; init; } -> ActionKind` — The action kind.
+- `Multiplier { get; init; } -> double` — The new effective multiplier (every mod's value multiplied, clamped).
+- `Player { get; init; } -> EntityId` — The player whose value changed.
+
+## ActionSpeedStatus `0.2.26` — Which parts of `ActionSpeed` work in this game.
+- `ActionSpeedStatus(bool Sequence, bool Graph, bool BowTiming, bool MeleeSampling, bool Prediction, string? Reason)`
+- `BowTiming { get; init; } -> bool` — Bow charge and fire durations are scaled.
+- `Graph { get; init; } -> bool` — The animation graph delta is scaled (visible and collision poses).
+- `MeleeSampling { get; init; } -> bool` — Melee contacts are sampled between frames above `ActionSpeed.MeleeSamplingAbove`.
+- `Prediction { get; init; } -> bool` — A joined client applies the rates to its own actor's prediction and presentation.
+- `Reason { get; init; } -> string?` — Why a part is off, or null.
+- `Sequence { get; init; } -> bool` — The action sequence clock is scaled (hit events, combos, recovery).
+
 ## AttributeIds — The game's attribute ids of one pair, read from its attribute resource when the first world starts.
 - `AttributeIds()`
 - `AttributeIds(GameAttribute Kind, uint CurrentId, uint MinId, uint MaxId, uint ComponentHash, bool GameClamp)`
