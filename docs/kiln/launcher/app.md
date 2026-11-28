@@ -42,7 +42,7 @@ the enabled implementation; no personal API key flow is supported. See [catalog.
 | `/mods/order` | Load order, every kind: the mods that are on, in the order a start brings them up (architecture.md "Boot"): native mods in the proxy (dllmain), as Kiln starts (early), Kiln's plugins (Kiln plugins, and each other loader's plugin with its mods: EMF, EML, ShroudForge, SET, Greeneye, Flame, Shroudtopia, Enshwick, shroudlink, XHL-Core's companions), after the plugins (boot), Kiln mods at the main menu in the resolver's order, then with the player's own world (side "server" Kiln mods, `ResolvePreview.withWorld`; native world phase), and the game folder's mods: packages Kiln places there ("Placed by Kiln"), and the ones put there by hand that load by their kind's rules; then "On, but not loading" with each reason, and Off. Client or server side (aside). Each row: switch, kind, version, menu | `profile_resolve`, `profile_save` |
 | `/mods/native` | Native and DLLs: native mods grouped by phase (dllmain/early/boot/world), drag-reorder inside a phase, plugins; the chain card (dev.21): each chain.ini entry with its "Load after Kiln and ShroudForge" switch, last session's hook overlaps with a one-click "load late", and the compat rules that apply ([engines/README.md](../engines/README.md#closed-source-dll-mods)) | same, `chain_view`, `chain_set_late` |
 | `/mods/engines` | Engines: which loader runs which kind in this game, for the loaded profile: each engine plugin's state from the last start (EML's phase, ShroudForge hosted or its own and its mods' effects, the XHL-Core check, an engine's own loader and what it means for the mods that are on), the shared archive backup guidance (below), the other loaders found next to the game | `engine_status`, `eml_backup`, `found_scan` |
-| `/mods/configs` | the loaded profile's config folder (SchemaForm/raw) | `config_*` |
+| `/mods/configs` | the loaded profile's config folder (SchemaForm/raw); files of mods that are not installed sit apart, read-only, with Clear | `config_*` |
 | `/profiles`, `/profiles/:id/<tab>`, `/library` | old places, redirected (`pages/mods/OldRoutes.tsx`): `/profiles` → Settings, Profiles; a tab of the loaded profile → its new place (Mods, EMF → Play; Native → `/mods/native`; Engines → `/mods/engines`; Configs → `/mods/configs`); Saves → `/saves`; another profile's → Settings, Profiles (where it can be loaded); `/library` → Play | |
 | `/catalog` | Enshrouded's mods on Nexus Mods ([catalog.md](catalog.md)): Kiln mods (default), All Enshrouded, Installed; search, sort; cards with endorsements, downloads, what the mod is and its state (Installed, Update <version>); an updates banner; `?mod=<id>` opens a mod's details (pictures, description, requirements, files, Add / Update / Download on Nexus Mods, Open on Nexus Mods). Mod Manager Download links are taken anywhere in the app (`shell/catalogInstall.tsx`, `NxmListener`) | `nexus_*` |
 | `/runtime` | install/update/rollback per bundle (bundles of one version and day are ordered by when they were built, never by the git id), uninstall (typed), proxy chain (receipt + live `boot.json` chain), switch from ShroudForge (typed), add bundle | `runtime_*` |
@@ -103,7 +103,7 @@ text is about Kiln's own kind it says "Kiln mods".
   typed confirmations. Refused while the game runs. **"Remove its settings too"** (0.2.0-dev.30, owner 2026-11-20): a
   checkbox in the dialog, unchecked each time it opens, with one line under it ("Its settings in this game and your
   profiles go too. Kiln keeps a copy in backups."). Unchecked, the settings stay where Kiln keeps them, and adding the
-  mod again brings them back. Checked, `library_remove` gets `settings: true`, and with the mod's last Library version
+  mod again brings them back (a removed mod's kept config files show in the Configs window as "Not installed", read-only, where they can be cleared: below). Checked, `library_remove` gets `settings: true`, and with the mod's last Library version
   its settings go too (`kiln_manage::mod_settings`): in every known client game the settings stash
   `kiln/state/placed-settings/<kind>/<id>/` and the settings files in `kiln/kept-mod-files/<kind>/<id>/`; in every
   config folder (each profile's `<data>/profiles/<pid>/config/`, a copied profile's `<game>/kiln/profiles/<pid>/config/`,
@@ -119,6 +119,28 @@ text is about Kiln's own kind it says "Kiln mods".
   the Library already uses `library_remove_settings`. What could not go is a notice ("Some settings stayed", with why).
   Remove… of several selected mods has the same box ("Remove their settings too"), and the Deck's remove dialogs a row
   above the buttons that A switches (Off by default).
+- **Configs** (the window of a row's menu, `components/ConfigEditor.tsx`, and `/mods/configs`; HTR, #general, 31.29: the configs
+  of mods he had removed were listed with switches that looked live, and he asked whether Remove really removes): the
+  loaded profile's config folder, a file list beside the form (SchemaForm) and the raw file. For a profile, `config_list`
+  says per file whether its mod is installed (`ConfigFileInfo.orphaned`, `kiln_manage::config_orphans`, 0.2.0-dev.31.30):
+  the file's mod is the schema snapshot's `mod` (Kiln, native and plugin mods, kiln-emf), or, with no snapshot, the file
+  name in `<kind>/<id>.<ext>` of an engine's kind (EMF, EML, XHL, ShroudForge, SET, ...). "Not installed" means absent
+  everywhere the launcher can see a mod: not an entry of the profile (on or off: a mod that is only switched off is
+  installed), not in the Library (any kind, any version), not in the game folder of a known game (what the Mods list shows
+  as found, and a folder Kiln kept at the last activation). Compared by id without case, as the list's own Configs entry.
+  Never a guess: a file whose mod is not known (no snapshot and not in an engine's folder), Kiln's own files (`native.json`,
+  `keybinds.json`, ... and every config that names the mod `kiln`) and Shroudtopia's shared file are never marked, and
+  nothing is marked while the profile, the Library or a game folder could not be read. A server's and a game's list is
+  never marked. The window shows the installed files as before, then a heading "Not installed: kept for when you add it
+  back" with "Clear all", then the marked files (an orphan never opens first). A marked file is read-only (form and raw
+  file) with a hint that changes do nothing until the mod is back. **Clear settings** is a small bin on each such row and
+  a button in the file's card; Clear all is on the heading. Each asks first (an inline strip naming the files and saying
+  an installed mod's settings are never touched), then `config_clear_orphans` moves the files and their `.schema/`
+  snapshots into `<data>/backups/mod-settings/config-<profile>-<time>/` (the folder "Remove its settings too" writes to,
+  with its layout and `removed.json`) and a toast says where the copy is. The backend checks the orphan state again, so a
+  stale window or a hand-made call cannot clear an installed mod's file: the whole request is refused (conflict, nothing
+  touched), as it is while a game runs (`game_running`). The admin web Configs page (a running server, `admin/pages/
+  AdminConfigsPage.tsx`) does not share the component and is unchanged.
 - **Above the list**: Filter (words in the name or id) and Kind (when more than one kind is present), shown with more
   than six rows; Notes (N) when the last activation said something about mod folders (below); Load order, Engines,
   Catalog (Nexus builds), Add mods (the file dialog: zip, 7z, rar and DLL files, `shell/modFiles.ts`; folders are
@@ -174,7 +196,7 @@ time, so the launcher raises each sentence once per game (`shell/notices.ts`):
   (`installs/<id>.notices-seen.json`: hashes only, at most 512, the longest unsaid go first), so it survives a
   restart and moves with the data folder. Two launchers on one data folder share it through a lock file next to it
   (dev.27), so one's closed notices are not shown again by the other. A new or changed sentence still comes. What does come stays until closed
-  ("Some mod folders were kept" with its paths and recovery steps, "Mod settings kept", "Notes on your mods"). A backend
+  ("Some mod folders were kept" with its paths and recovery steps, "Mod settings kept", "Notes on your mods"; "Mod settings kept" is about files a mod wrote into its removed folder, which Kiln kept: a removed mod's config files, kept by Remove on purpose, are listed apart in the Configs window). A backend
   that cannot answer (an older one) gets the old behaviour: all of them.
 - **Notes (N)** above the main list (`components/FolderNotes.tsx`) opens what the last activation said, in three
   parts: Left in the game folder, Mod files kept, Notes on your mods. It reads the newer of the last activation this
