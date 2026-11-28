@@ -179,7 +179,7 @@ match, `KILN_ERR_BUFFER_TOO_SMALL` past `capacity` (the first `capacity` rows wr
 - `ItemsResult`: `Status` (`Done`, `Partial`, `NoRoom`, `NotEnough`, `NoInventory`, `UnknownItem`, `SlotChanged`,
   `Refused`, `Unavailable`, `Dropped`, `Invalid`), `Done`, `Requested`, `Changes` (slot, item, amount, item entity),
   `Message`, `GameError` (the game's code), `Steps`, `DryRun`. Game-side outcomes never throw. Since 0.2.0-dev.32 it is an
-  `IKilnResult` like the others: `Ok` is `Status == Done` (all of it; there is no `ItemsStatus.Ok`), `Reason` the status and
+  `IKilnResult` like the others: `Ok` is `Status == Done` (all of it; the `ItemsStatus` enum has no `Ok` member), `Reason` the status and
   message when not, and `Succeeded` also counts a `Partial` give.
 - `Read(entity)` → `InventoryContents` (`Inventories` with their `InventoryCategory`, `Slots` with `Item`, `Count`,
   `ItemEntity`, `Level`, `Rarity`, `Category`, `Link`, `IsGear`, `IsEquipped`, `IsBroken`), `GenericSlots`,
