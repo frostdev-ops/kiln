@@ -144,5 +144,8 @@ Kiln changes none of that.
 
 ## Tests
 
-No TestKit fake yet. Test your own rules as plain functions; check the flow on a local server with commands like
-`TamingSample`'s, and read `kiln.log` (`taming:` lines) and each `TamingResult.Reason`.
+`KilnHarness.Taming` (dev.32+, [testing.md](testing.md)) runs Kiln's real attempt engine on the kit's world: `kiln.Taming`'s
+`Join` and `Place` make the player and the creature, `Give` items, `Hurt` it, then `Taming.Begin`, `Advance`, `Retry` and `Cancel` in
+`kiln.Run`, with exact stack takes and refunds on the kit's inventories; tamings your `OnLoad` defined stay. It wears no tools
+and runs none of the game's own taming (`NativeStep` counts the steps the test makes): check those, and the flow with a
+player, on a local server with commands like `TamingSample`'s, reading `kiln.log` (`taming:` lines) and each `r.Refusal`.

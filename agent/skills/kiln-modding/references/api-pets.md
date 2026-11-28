@@ -180,8 +180,10 @@ says current, stale (no keepalive for 3 s) or disconnected. Capability `pets.hud
 
 ## Tests
 
-`Kiln.TestKit` has no pet fake yet (`KilnHarness.Registry` and `NpcSpeech` exist; see [testing.md](testing.md)). Test your rules (cooldowns, outcome choices) as plain functions, and check the rest on a
-local server with `/pet`-style commands like `PetsSample`'s. Lab only: `LabBots` (Kiln.Players, experimental `KILNX001`) can
+`KilnHarness.Pets` (dev.32+, [testing.md](testing.md)) runs Kiln's real roster on the kit's world: `kiln.Pets.Join` a player
+and `Down` a pet; grant, summon, order and revive through `Pets.*` in `kiln.Run`; read `Bodies`, `Of` and `HostilePairs`; a character is
+one player across `kiln.Pets` and `kiln.Taming`. It keeps bodies without game entities (no walking), and has no save receipts
+and no owner's view: check those on a local server with `/pet`-style commands like `PetsSample`'s. Lab only: `LabBots` (Kiln.Players, experimental `KILNX001`) can
 stand in for a player on a test server; never ship it.
 
 ## Rules that bite
