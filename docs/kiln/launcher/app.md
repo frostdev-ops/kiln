@@ -129,7 +129,8 @@ text is about Kiln's own kind it says "Kiln mods".
   installed), not in the Library (any kind, any version), not in the game folder of a known game (what the Mods list shows
   as found, and a folder Kiln kept at the last activation). Compared by id without case, as the list's own Configs entry.
   Never a guess: a file whose mod is not known (no snapshot and not in an engine's folder), Kiln's own files (`native.json`,
-  `keybinds.json`, ... and every config that names the mod `kiln`) and Shroudtopia's shared file are never marked, and
+  `keybinds.json`, ... and every config that names the mod `kiln`), Shroudtopia's shared file and EMF's own (`emf/emf_core.ini`,
+  and `emf/lua.ini`, the switch of the Lua host Kiln bundles) are never marked, and
   nothing is marked while the profile, the Library or a game folder could not be read. A server's and a game's list is
   never marked. The window shows the installed files as before, then a heading "Not installed: kept for when you add it
   back" with "Clear all", then the marked files (an orphan never opens first). A marked file is read-only (form and raw

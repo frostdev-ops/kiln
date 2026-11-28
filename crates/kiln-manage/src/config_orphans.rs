@@ -29,6 +29,9 @@ fn lower(s: &str) -> String {
     s.to_ascii_lowercase()
 }
 
+/// EMF's own files in a config folder's `emf/` (by stem): never a mod's ([`owner_of`]).
+const EMF_OWN: [&str; 2] = ["emf_core", "lua"];
+
 impl Installed {
     /// A set of ids (tests, and callers that know them).
     pub fn of<I, S>(ids: I) -> Installed
@@ -117,7 +120,8 @@ impl Installed {
 /// kiln-emf write one), or, for EMF's `emf/<id>.ini`, the file's name. Added here for the engines' own values files
 /// (`<kind>/<id>.<ext>`, the places `mod_settings` takes a removed mod's settings from): the kind's folder and the file's
 /// name. Never: Kiln's own files (`native.json`, `keybinds.json`, ...; the core's configs name the mod "kiln"), Shroudtopia's
-/// one shared file, and anything else, which may be a mod's or the player's.
+/// one shared file, EMF's own (`emf/emf_core.ini`, `emf/lua.ini` of the Lua host Kiln bundles), and anything else, which
+/// may be a mod's or the player's.
 pub fn owner_of(f: &ConfigFileInfo) -> Option<String> {
     if f.kind == "native" {
         return None;
@@ -128,13 +132,19 @@ pub fn owner_of(f: &ConfigFileInfo) -> Option<String> {
     if second.is_none() && stem_of(first).is_some_and(|s| crate::mod_settings::KILN_OWN.contains(&lower(&s).as_str())) {
         return None;
     }
+    // EMF's own files in its folder (review of 0.2.0-dev.31.31), whatever a snapshot says: `emf_core.ini`, EMF's core
+    // settings (read from here before EMF's own), and `lua.ini`, the switch and settings of the Lua host Kiln bundles
+    // (kiln/plugins/emf-lua), which kiln-emf reads whether or not a `lua` mod is installed
+    if first == "emf" && third.is_none() && second.and_then(stem_of).is_some_and(|s| EMF_OWN.contains(&lower(&s).as_str())) {
+        return None;
+    }
     let id = match &f.mod_id {
         Some(id) => id.clone(),
         None => {
             // no snapshot: `<kind>/<id>.<ext>` of an engine's kind, and nothing deeper
             let kind = ModKind::parse(first).filter(|k| !matches!(k, ModKind::Kiln | ModKind::Native | ModKind::Plugin))?;
             let id = stem_of(second?).filter(|_| third.is_none())?;
-            if kind == ModKind::Shroudtopia && id == "shroudtopia" {
+            if kind == ModKind::Shroudtopia && id.eq_ignore_ascii_case("shroudtopia") {
                 return None;
             }
             id
@@ -203,6 +213,24 @@ mod tests {
         }
         assert_eq!(owner_of(&info("sync.json", Some("kiln"), "kiln")), None, "the core's own config (Config.Register outside a mod)");
         assert_eq!(owner_of(&info("sync.json", Some("KILN"), "kiln")), None);
+        // Shroudtopia's shared file in another case (NTFS keeps the case it was made with)
+        assert_eq!(owner_of(&info("shroudtopia/Shroudtopia.json", None, "kiln")), None);
+    }
+
+    #[test]
+    fn emfs_own_files_in_its_folder_are_nobodys() {
+        // review of 0.2.0-dev.31.31: `config::list` names `emf/<x>.ini` after its file, so these two were "Not installed"
+        // and could be cleared. emf_core.ini: EMF's core settings (chat admins, [net] mods_check; docs/kiln/emf.md), read
+        // from the config folder before EMF's own. lua.ini: the switch and settings of the Lua host Kiln bundles
+        // (kiln/plugins/emf-lua), read whether or not a `lua` mod is installed (native/plugins/emf/tests/run-bundled-lua.sh
+        // bundle-off), with or without a snapshot
+        for (file, mod_id) in [("emf/emf_core.ini", Some("emf_core")), ("emf/lua.ini", Some("lua")), ("emf/LUA.ini", Some("LUA")),
+            ("emf/lua.ini", None), ("emf/emf_core.ini", None)] {
+            assert_eq!(owner_of(&info(file, mod_id, "emf")), None, "{file} {mod_id:?}");
+        }
+        // an EMF mod's own file is still its mod's
+        assert_eq!(owner_of(&info("emf/lua-smoke.ini", Some("lua-smoke"), "emf")).as_deref(), Some("lua-smoke"));
+        assert_eq!(owner_of(&info("emf/beastmaster.ini", Some("beastmaster"), "emf")).as_deref(), Some("beastmaster"));
     }
 
     #[test]

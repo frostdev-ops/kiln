@@ -110,6 +110,9 @@ fn seed(cfg: &Path) {
     put(cfg, ".schema/rules.json", snap("rules.json", "kiln").as_bytes());
     put(cfg, "mystery.json", b"{}");
     put(cfg, "shroudtopia/shroudtopia.json", b"{ \"mods\": { \"fly\": {} } }");
+    // EMF's own: its core's settings, and the switch of the Lua host Kiln bundles (no `lua` mod is installed for it)
+    put(cfg, "emf/emf_core.ini", b"[chat]\nadmins=76561198000000000\n");
+    put(cfg, "emf/lua.ini", b"[lua]\nenabled=0\n");
 }
 
 fn orphaned(dirs: &DataDirs, pid: &str) -> Vec<String> {
@@ -130,7 +133,8 @@ fn a_config_of_a_mod_that_is_nowhere_is_orphaned_for_every_kind_of_mod() {
     // the list is the same one `config::list` gives, with the flag set
     let all = config_orphans::list_profile(&dirs, &pid).unwrap();
     assert_eq!(all.len(), kiln_manage::config::list(&dirs.profile(&pid).join("config")).unwrap().len());
-    for f in all.iter().filter(|f| ["native.json", "keybinds.json", "rules.json", "mystery.json", "shroudtopia/shroudtopia.json"].contains(&f.file.as_str())) {
+    for f in all.iter().filter(|f| ["native.json", "keybinds.json", "rules.json", "mystery.json", "shroudtopia/shroudtopia.json", "emf/emf_core.ini",
+        "emf/lua.ini"].contains(&f.file.as_str())) {
         assert!(!f.orphaned, "{} is nobody's config we know", f.file);
     }
 }
@@ -222,7 +226,8 @@ fn clearing_refuses_an_installed_mods_config_and_changes_nothing() {
     let cfg = dirs.profile(&pid).join("config");
     seed(&cfg);
     // an installed mod's file, one that is only switched off, Kiln's own, one nobody owns, one that is not there
-    for file in ["night-sky.json", "emf/beastmaster.ini", "native.json", "rules.json", "mystery.json", "shroudtopia/shroudtopia.json", "gone.json"] {
+    for file in ["night-sky.json", "emf/beastmaster.ini", "native.json", "rules.json", "mystery.json", "shroudtopia/shroudtopia.json", "gone.json",
+        "emf/emf_core.ini", "emf/lua.ini"] {
         let e = mod_settings::clear_orphans_with(&dirs, &pid, &[file.to_string()], &mut nothing).unwrap_err();
         assert!(matches!(e.code, ErrorCode::Conflict | ErrorCode::NotFound), "{file}: {e:?}");
     }

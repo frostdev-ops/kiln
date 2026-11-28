@@ -927,11 +927,13 @@ function mockOwner(file: string, mod: string | null): string | null {
   const parts = file.split("/");
   const stem = (n: string) => (n.includes(".") ? n.slice(0, n.lastIndexOf(".")) : null);
   if (parts.length === 1 && KILN_OWN_FILES.includes((stem(parts[0]) ?? "").toLowerCase())) return null;
+  // EMF's own: its core's settings and the switch of the Lua host Kiln bundles
+  if (parts.length === 2 && parts[0] === "emf" && ["emf_core", "lua"].includes((stem(parts[1]) ?? "").toLowerCase())) return null;
   let id = mod;
   if (!id) {
     const engine = MOD_KINDS.find((k) => k === parts[0] && !["kiln", "native", "plugin"].includes(k));
     id = engine && parts.length === 2 ? stem(parts[1]) : null;
-    if (id === "shroudtopia" && parts[0] === "shroudtopia") id = null;
+    if (id?.toLowerCase() === "shroudtopia" && parts[0] === "shroudtopia") id = null;
   }
   return id && id.toLowerCase() !== "kiln" ? id : null;
 }
