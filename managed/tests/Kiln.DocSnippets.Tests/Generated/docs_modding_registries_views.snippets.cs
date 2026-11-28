@@ -12,7 +12,8 @@ namespace DocSnippets.docs_modding_registries_views_1
 #line 17 "docs/kiln/modding/registries/views.md"
 
 
-if (RegistryViews.Available && RegistryViews.Find("quest") is { } quests)
+if (!RegistryViews.Available) return;                              // kiln.registry.view: every read below needs it
+if (RegistryViews.Find("quest") is { } quests)
 {
     foreach (var id in quests.Select("game:quest_*"))
     {

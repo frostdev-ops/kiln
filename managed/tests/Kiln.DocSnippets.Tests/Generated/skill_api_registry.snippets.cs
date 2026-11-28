@@ -66,7 +66,8 @@ namespace DocSnippets.skill_api_registry_3
         public async Task Run()
         {
 #line 220 "agent/skills/kiln-modding/references/api-registry.md"
-if (Capabilities.Is("kiln.registry.view") && RegistryViews.Find("quest") is { } quests)
+if (!Capabilities.Is("kiln.registry.view")) return;                   // every read below needs it
+if (RegistryViews.Find("quest") is { } quests)
 {
     foreach (var id in quests.Select("game:quest_*"))
         if (quests[id].TryGet<int>("xpReward", out var xp, out var why)) Log.Info($"{id.Value}: {xp} xp");

@@ -16,7 +16,8 @@ Mods never name a game type, member, offset or address here: views, ids and fiel
 ```csharp
 using Kiln.Registry;
 
-if (RegistryViews.Available && RegistryViews.Find("quest") is { } quests)
+if (!RegistryViews.Available) return;                              // kiln.registry.view: every read below needs it
+if (RegistryViews.Find("quest") is { } quests)
 {
     foreach (var id in quests.Select("game:quest_*"))
     {
