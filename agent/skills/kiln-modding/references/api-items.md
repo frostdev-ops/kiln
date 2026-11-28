@@ -17,6 +17,10 @@ upgrades: [api-gear.md](api-gear.md). Signatures are the common ones; the XML do
 `await Items.Move(from, slot, to, count: 0)`, `MoveAll(from, to)`, `QuickStack(from, to)` keep the same gear entity and its
 level, upgrades, gem slot and durability. A take followed by a give makes new gear. `MoveResult` reports refusals and a
 bounded `Changes` ledger. Check `Items.MovesAvailable`; run on the tick thread and await completion there.
+dev.31.30+ (mod API 0.2.28): `await Items.MoveChecked(from, expected, to, count, destination)` takes slots as `Items.Read`
+listed them and moves only while they still hold that (gear: the same item entity and stamp); with a destination, the whole
+count lands in exactly that slot or nothing moves. `SlotChanged` / `NoRoom` move nothing, a request sent twice moves once.
+Check `Items.CheckedMovesAvailable` first. Guide: `docs/kiln/modding/inventory.md` (Checked moves).
 
 `MoveOptions.DryRun` rolls back and emits no transfer event; `Equipped` and `ActionBar` opt into those slots; `Silent` skips
 transfer rules/events. `Items.ContainerName(chest)` reads a player's name; check `ContainerNamesAvailable`. `await Items.SetContainerName(chest, "Ores")` (since 0.2.0-dev.30.3, mod API 0.2.13, capability `items.rename`) renames through the game's own rename on the server (replicates, saves; "" clears; at most 48 characters / 64 bytes, no control characters; throws `ArgumentException` for a bad name or a non-container, `InvalidOperationException` on a joined client); check `ContainerRenameAvailable`.
