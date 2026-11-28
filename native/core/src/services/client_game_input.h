@@ -31,7 +31,7 @@ constexpr uint8_t kHudInGame = 1;   // keen::HudScreenType InGame
 constexpr uint8_t kRangedAimAndCharge = 2;  // keen::ranged_weapon::State AimAndCharge
 constexpr uint8_t kWeaponBow = 0;           // keen::ranged_weapon::WeaponType Bow
 
-// The build's PlayerInputType bit numbers (sigdb client.game_input constants), 0..63 each.
+// The build's PlayerInputType bit numbers (sigdb client.game_input_sites constants), 0..63 each.
 struct Bits {
     uint8_t mainhand, mainhand_tap, mainhand_hold, mainhand_release;
     uint8_t contextual, contextual_tap, contextual_hold;

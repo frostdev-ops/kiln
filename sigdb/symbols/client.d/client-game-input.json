@@ -110,7 +110,7 @@
     }
   },
   "features": {
-    "client.game_input": {
+    "client.game_input_sites": {
       "symbols": [
         "client/InputObserved",
         "@client/InputObserved.held",

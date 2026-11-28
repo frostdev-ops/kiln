@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Read-only exact-build checks for kiln.client.game_input (sigdb feature client.game_input,
+"""Read-only exact-build checks for kiln.client.game_input (sigdb feature client.game_input_sites,
 sigdb/symbols/client.d/client-game-input.json, docs/re/game-input.md); these tests never execute a game binary.
 
 The game client's local input writer (0x3af340) fills the local player's ClientPlayerInput once per client world step;
@@ -76,7 +76,7 @@ class GameInputDefinitions(unittest.TestCase):
 
     def test_the_feature_names_every_symbol_and_constant_it_reads(self):
         self.assertEqual("client", self.doc["side"])
-        feature = self.doc["features"]["client.game_input"]
+        feature = self.doc["features"]["client.game_input_sites"]
         self.assertEqual(sorted([*self.doc["symbols"], "client/InputObserved", "GetComponent"]), sorted(feature["symbols"]))
         self.assertTrue(set(self.doc["constants"]) <= set(feature["constants"]))
         for name in feature["constants"]:
@@ -110,7 +110,7 @@ class GameInputDefinitions(unittest.TestCase):
 
     def test_the_server_composition_has_no_game_input(self):
         doc = merged(ROOT / "sigdb/symbols/server.json")
-        self.assertNotIn("client.game_input", doc.get("features", {}))
+        self.assertNotIn("client.game_input_sites", doc.get("features", {}))
 
 
 class GameInputSignatures(unittest.TestCase):
@@ -135,7 +135,7 @@ class GameInputSignatures(unittest.TestCase):
 
     def test_the_feature_resolves_at_the_reviewed_places(self):
         self.assertTrue(self.features.get("client.input_observation"))
-        self.assertTrue(self.features.get("client.game_input"))
+        self.assertTrue(self.features.get("client.game_input_sites"))
         self.assertEqual(OBSERVED, self.syms["client/InputObserved"]["rva"])
         self.assertEqual(MESSAGE, self.syms["client/InputMessage"]["rva"])
         self.assertEqual(COPY, self.syms["client/InputMessageCopy"]["rva"])

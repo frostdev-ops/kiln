@@ -23,7 +23,7 @@
  * Stale presses. When the game skips its writer for a step (blocked input), its input message still sends the record as
  * last written. Kiln clears the bits it pressed itself in the last sample before that message copies the record, when
  * the record, the local entity, the client session and the whole digitalInput word are still as Kiln left them and the
- * message's step is not the sample's (a mid link in the input message, sigdb client.game_input). Always on; nothing for
+ * message's step is not the sample's (a mid link in the input message, sigdb client.game_input_sites). Always on; nothing for
  * a subscriber to do.
  *
  * The actions (KILN_GAME_ACTION_*; bit (1u << action) in held, pressed, press and release). Each is a set of the game's
@@ -32,7 +32,7 @@
  * the family. PRIMARY_ATTACK down MainhandAction (0), RangedCombatShoot (51), RangedCombatShoot_Tap (52), family adds
  * MainhandAction_Tap/_Hold/_Release (1-3); SECONDARY_ATTACK RangedCombatArm (50); BLOCK Block (30); DODGE Evade (31);
  * JUMP Jump (32); INTERACT ContextualAction (5), family adds ContextualAction_Tap/_Hold (6, 7). The bit numbers are the
- * build's (sigdb client.game_input constants). Append only.
+ * build's (sigdb client.game_input_sites constants). Append only.
  *
  * Held item (held_kind, held_item). The game's held item is the one its writer looks up for the step (the play state's
  * held item id). Its kind comes from kiln.items' catalog: equipment slot MeleeWeapon (1) is MELEE, Tool (2) is TOOL,
@@ -55,7 +55,7 @@
  * attempts in all).
  *
  * The capability row client.game_input: the game client, kiln.client.game_input started, sigdb client.input_observation
- * and client.game_input resolved on this build, and no failed install. Off: every member answers KILN_ERR_UNAVAILABLE
+ * and client.game_input_sites resolved on this build, and no failed install. Off: every member answers KILN_ERR_UNAVAILABLE
  * (on a dedicated server always).
  */
 #ifndef KILN_CLIENT_GAME_INPUT_H

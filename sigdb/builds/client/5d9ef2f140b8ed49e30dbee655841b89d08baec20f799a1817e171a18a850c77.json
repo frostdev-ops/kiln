@@ -48,7 +48,7 @@
     "chat.ui.completion": true,
     "chat.ui.input": true,
     "client.crosshair_trace": true,
-    "client.game_input": true,
+    "client.game_input_sites": true,
     "client.input_observation": true,
     "client.local_player": true,
     "combat.actor_states": true,
@@ -2710,7 +2710,7 @@
         "client/world.period": "static"
       },
       "features": {
-        "client.game_input": "static"
+        "client.game_input_sites": "static"
       }
     },
     "client-input": {

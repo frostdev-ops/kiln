@@ -25,7 +25,7 @@ std::atomic<int64_t (*)()> g_clock{&steady_ns};
 int64_t now_ns() { return g_clock.load(std::memory_order_relaxed)(); }
 
 const char* const kUnbound =
-    "no verified game input sites on this game build: sigdb has no client.input_observation and client.game_input (the "
+    "no verified game input sites on this game build: sigdb has no client.input_observation and client.game_input_sites (the "
     "local input writer's observation point, the input message's copy and the action bits) for it";
 const char* const kInstallFailed = "hooking the game input sites failed (kiln.log says why)";
 const char* const kInstallThrew = "hooking the game input sites failed at the first use: it threw";
