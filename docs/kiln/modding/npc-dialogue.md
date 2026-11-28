@@ -33,16 +33,16 @@ topic that feeds it; fed, it thanks the player and its own lines come back. It i
        private void Starve(EntityId npc)
        {
            if (!_hungry.Add(npc)) return;
-           Npcs.Say(npc, "I'm starving...", TimeSpan.FromSeconds(8));          // once, at once, over its head, no voice
+           _ = Npcs.Say(npc, "I'm starving...", TimeSpan.FromSeconds(8));      // once, at once, over its head, no voice
 
            var speech = Npcs.Speech(npc);                                      // its greetings while hungry
            speech.Pick = SpeechPick.InOrder;                                   // a new complaint at each greeting, in turn
-           speech.Replace("No food, no work.", "My stomach is louder than my anvil.");
+           _ = speech.Replace("No food, no work.", "My stomach is louder than my anvil.");
 
-           Npcs.Farewells(npc).Replace("Come back with something to eat.");   // the line in the menu's box when a player leaves
-           Npcs.MenuLine(npc).Replace("Please, Flameborn, I can't craft on an empty stomach.");   // what it says when the menu opens
+           _ = Npcs.Farewells(npc).Replace("Come back with something to eat.");   // the line in the menu's box when a player leaves
+           _ = Npcs.MenuLine(npc).Replace("Please, Flameborn, I can't craft on an empty stomach.");   // what it says when the menu opens
 
-           Npcs.Topics(npc).Set(new NpcTopic("feed", "Here, have some bread.")  // a page of your own, after the NPC's topics
+           _ = Npcs.Topics(npc).Set(new NpcTopic("feed", "Here, have some bread.")  // a page of your own, after the NPC's topics
            {
                Reply = "Bread! Bless you.",
                OnPick = ctx => Feed(ctx.Npc),                                   // runs on the host, for the player who picked it
@@ -56,7 +56,7 @@ topic that feeds it; fed, it thanks the player and its own lines come back. It i
            Npcs.Farewells(npc).Clear();
            Npcs.MenuLine(npc).Clear();
            Npcs.Topics(npc).Clear();
-           Npcs.Say(npc, "Thank you, Flameborn! Back to work.", TimeSpan.FromSeconds(6));
+           _ = Npcs.Say(npc, "Thank you, Flameborn! Back to work.", TimeSpan.FromSeconds(6));
        }
    }
    ```
