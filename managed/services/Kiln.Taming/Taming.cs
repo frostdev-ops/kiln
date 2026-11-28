@@ -84,6 +84,8 @@ public static class Taming
     /// <exception cref="ArgumentException">A value is out of its range, or the id is not the calling mod's
     /// (<c>&lt;mod id&gt;:&lt;name&gt;</c>).</exception>
     /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>
+    /// <exception cref="KilnUnavailableException"><c>kiln.taming</c> is off (Kiln's taming service is not loaded). The rows of
+    /// the steps are not asked here: <see cref="Begin"/> asks them.</exception>
     /// <example><code>
     /// TamingDefinitionResult d = Taming.Define(new TamingDefinition
     /// {
@@ -124,6 +126,7 @@ public static class Taming
     /// named by a <c>TamingBlock</c> of Kiln.Blocks). The whole JSON is read and checked before the first definition is registered;
     /// one that <see cref="Define"/> then refuses (an id with another mod's prefix) leaves the ones before it registered.</exception>
     /// <exception cref="InvalidOperationException">As <see cref="Define"/>: not on the tick thread.</exception>
+    /// <exception cref="KilnUnavailableException">As <see cref="Define"/>: <c>kiln.taming</c> is off.</exception>
     /// <example><code>
     /// Taming.DefineJson("""
     ///     { "id": "my-mod:wolf", "creatures": ["game:enemy_wildbeast_wolf_earlygame"],

@@ -103,9 +103,11 @@ else if (r.Refusal == TamingRefusal.CommitDeferred) { /* every step paid: Taming
   logs): `Busy`, `NotOwner`, `OwnerOffline`, `StaleSession`, `StaleStep`, `RequestConflict`, `StaleSelection`, `OutOfRange`,
   `TemplateMismatch`, `DefinitionUnknown`, `Capacity`, `RefusedByMod`, `CommitDeferred`, ... (`Other` for a word a later Kiln
   adds).
-- **Rows:** `taming.steps` (on while a server world runs); a definition also needs the rows of its steps: `items.costs.exact`
-  (feed, and any refund), `items.costs.wear` (tool), `taming.native` (native), `pets.records` (names a pet). `Taming.Define*`
-  throws `KilnUnavailableException` naming the one that is off.
+- **Rows:** `kiln.taming` for `Taming.Define` and `DefineJson` (a definition is data: made when your mod loads, before any
+  world runs); `taming.steps` for the attempts (on while a server world runs), and an attempt also needs the rows of its
+  definition's steps: `items.costs.exact` (feed, and any refund), `items.costs.wear` (tool), `taming.native` (native),
+  `pets.records` (names a pet). `Taming.Begin` throws `KilnUnavailableException` naming the one that is off, `Advance` for
+  its step's.
 - **A tame that cannot bind yet** (a full roster, a transient refusal) leaves the attempt `AwaitingCommit` with
   `CommitDeferred`: every step is paid, `Taming.Retry` takes nothing more and tries again.
 
