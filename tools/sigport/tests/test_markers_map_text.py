@@ -47,6 +47,8 @@ TEXT_FILTER = 0xA49B40    # PlayerText's filter step (the platform's text filter
 UI_FORMAT = 0x11B0DA0     # format into the UI's string buffer (UiApp + 0x18, + 0x6b10)
 ESCAPE_FORMAT = 0x89A9E0  # the "%k" argument: escape-char before every byte of the set or equal to it
 TYPE_LOOKUP = 0xD3CF90    # const MapMarkerType* (u32 type id)
+ENTRY_TYPE = 0xD32E90     # the canvas's type of an entry (canvas, const MapEntry*)
+ITEM_DRAW = 0xB20A40      # a layer item's draw state (out, canvas, entry, kept type)
 CSTRING_LOOKUP = 0xE8ECD0 # the string system's lookup of a CustomPlayerString id
 
 
@@ -166,6 +168,28 @@ class MapTextSignatures(unittest.TestCase):
         self.assertEqual(bytes.fromhex("33 f6"), self.at(0xC36269, 2))  # rsi = 0 (callee-saved up to the reset)
         self.assertEqual(HIT_TEST, self.target(0xC3656E))
         self.assertLess(0xC3656E, 0xC37B6B)
+
+    def test_the_layer_keeps_each_slots_type_until_a_count_changes(self):
+        # review of 0.2.0-dev.31.31: the marker layer is rebuilt when a list count (or the custom-pin generation) is not
+        # the last rebuild's; the rebuild keeps each entry's type in its item, and the canvas draws the item with that kept
+        # type at the entry's live position. So a slot shows the icon of the row it held at the last rebuild, and Kiln
+        # writes its map rows in a slot order without priority or distance (select.cpp admit; docs/re/map.md).
+        self.assertEqual(bytes.fromhex("4d 8b 94 24 08 ea 36 00"), self.at(MARKER_LAYER + 0x34, 8))  # the main list's count
+        self.assertEqual(bytes.fromhex("4c 39 91 c0 c1 00 00 75"), self.at(0xDA47C8, 8))  # against the last rebuild's
+        self.assertEqual(bytes.fromhex("41 c6 85 b4 c1 00 00 01"), self.at(0xDA47FF, 8))  # another count: rebuild
+        self.assertEqual(ENTRY_TYPE, self.target(0xDA49C1))
+        self.assertEqual(bytes.fromhex("48 8b f0"), self.at(0xDA49C6, 3))  # rsi = the entry's type
+        self.assertEqual(bytes.fromhex("48 89 38 48 89 70 08"), self.at(0xDA4C3B, 7))  # the item: entry +0, type +8
+        # the canvas draws each item from its entry and its kept type; the type is looked up again only for an item without
+        self.assertEqual(bytes.fromhex("4c 8b 4f 08"), self.at(0xC369BE, 4))
+        self.assertEqual(bytes.fromhex("4c 8b 07"), self.at(0xC369C7, 3))
+        self.assertEqual(ITEM_DRAW, self.target(0xC369D6))
+        self.assertEqual(bytes.fromhex("4d 85 c9"), self.at(ITEM_DRAW + 0x7F, 3))
+        self.assertEqual(ENTRY_TYPE, self.target(ITEM_DRAW + 0x8A))
+        self.assertEqual(bytes.fromhex("4c 89 4b 10"), self.at(ITEM_DRAW + 0xA2, 4))
+        # the position: the entry's own x (+0x10) and z (+0x20), read at every draw
+        self.assertEqual(bytes.fromhex("f3 48 0f 2a 6f 10"), self.at(ITEM_DRAW + 0xE9, 6))
+        self.assertEqual(bytes.fromhex("f3 48 0f 2a 47 20"), self.at(ITEM_DRAW + 0x125, 6))
 
     def test_the_games_writers_never_hand_a_game_row_kilns_text(self):
         # the append clears the text view, its hash and the custom-pin view of every entry it adds
