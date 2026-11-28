@@ -2,7 +2,8 @@
 // kiln.markers' surfaces (chapter 04 §4.5, §4.6; plan S5, S6): at each client Post the client's rows (local and received)
 // are admitted per surface (select.h), their visibility events are made (visibility.h) and the admitted map rows are
 // appended to the game's map list (map_list.h), and written again after every client SimStep (issue 159). Rows:
-// markers.map (here), markers.compass, markers.world and markers.nameplates (the drawn surfaces).
+// markers.map and markers.map_text (here: a NativeTooltip row's text in its map entry, issue 160), markers.compass,
+// markers.world and markers.nameplates (the drawn surfaces).
 //
 // Threads: everything here runs on the client world's thread (its Post, its lifecycle, the link after its SimStep), except
 // the frame callback of the drawn surfaces, which only reads an immutable snapshot.
@@ -39,6 +40,7 @@ constexpr char kMap[] = "markers.map";
 constexpr char kCompass[] = "markers.compass";
 constexpr char kWorld[] = "markers.world";
 constexpr char kNameplates[] = "markers.nameplates";
+constexpr char kMapText[] = "markers.map_text";
 
 KilnStr str(const char* s) { return KilnStr{s, std::strlen(s)}; }
 
@@ -56,6 +58,12 @@ uint64_t g_ui_epoch = 0;          // the client world epoch g_ui belongs to
 uintptr_t g_ui = 0;               // that world's G38UiPlayData
 Appended g_appended;
 MapKeep g_keep;                   // the rows the last client Post wrote, written again after each client SimStep
+// the tooltip text (issue 160): markers.map_tooltip_text resolved and the entry's text view is the measured one
+bool g_text_guards = false;
+std::string g_text_off = "needs the native map list's guards (markers.client_map)";
+uint32_t g_text_reason = KILN_CAP_REASON_SYMBOL_MISSING;
+int g_text_reported = -1;         // markers.map_text's last reported state, -1 none
+std::string g_text_reported_text;
 
 bool constant(const char* name, int64_t* out) { return g.api->constant && g.api->constant(str(name), out) == KILN_OK; }
 
@@ -91,6 +99,48 @@ void map_setup() {
     g_map_guards = true;
 }
 
+// ---- the tooltip text (GitHub issue 160) ------------------------------------------------------------------------------
+// MapLabel.NativeTooltip: a row's text goes into its map entry's text view (+0x50, +0x58, +0x60), which the game's name
+// resolver (client 0xd3d350) takes before anything else; the crosshair window's tooltip starts from that name. Kiln calls
+// and hooks nothing for it: the feature's symbols are guards, and the view holds the record's bytes in kiln.markers'
+// arena, never moved or freed while the process lives (docs/re/map.md, "The tooltip's name"). Without the feature
+// markers.map_text stays off, Set and Send refuse NativeTooltip as before, and kiln.log says so once.
+void text_setup() {
+    if (!g_map_guards) return;  // markers.map is off for good: the map row says why, and this row needs it
+    int64_t label = 0, len = 0, hash = 0;
+    if (!g.api->feature(str("markers.map_tooltip_text")) || !constant("markers/entry.label", &label) ||
+        !constant("markers/entry.label_len", &len) || !constant("markers/entry.label_hash", &hash)) {
+        g_text_off = "the game's map tooltip cannot be found on this build (markers.map_tooltip_text)";
+        logf(KILN_LOG_WARN, "markers: the game's map tooltip cannot be found on this build (markers.map_tooltip_text): "
+                            "MapLabel.NativeTooltip is refused (markers.map_text off), map icons keep the game's own names");
+        return;
+    }
+    MapLayout l = g_layout;
+    const bool in_entry = label > 0 && hash > 0 && label < g_layout.entry_size && hash < g_layout.entry_size;
+    if (in_entry) {
+        l.label = static_cast<uint32_t>(label);
+        l.label_hash = static_cast<uint32_t>(hash);
+    }
+    if (!in_entry || len != label + 8 || !l.has_label()) {
+        g_text_off = "the map entry's text view differs from the measured one (markers.map_tooltip_text)";
+        g_text_reason = KILN_CAP_REASON_FAULTED;
+        logf(KILN_LOG_WARN, "markers: %s: MapLabel.NativeTooltip is refused (markers.map_text off)", g_text_off.c_str());
+        return;
+    }
+    g_layout = l;
+    g_text_guards = true;
+}
+
+// markers.map_text now: on exactly when markers.map is on and the guards above hold (map_list.h map_text_row).
+void update_text_row(bool map_on) {
+    const TextRow t = map_text_row(map_on, g_text_guards, g_text_reason, g_text_off.c_str());
+    g.sw->map_text.store(t.state == KILN_CAP_AVAILABLE);
+    if (static_cast<int>(t.state) == g_text_reported && g_text_reported_text == t.text) return;
+    g_text_reported = static_cast<int>(t.state);
+    g_text_reported_text = t.text;
+    report(kMapText, t.state, t.reason, t.text);
+}
+
 // markers.map now: the guards, the run-time latch and the icon catalog (warming: available, Set answers
 // CatalogNotReady; published and verified for this build: available; otherwise off with the catalog's reason).
 void update_map_row() {
@@ -104,7 +154,11 @@ void update_map_row() {
     } else if (g.catalog->get() && (!g.catalog->map_verified() || g.catalog->changed())) {
         state = KILN_CAP_UNAVAILABLE, reason = KILN_CAP_REASON_POLICY, text = g.catalog->map_reason();
     }
-    g.sw->map.store(state == KILN_CAP_AVAILABLE);
+    // the text needs the map: it goes off before the map does and on after it
+    const bool map_on = state == KILN_CAP_AVAILABLE;
+    if (!map_on) update_text_row(false);
+    g.sw->map.store(map_on);
+    if (map_on) update_text_row(true);
     if (state == g_map_reported && text == g_map_reported_text) return;
     g_map_reported = state;
     g_map_reported_text = text;
@@ -236,7 +290,11 @@ void post_map(uint64_t epoch, const std::vector<uint32_t>& order) {
     uint8_t* ui = ui_data(epoch);
     if (!ui) return;
     g_maprows.clear();
-    for (uint32_t i : order) g_maprows.push_back(MapRow{g_cand[i].x, g_cand[i].y, g_cand[i].z, g_rows[i].rec.icon});
+    const bool text_on = g.sw->map_text.load();  // issue 160: a NativeTooltip row's text (the arena's bytes) in its entry
+    for (uint32_t i : order) {
+        const Record& rec = g_rows[i].rec;
+        g_maprows.push_back(map_row(g_cand[i].x, g_cand[i].y, g_cand[i].z, rec.icon, rec.label_mode, rec.text, text_on));
+    }
     AppendCall c{ui, g_maprows.data(), static_cast<uint32_t>(g_maprows.size()), 0, ListState::Ok};
     if (!guarded_append(&c)) return latch_map("writing the native map list faulted");
     if (c.state != ListState::Ok) return latch_map("the native map list's header failed its guards (data pointer, capacity or count)");
@@ -520,6 +578,7 @@ void surfaces_ready() {
     g_uiapi = static_cast<const KilnUiApi*>(g.api->service(str(KILN_UI_SERVICE), KILN_UI_VERSION));
     g_ui_status = g_uiapi && g_uiapi->header.size >= offsetof(KilnUiApi, status) + sizeof(g_uiapi->status) && g_uiapi->status;
     map_setup();
+    text_setup();
     update_map_row();
     steps_setup();
     drawn_setup();

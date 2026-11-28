@@ -18,7 +18,10 @@ public static unsafe partial class Markers
     /// <param name="player">The recipient, or <see cref="EntityId.None"/> for everyone.</param>
     /// <param name="marker">The marker. A map marker needs the icon catalog (<c>Markers.Icons.IsReady</c>): a dedicated
     /// server takes it from the first verified Kiln client; compass and world markers need none. A followed marker
-    /// (<see cref="MarkerSpec.Follow"/>) needs <c>markers.anchors.server</c>; the server then sends its moves.</param>
+    /// (<see cref="MarkerSpec.Follow"/>) needs <c>markers.anchors.server</c>; the server then sends its moves. A
+    /// <see cref="MarkerMapLabel.NativeTooltip"/> marker goes to the players whose Kiln shows the game's map tooltip (their
+    /// client's <c>markers.map_text</c>); every other player is refused for it (<c>RequiresClient</c>): send them the same key
+    /// with <see cref="MarkerMapLabel.None"/> for the marker without the tooltip.</param>
     /// <returns>Stored, and for each connected player whether the update could go: <c>Ok</c> when every recipient can
     /// take it (or there is none yet: it waits for later joins). <see cref="MarkerResult.Committed"/> with <c>Ok</c> false
     /// is a partial delivery, never a rollback: <see cref="MarkerResult.Queued"/> players get it,
@@ -31,8 +34,8 @@ public static unsafe partial class Markers
     /// <exception cref="ArgumentNullException"><paramref name="marker"/>, its id or its text is null.</exception>
     /// <exception cref="ArgumentException">A value outside the rules of <see cref="MarkerSpec"/>, an icon that is not in
     /// the catalog or not for the map, or a disposed <see cref="MarkerSpec.Follow"/> lease.</exception>
-    /// <exception cref="KilnUnavailableException"><c>markers.send</c>, <c>markers.anchors.server</c> (a followed marker) or
-    /// <c>markers.map_text</c> (<see cref="MarkerMapLabel.NativeTooltip"/>) is off.</exception>
+    /// <exception cref="KilnUnavailableException"><c>markers.send</c> or <c>markers.anchors.server</c> (a followed marker) is
+    /// off.</exception>
     /// <exception cref="InvalidOperationException">Not called from a mod's code, or not on the tick thread.</exception>
     [ServerOnly, TickThreadOnly, RequiresCapability("markers.send")]
     public static MarkerResult Send(EntityId player, MarkerSpec marker)

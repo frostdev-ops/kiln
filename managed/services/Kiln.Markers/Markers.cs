@@ -30,7 +30,8 @@ public static unsafe partial class Markers
     /// the catalog or not for the map, or a disposed <see cref="MarkerSpec.Follow"/> lease.</exception>
     /// <exception cref="KilnUnavailableException"><c>markers.local</c>, or a surface's capability (<c>markers.map</c>,
     /// <c>markers.compass</c>, <c>markers.world</c>, <c>markers.anchors.client</c> for a followed marker,
-    /// <c>markers.map_text</c>), is off.</exception>
+    /// <c>markers.map_text</c> for <see cref="MarkerMapLabel.NativeTooltip"/>: off on a game build whose map tooltip Kiln
+    /// has not checked), is off.</exception>
     /// <exception cref="InvalidOperationException">Not called from a mod's code.</exception>
     [ClientOnly, AnyThread, RequiresCapability("markers.local")]
     public static MarkerResult Set(MarkerSpec marker)

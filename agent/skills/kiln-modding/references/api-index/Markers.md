@@ -100,13 +100,13 @@ enum: Local, ServerBroadcast, ServerTarget, Received
 - `Height { get; init; } -> float` — Metres above the point for the world label, in [-128, 128].
 - `Icon { get; init; } -> MarkerIcon` — The map icon, from `Icons`: required with `MarkerSurface.Map`, and `MarkerIcon.None` without it.
 - `Id { get; init; } -> string` — The key: 1 to 64 characters of `A-Z a-z 0-9 _ . : -`.
-- `MapLabel { get; init; } -> MarkerMapLabel` — What the map shows for the text (`MarkerMapLabel.None` in this version).
+- `MapLabel { get; init; } -> MarkerMapLabel` — What the map shows for the text: `MarkerMapLabel.NativeTooltip` makes it the title of the game's own map tooltip.
 - `MaxDistance { get; init; } -> float` — Metres from the camera beyond which it is not shown, in [0, 100000]; 0 = unlimited.
 - `Position { get; init; } -> WorldPosition` — Where it is, in metres: x and z in [-1000, 12000], y in [-1000, 5000].
 - `Priority { get; init; } -> int` — Higher first when a surface has no room, in [-32768, 32767].
 - `Rgba { get; init; } -> uint` — Colour of the compass glyph and the world label, 0xRRGGBBAA (map icons keep the game's colours).
 - `Surfaces { get; init; } -> MarkerSurface` — Where it is shown (default map and compass).
-- `Text { get; init; } -> string` — The text drawn on the compass and world surfaces: at most 128 bytes of UTF-8 on one line, no control characters; may...
+- `Text { get; init; } -> string` — The text drawn on the compass and world surfaces, and with `MarkerMapLabel.NativeTooltip` in the map's tooltip: at...
 - `ToJson() -> string` — This marker as one JSON object in the form `MarkerSpec.FromJson` reads: every field written, the icon as its...
 
 ## MarkerSurface `0.2.17` — Where a marker is shown.

@@ -93,8 +93,11 @@ void report_rows() {
         report(kCatalog, KILN_CAP_AVAILABLE, KILN_CAP_REASON_NONE, "");
     else
         report(kCatalog, KILN_CAP_UNAVAILABLE, g_catalog_off_reason, g_catalog_off);
-    report(kMapText, KILN_CAP_UNAVAILABLE, KILN_CAP_REASON_POLICY,
-           "the native map tooltip is not part of v1: its game test (04-map-text) has not been answered");
+    // markers.map_text (issue 160): a client's row is the surfaces' (it needs markers.map and markers.map_tooltip_text)
+    if (g.side != KILN_SIDE_CLIENT)
+        report(kMapText, KILN_CAP_UNAVAILABLE, KILN_CAP_REASON_WRONG_SIDE,
+               "the native map tooltip is a game client's; a server sends NativeTooltip markers (markers.send) and each "
+               "player's Kiln shows the text where its client can (that player's markers.map_text)");
     if (g.side != KILN_SIDE_CLIENT)
         report(kLocal, KILN_CAP_UNAVAILABLE, KILN_CAP_REASON_WRONG_SIDE, "local markers are a game client's; a server sends them (markers.send)");
     else if (!g.lifecycle)

@@ -42,7 +42,7 @@ The same marker as JSON (`MarkerSpec.FromJson`, `ToJson`), with the same default
 ## The surfaces
 | Surface | What the player sees | Capability |
 |---|---|---|
-| `Map` | the icon of a game marker type on the game's world map, among the game's own markers. It follows that icon type's fog, zoom and filter rules. No name tooltip in v1 (`MapLabel.None`): `Text` is drawn on the other surfaces only | `markers.map` |
+| `Map` | the icon of a game marker type on the game's world map, among the game's own markers. It follows that icon type's fog, zoom and filter rules. With `MarkerMapLabel.NativeTooltip` the game's own map tooltip shows `Text` when the map's cursor is on the icon ([below](#the-map-tooltip-nativetooltip)); by default (`MarkerMapLabel.None`) the tooltip is the game's own for that icon type and `Text` is drawn on the other surfaces only | `markers.map` |
 | `Compass` | a coloured diamond on Kiln's own compass strip at the top of the screen (the full 360 degrees, north straight up when you face north), with the text and the distance in metres. It is Kiln's strip, not the game's compass | `markers.compass` |
 | `World` | a coloured diamond and the text over the point (`Height` metres above it), at any distance, through walls (no occlusion) | `markers.world` |
 
@@ -66,6 +66,45 @@ The same marker as JSON (`MarkerSpec.FromJson`, `ToJson`), with the same default
 - A dedicated server has no marker icons of its own: it takes the catalog from the first player whose Kiln sends the
   verified catalog of this game build. Until then `Markers.Icons.IsReady` is false and a server `Send` with the map
   surface is refused with `CatalogNotReady`; wait for `Markers.CatalogChanged`. Compass and world markers can be sent at once.
+
+## The map tooltip (NativeTooltip)
+
+```csharp
+var chest = Markers.Icons.Resolve("icon_chest");
+var r = Markers.Set(new MarkerSpec("chest3", new WorldPosition(7460.2, 975.6, 4736.3), "Golden chest 3", chest.Icon!.Icon,
+    MarkerSurface.Map, MapLabel: MarkerMapLabel.NativeTooltip));
+// KilnUnavailableException naming markers.map_text where it is off: set the marker with MarkerMapLabel.None instead
+```
+
+- **What the player sees.** When the map's cursor is on the marker's icon, the game's own tooltip shows `Text` as its
+  title, in the game's font and style, the way it shows a place's name. With `MarkerMapLabel.None` (the default) the
+  tooltip is the game's own for that icon type: "Custom marker" for the custom-pin types (`icon_chest` and the other
+  `icon_*` pins), the type's name or no tooltip for the others.
+- **When it works.** `markers.map_text` is on: on a game client whose `markers.map` is on, on a game build whose map tooltip
+  Kiln has checked (sigdb feature `markers.map_tooltip_text`; Steam build 26430625 has it). Where it is off, `Set` throws
+  `KilnUnavailableException` naming `markers.map_text` (nothing is drawn partly) and kiln.log says once why. A mod that
+  wants to work everywhere checks the row or catches the exception and sets the marker with `MarkerMapLabel.None`.
+- **How the game shows the text.** As a name another player typed: the game's own text filter applies when the game has
+  one, and markup shows as typed (the game escapes `<` and `\`). The text rule is Kiln's: at most 128 bytes of UTF-8 on
+  one line. Chinese, Japanese and Korean text is drawn with the game's own fonts (its default font group carries Noto
+  Serif SC and KR), not with Kiln's overlay fonts.
+- **Two icon types name themselves.** On `tower_locked` (Ancient Spire) the tooltip's title stays "Ancient Spire" and the
+  text is the line under it; on `playerwatersource` (Water Source) the tooltip always says "Water Source" and the text is
+  not shown. Pick another icon for a named marker.
+- **Changes.** A new `Text`, a move and a removal show at the next client step (60 Hz), together with the icon. The game's
+  own markers and the player's own pins keep their names: Kiln writes the text only into its own rows of the map list.
+- **Known issue: a changed icon.** The game's map keeps each of its marker slots' icons until the number of markers
+  changes or the map's filter is used. A marker set again with another `Icon` (or one marker replaced by another in the
+  same step) while the number of map markers stays the same can keep the old icon on an open map until then; its text and
+  position follow at once. Kiln keeps its markers in the same slots while the camera or a followed marker moves.
+- **Server markers.** `Markers.Send` takes `MarkerMapLabel.NativeTooltip`. A player whose Kiln shows the tooltip (their
+  client's `markers.map_text` on, with this version or later) gets the marker; any other player is refused for it
+  (`RequiresClient`, counted in `Refused`) and sees nothing of it. Send that player the same key with
+  `MarkerMapLabel.None` (`Markers.Send(player, ...)`) for the marker without the tooltip. A dedicated server's own
+  `markers.map_text` row is `WrongSide`, as `markers.map`: the server has no map, its players do.
+- How it works: kiln.markers fills the text field of its own entries in the game's map list, the field the game fills
+  for a named object; the game's name for a map entry takes that field first ([docs/re/map.md](../../re/map.md), "The
+  tooltip's name"). Kiln calls and hooks nothing of the game's UI for it.
 
 ## Visibility events
 `Markers.Changed` reports every accepted change of a marker's value (Added, Updated, Removed, Cleared), at the next step
@@ -100,9 +139,11 @@ Markers.ClearSent(player);              // all of this mod's markers for that pl
 Server sends are `[ServerOnly, TickThreadOnly]`. The result says what happened per player: `Committed` (the server
 stored it), `Queued` (players with Kiln whose update is on its way) and `Refused` (connected players who cannot take
 it: no Kiln, a surface they do not have, their handshake still running). `Ok` is true only when nobody was refused;
-a refusal is not a rollback, and the marker reaches a player as soon as they can take it. Players **without Kiln get
-nothing** (no packet is sent to them) and are counted as refused. Received markers are the player's to see, not the
-server's to read back: no visibility comes back to the server.
+a refusal is not a rollback, and the marker reaches a player as soon as they can take it. A
+`MarkerMapLabel.NativeTooltip` marker goes only to the players whose Kiln shows the game's map tooltip
+([above](#the-map-tooltip-nativetooltip)). Players **without Kiln get nothing** (no packet is sent to them) and are counted
+as refused. Received markers are the player's to see, not the server's to read back: no visibility comes back to the
+server.
 
 On a dedicated server or a world another player hosts, through 0.2.0-dev.31.11 no joined player's link came up:
 the game's transport pads every payload with zeros to a multiple of 4 bytes, and both ends refused the padded messages
@@ -144,14 +185,15 @@ nothing is drawn partly.
 | `markers.nameplates` | `markers.world` and `markers.anchors.client` |
 | `markers.anchors.client`, `markers.anchors.server` | following an entity of that world |
 | `markers.send` | server markers and the built-in receiver's link |
-| `markers.map_text` | the game's own map tooltip for a marker: off in v1 |
+| `markers.map_text` | the game's own map tooltip shows a marker's `Text` (`MarkerMapLabel.NativeTooltip`): `markers.map` and the game build's tooltip check (sigdb `markers.map_tooltip_text`); `WrongSide` on a dedicated server, which sends such markers through `markers.send` |
 
 ## What it cannot do (v1)
 - Save markers, or read or write the player's own map pins. Markers are session only; a restart starts empty and a server
   mod repopulates its markers itself.
 - Show markers to players without Kiln. (A server can place one of the game's own marker templates as an entity with
   `Spawn.Entity`; vanilla players see that template's stock icon on their map: an advanced route, see chapter 04 §8.1.)
-- A name tooltip on the map, the game's own compass, dungeon maps, the explored-map mask, renaming bosses or NPCs.
+- A tooltip line of a mod's own under the title, names for the game's own markers or the player's pins, the game's own
+  compass, dungeon maps, the explored-map mask, renaming bosses or NPCs.
 - Game art on the compass or world labels (a diamond and text only).
 
 ## Game tests

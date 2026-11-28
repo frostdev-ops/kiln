@@ -821,6 +821,52 @@ void receiver_limits() {  // the receiver's own limits against a server that doe
     kmk_test::end("link.m11_receiver_limits_and_refusals");
 }
 
+// issue 160: MapLabel.NativeTooltip from a server. A player's Kiln offers MapText in its HELLO when its markers.map_text
+// is on (receiver.cpp local_caps); the server accepts it with the map (a verified catalog) and sends NativeTooltip
+// markers to those links only. Any other player is refused (RequiresClient): nothing is drawn partly, and the mod can
+// send that player the same marker without the tooltip (a per-player value).
+void native_tooltip_per_player() {
+    kmk_test::begin();
+    World w;
+    Proc& p = w.client();  // shows the native tooltip
+    p.sw.map_text = true;
+    Proc& q = w.client();  // its client cannot (markers.map_text off: an older Kiln, or the feature unresolved)
+    Proc& u = w.client(false);  // offers MapText but its catalog is not the build pair's: no map, so no tooltip
+    u.sw.map_text = true;
+    u.catalog.publish(synthetic_catalog(true), true, "");
+    w.net.join(&p, 0x81, 101);
+    w.net.join(&q, 0x82, 102);
+    w.net.join(&u, 0x83, 103);
+    w.net.settle();
+    Server::LinkInfo li;
+    CHECK(w.srv.server->link_info(0x81, &li));
+    CHECK_EQ(li.accepted, wire::kCapMap | wire::kCapCompass | wire::kCapWorld | wire::kCapMapText | wire::kCapFollowPoses);
+    CHECK(w.srv.server->link_info(0x82, &li));
+    CHECK_EQ(li.accepted & wire::kCapMapText, 0u);
+    CHECK(w.srv.server->link_info(0x83, &li));
+    CHECK_EQ(li.accepted & (wire::kCapMap | wire::kCapMapText), 0u);
+    Spec chest("chest1", "Golden chest 1", KILN_MARKER_MAP, kCamp);
+    chest.s.map_label_mode = KILN_MARKER_LABEL_NATIVE_TOOLTIP;
+    KilnMarkerResult r = w.send(0, chest);
+    CHECK(r.committed == 1 && r.status == KILN_MARKER_PARTIAL && r.queued == 1 && r.refused == 2 && reason_starts(r, "Partial"));
+    w.net.settle();
+    const ClientRow* got = p.row("chest1");
+    CHECK(got && got->rec.label_mode == KILN_MARKER_LABEL_NATIVE_TOOLTIP && got->rec.text == "Golden chest 1" && got->rec.icon == kCamp);
+    CHECK(q.row("chest1") == nullptr && u.row("chest1") == nullptr);
+    // the mod's fallback for q: the same key without the tooltip, for that player only
+    Spec plain("chest1", "Golden chest 1", KILN_MARKER_MAP, kCamp);
+    r = w.send(102, plain);
+    CHECK(r.status == KILN_MARKER_ACCEPTED && r.queued == 1);
+    w.net.settle();
+    CHECK(q.row("chest1") && q.row("chest1")->rec.label_mode == KILN_MARKER_LABEL_NONE);
+    CHECK(p.row("chest1") && p.row("chest1")->rec.label_mode == KILN_MARKER_LABEL_NATIVE_TOOLTIP);
+    // a compass-only marker never needed the tooltip: everyone with Kiln takes it
+    Spec far("far", "Far", KILN_MARKER_COMPASS);
+    r = w.send(0, far);
+    CHECK(r.status == KILN_MARKER_ACCEPTED && r.queued == 3 && r.refused == 0);
+    kmk_test::end("link.native_tooltip_goes_to_players_whose_kiln_shows_it");
+}
+
 void hosted_loopback() {  // route 2: the hosting player's own receiver, counted once with its Network row
     kmk_test::begin();
     World w;
@@ -993,11 +1039,14 @@ void error_rule() {
     r = res();
     CHECK_EQ(w.srv.server->unsend(5, 0, ks("k"), &r), KILN_ERR_WRONG_THREAD);
     w.srv.on_thread = true;
-    Spec tooltip("k", "t", KILN_MARKER_MAP, kCamp);
+    // issue 160: NativeTooltip is not refused by the server's own rows (it has no map); each link decides (native_tooltip_per_player)
+    Spec tooltip("tip", "t", KILN_MARKER_MAP, kCamp);
     tooltip.s.map_label_mode = KILN_MARKER_LABEL_NATIVE_TOOLTIP;
     r = res();
-    CHECK_EQ(w.srv.server->send(5, 0, &tooltip, &r), KILN_ERR_UNAVAILABLE);
-    CHECK(std::string(r.reason) == "markers.map_text");
+    CHECK_EQ(w.srv.server->send(5, 0, &tooltip, &r), KILN_OK);
+    CHECK(r.status == KILN_MARKER_ACCEPTED && r.committed == 1);
+    r = w.unsend(0, "tip");
+    CHECK(r.committed == 1);
     Spec bad("bad key", "t");
     r = res();
     CHECK_EQ(w.srv.server->send(5, 0, &bad, &r), KILN_ERR_INVALID_ARGUMENT);
@@ -1395,6 +1444,7 @@ int main(int argc, char** argv) {
     respawn_keeps_target_layer();
     limits();
     error_rule();
+    native_tooltip_per_player();
     client_world_stop();
     bridge_rules();
     hello_backs_off();

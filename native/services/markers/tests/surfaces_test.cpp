@@ -2,17 +2,20 @@
 // kiln.markers' admission, visibility and native map list on fakes (no game): chapter 04 §6 M03 (ordering and map
 // capacity on a fake list with sentinels: prefix bytes unchanged, a mismatched header refused), M04 (camera and range
 // transitions), M14 (visibility collapse), the reason precedence of §4.6, the entry encoder (port of the research
-// probe's layout checks) and the heading of §4.5.
+// probe's layout checks) and the heading of §4.5; issue 159's list in a frame and issue 160's tooltip text.
 #include <cmath>
 #include <cstring>
 #include <limits>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "check.h"
 #include "compass.h"
 #include "map_list.h"
 #include "select.h"
+#include "services/kiln_caps.h"
+#include "services/kiln_markers.h"
 #include "visibility.h"
 
 using namespace kmk;
@@ -148,6 +151,56 @@ void order_is_exact() {
     const std::vector<uint32_t> want2 = {4, 1, 3, 0, 2};
     CHECK(order[kSurfMap] == want2);
     kmk_test::end("selection order: priority, camera distance, source, namespace, generation, key (no insertion order)");
+}
+
+// The game's marker layer keeps each slot's type and icon from its last rebuild, which runs only when a list count changes
+// (client 0xda4770: the item's type at +8 from 0xd32e90, drawn through 0xb20a40 with the entry's live position;
+// docs/re/map.md, "The tooltip's name"). So Kiln's map rows must keep their slots while the camera or a followed marker
+// moves: a reorder by distance at the same count would draw each row's icon at another row's position, and with
+// MapLabel.NativeTooltip the tooltip (named from the slot every frame) would disagree with the icon under the cursor.
+void map_slots_stay_put_as_the_camera_moves() {
+    kmk_test::begin();
+    std::vector<ClientRow> rows = {row("waypoints", "chest", KILN_MARKER_MAP | KILN_MARKER_COMPASS),
+                                   row("waypoints", "camp", KILN_MARKER_MAP | KILN_MARKER_COMPASS),
+                                   row("other", "spot", KILN_MARKER_MAP | KILN_MARKER_COMPASS, KILN_MARKER_RECEIVED)};
+    rows[0].rec.x = 3000, rows[1].rec.x = 3500, rows[2].rec.x = 4000;  // along x, 500 m apart
+    rows[0].rec.icon = 0xffe5e444u, rows[1].rec.icon = 0x3a761350u, rows[2].rec.icon = 0x5eba3084u;
+    rows[1].rec.priority = 3;  // a priority picks who gets in when room is short, not where a row sits in the list
+    std::vector<Candidate> c;
+    for (const auto& r : rows) c.push_back(cand(r));
+    View west = view_all(), east = view_all();
+    with_camera(&west, 2900, 820, 1500);
+    with_camera(&east, 4100, 820, 1500);
+    std::vector<Admitted> adm;
+    std::vector<uint32_t> at_west[3], at_east[3];
+    admit(west, c, &adm, at_west);
+    admit(east, c, &adm, at_east);
+    // the compass stays best first (priority, then distance), so its order does follow the camera
+    CHECK(at_west[kSurfCompass] == (std::vector<uint32_t>{1, 0, 2}));
+    CHECK(at_east[kSurfCompass] == (std::vector<uint32_t>{1, 2, 0}));
+    // the map's slots: source, namespace, generation, key, wherever the camera is
+    const std::vector<uint32_t> slots = {1, 0, 2};  // local waypoints/camp, local waypoints/chest, received other/spot
+    CHECK(at_west[kSurfMap] == slots);
+    CHECK(at_east[kSurfMap] == slots);
+    // a followed marker that passes another one keeps its slot too (now nearer the west camera than the chest)
+    c[2].x = 2950;
+    admit(west, c, &adm, at_west);
+    CHECK(at_west[kSurfMap] == slots);
+    // what the game's list gets: the same icon in each Kiln slot from one Post to the next
+    std::vector<uint32_t> icons_west, icons_east;
+    for (uint32_t i : at_west[kSurfMap]) icons_west.push_back(rows[i].rec.icon);
+    for (uint32_t i : at_east[kSurfMap]) icons_east.push_back(rows[i].rec.icon);
+    CHECK(icons_west == icons_east);
+    // room for one: admission still takes the best (priority, then the nearest), so the order only changes the slots
+    View tight = view_all(1);
+    with_camera(&tight, 4100, 820, 1500);
+    rows[1].rec.priority = 0;
+    c[1].priority = 0;
+    c[2].x = 4000;
+    admit(tight, c, &adm, at_east);
+    CHECK(at_east[kSurfMap] == (std::vector<uint32_t>{2}));
+    CHECK_EQ(adm[0].reason[kSurfMap], static_cast<uint32_t>(KILN_MARKER_MAP_CAPACITY));
+    kmk_test::end("map slots: Kiln's map rows keep their list order as the camera or a followed marker moves (the game's layer keeps a slot's icon until a count changes)");
 }
 
 void m03_map_capacity() {
@@ -604,10 +657,255 @@ void kept_rows_end_with_the_post() {
     kmk_test::end("issue 159: a ticked step without Kiln's Post (its subscriber faulted and was removed) drops the kept rows");
 }
 
+// ---- issue 160: the tooltip text ----------------------------------------------------------------------------------------
+// MapLabel.NativeTooltip writes the record's text into the text view of Kiln's own entries (+0x50 pointer, +0x58 length,
+// +0x60 hash), which the game's name resolver (client 0xd3d350) takes before anything else; the game's append (0x302970)
+// clears both views of every entry it adds, and replicate fills the view only from an entity's CustomPlayerString
+// (docs/re/map.md, "The tooltip's name").
+
+MapLayout text_layout() {
+    MapLayout l = layout();
+    l.label = 0x50;
+    l.label_hash = 0x60;
+    return l;
+}
+
+// The game's resolver, its first step: the entry's text view when its length is not 0.
+std::string game_name(const uint8_t* e) {
+    uint64_t p = 0, n = 0;
+    std::memcpy(&p, e + 0x50, 8);
+    std::memcpy(&n, e + 0x58, 8);
+    return n ? std::string(reinterpret_cast<const char*>(static_cast<uintptr_t>(p)), static_cast<size_t>(n)) : std::string();
+}
+
+uint64_t u64_at(const uint8_t* e, size_t off) {
+    uint64_t v = 0;
+    std::memcpy(&v, e + off, 8);
+    return v;
+}
+
+void text_hash_is_the_games() {
+    kmk_test::begin();
+    // 64-bit FNV-1a over each byte sign-extended (client 0x316830, 0x308970, 0x11b0fb0)
+    CHECK(label_hash("", 0) == 0xcbf29ce484222325ull);
+    CHECK(label_hash("\xc3\xa9", 2) == 0x080d7307b4cc3001ull);  // docs/re/map.md (VERIFY): not the unsigned FNV
+    CHECK(label_hash("Golden chest 1", 14) == 0xdf44b8d7a13f30deull);
+    const std::string cjk = "\xe9\x87\x91\xe3\x81\xae\xe5\xae\x9d\xe7\xae\xb1 3";  // 金の宝箱 3
+    CHECK(label_hash(cjk.data(), cjk.size()) == 0x1e75fda44285406dull);
+    const std::string hangul = "\xed\x99\xa9\xea\xb8\x88 \xec\x83\x81\xec\x9e\x90";  // 황금 상자
+    CHECK(label_hash(hangul.data(), hangul.size()) == 0x1ed15a4302fb202aull);
+    kmk_test::end("issue 160: the text hash is the game's (64-bit FNV-1a of sign-extended bytes; UTF-8 and CJK vectors)");
+}
+
+void tooltip_text_in_the_entry() {
+    kmk_test::begin();
+    const MapLayout l = text_layout();
+    CHECK(l.valid() && l.has_label());
+    CHECK(!layout().has_label() && layout().valid());
+    const std::string text = "Golden chest 1";
+    std::vector<uint8_t> plain(0xa0, 0xcd), tip(0xa0, 0xcd);
+    encode_entry(plain.data(), layout(), MapRow{3670.5, -12.25, 1500.0, 0x3a761350u});
+    // NativeTooltip with the text on: the view and the game's hash, every other byte as MapLabel.None writes it
+    const MapRow r = map_row(3670.5, -12.25, 1500.0, 0x3a761350u, KILN_MARKER_LABEL_NATIVE_TOOLTIP, text, true);
+    CHECK(r.text == text.data() && r.text_len == text.size() && r.text_hash == label_hash(text.data(), text.size()));
+    encode_entry(tip.data(), l, r);
+    CHECK_EQ(u64_at(tip.data(), 0x50), static_cast<uint64_t>(reinterpret_cast<uintptr_t>(text.data())));
+    CHECK_EQ(u64_at(tip.data(), 0x58), text.size());
+    CHECK(u64_at(tip.data(), 0x60) == label_hash(text.data(), text.size()));
+    CHECK(game_name(tip.data()) == text);
+    bool rest = true;
+    for (size_t i = 0; i < tip.size(); ++i)
+        if (i < 0x50 || i >= 0x68) rest &= tip[i] == plain[i];
+    CHECK(rest);
+    CHECK(std::memcmp(plain.data() + 0x50, std::vector<uint8_t>(0x18, 0).data(), 0x18) == 0);
+    // MapLabel.None, NativeTooltip with the text off (markers.map_text off), an empty text: no text, byte for byte the
+    // entry of before
+    const MapRow none[] = {map_row(3670.5, -12.25, 1500.0, 0x3a761350u, KILN_MARKER_LABEL_NONE, text, true),
+                           map_row(3670.5, -12.25, 1500.0, 0x3a761350u, KILN_MARKER_LABEL_NATIVE_TOOLTIP, text, false),
+                           map_row(3670.5, -12.25, 1500.0, 0x3a761350u, KILN_MARKER_LABEL_NATIVE_TOOLTIP, std::string_view(), true)};
+    for (const MapRow& n : none) {
+        CHECK(n.text == nullptr && n.text_len == 0 && n.text_hash == 0);
+        std::vector<uint8_t> e(0xa0, 0xcd);
+        encode_entry(e.data(), l, n);
+        CHECK(e == plain);
+    }
+    // a layout without the text fields (markers.map_tooltip_text unresolved) writes none, whatever the row says
+    std::vector<uint8_t> e(0xa0, 0xcd);
+    encode_entry(e.data(), layout(), r);
+    CHECK(e == plain);
+    // a text layout that would overlap the position, type or visibility, or leave the entry, is not a text layout
+    MapLayout bad = text_layout();
+    bad.label = 0x18;
+    CHECK(!bad.has_label() && !bad.valid());
+    bad = text_layout();
+    bad.label_hash = 0x9c;
+    CHECK(!bad.has_label() && !bad.valid());
+    bad = text_layout();
+    bad.label_hash = 0x58;
+    CHECK(!bad.has_label());
+    kmk_test::end("issue 160: NativeTooltip fills the entry's text view (pointer, length, the game's hash); None, the text off or an empty text leave the entry as before");
+}
+
+// The game's order with text (Frames' clear and refill, the game's append clearing both views): every seventh game row
+// is an entity with a CustomPlayerString name, a view into the game's own string storage.
+struct TextFrames {
+    FakeUi f;
+    uint64_t game = 40;
+    uint64_t epoch = 1;
+    Appended last;
+    MapKeep keep;
+    ListState st = ListState::Ok;
+    std::string player_name = "Bob's altar";  // the game's string storage of one CustomPlayerString
+    std::vector<std::string> texts = {"Golden chest 1", "Golden chest 2", "Golden chest 3"};  // kiln.markers' arena
+    std::vector<MapRow> post_rows;
+
+    TextFrames() {
+        f.l = text_layout();
+        for (size_t k = 0; k < texts.size(); ++k)
+            post_rows.push_back(map_row(3700.0 + static_cast<double>(k), 820, 1500, 0x3a761350u, KILN_MARKER_LABEL_NATIVE_TOOLTIP, texts[k], true));
+    }
+    void programs() {  // clear, then the game's append (0x302970: both views cleared) and replicate's fields
+        f.set_header(0, 1024);
+        for (uint64_t i = 0; i < game; ++i) {
+            uint8_t* e = f.entry(i);
+            std::memset(e, 0x60 + static_cast<int>(i & 0x0f), 0x50);
+            std::memset(e + 0x50, 0, 0x30);
+            std::memset(e + 0x80, 0x60 + static_cast<int>(i & 0x0f), 0x20);
+            if (i % 7 == 0) {  // replicate: the entity's CustomPlayerString
+                const uint64_t p = reinterpret_cast<uintptr_t>(player_name.data()), n = player_name.size(),
+                               h = label_hash(player_name.data(), player_name.size());
+                std::memcpy(e + 0x50, &p, 8);
+                std::memcpy(e + 0x58, &n, 8);
+                std::memcpy(e + 0x60, &h, 8);
+            }
+        }
+        f.set_header(game, 1024);
+    }
+    void post() {
+        keep.begin_post();
+        if (post_rows.empty() && !last.n) return;
+        const uint32_t n = static_cast<uint32_t>(post_rows.size());
+        append_rows(f.ui(), f.l, post_rows.data(), n, &last, &st);
+        if (st == ListState::Ok) keep.set(epoch, post_rows.data(), n);
+    }
+    void step(bool ticked) {
+        programs();
+        if (ticked) post();
+        if (keep.end_step(ticked)) rewrite_kept(f.ui(), f.l, keep, epoch, &last, &st);
+    }
+    // what the hover can name this frame: every slot below the count (docs/re/map.md: the hover is cleared and hit-tested
+    // again over the current list every frame), the game's rows by their own view, Kiln's by its text, in the Post's order
+    bool names(const std::vector<std::string>& want) {
+        if (f.count() != game + want.size()) return false;
+        for (uint64_t i = 0; i < game; ++i)
+            if (game_name(f.entry(i)) != (i % 7 == 0 ? player_name : std::string())) return false;
+        for (size_t k = 0; k < want.size(); ++k)
+            if (game_name(f.entry(game + k)) != want[k]) return false;
+        return true;
+    }
+};
+
+void kiln_rows_and_game_rows_keep_their_own_names() {
+    kmk_test::begin();
+    TextFrames w;
+    w.step(true);
+    CHECK(w.st == ListState::Ok);
+    CHECK(w.names(w.texts));
+    // frames without a new step: the game refills, the kept rows bring their text back after the game's
+    for (int i = 0; i < 5; ++i) w.step(false);
+    CHECK(w.names(w.texts));
+    // the game's list grows by a row: its new row takes the slot Kiln's first row had and none of its text (the append
+    // clears the view); Kiln's rows come after it with their own
+    ++w.game;
+    w.step(false);
+    CHECK(w.names(w.texts));
+    CHECK(game_name(w.f.entry(w.game - 1)).empty());
+    // a moved marker keeps its own text at its new position
+    w.post_rows[1].x += 40;
+    w.step(true);
+    CHECK(w.names(w.texts));
+    int64_t x = 0;
+    std::memcpy(&x, w.f.entry(w.game + 1) + 0x10, 8);
+    CHECK(x == static_cast<int64_t>(std::llround(3741.0 * 4294967296.0)));
+    // a changed text: the next Post writes the new view, no step after it shows the old one
+    w.texts[2] = "Golden chest 3 (looted)";
+    w.post_rows[2] = map_row(3702, 820, 1500, 0x3a761350u, KILN_MARKER_LABEL_NATIVE_TOOLTIP, w.texts[2], true);
+    w.step(true);
+    CHECK(w.names(w.texts));
+    w.step(false);
+    CHECK(w.names(w.texts));
+    kmk_test::end("issue 160: each frame names the game's rows by their own views and Kiln's by their texts (refills, a grown list, a move, a new text)");
+}
+
+void removed_marker_shows_no_stale_text() {
+    kmk_test::begin();
+    TextFrames w;
+    w.step(true);
+    CHECK(w.names(w.texts));
+    // the second marker goes: the third moves up into its slot with its own text, nothing below the count says "2"
+    w.post_rows.erase(w.post_rows.begin() + 1);
+    w.step(true);
+    CHECK(w.names({w.texts[0], w.texts[2]}));
+    for (int i = 0; i < 3; ++i) w.step(false);
+    CHECK(w.names({w.texts[0], w.texts[2]}));
+    for (uint64_t i = 0; i < w.f.count(); ++i) CHECK(game_name(w.f.entry(i)) != w.texts[1]);
+    // NativeTooltip set back to None: the same marker, its slot without a text view from the next Post on
+    w.post_rows[1] = map_row(3702, 820, 1500, 0x3a761350u, KILN_MARKER_LABEL_NONE, w.texts[2], true);
+    w.step(true);
+    CHECK(w.names({w.texts[0], std::string()}));
+    // every marker gone: the game's rows only, with their own names
+    w.post_rows.clear();
+    w.step(true);
+    CHECK(w.names({}));
+    w.step(false);
+    CHECK(w.names({}));
+    kmk_test::end("issue 160: a removed marker's text is in no slot below the count; a slot reused by another marker carries that marker's text; None clears it");
+}
+
+void long_and_cjk_text() {
+    kmk_test::begin();
+    TextFrames w;
+    std::string longest;
+    for (int i = 0; i < 42; ++i) longest += "\xe5\xae\x9d";  // 宝 x 42
+    longest += "ab";                                         // 128 bytes: the most a marker's text may have
+    CHECK_EQ(longest.size(), 128u);
+    w.texts = {longest, "\xe9\x87\x91\xe3\x81\xae\xe5\xae\x9d\xe7\xae\xb1 3", "\xed\x99\xa9\xea\xb8\x88 \xec\x83\x81\xec\x9e\x90"};
+    w.post_rows.clear();
+    for (size_t k = 0; k < w.texts.size(); ++k)
+        w.post_rows.push_back(map_row(3700.0 + static_cast<double>(k), 820, 1500, 0x5eba3084u, KILN_MARKER_LABEL_NATIVE_TOOLTIP, w.texts[k], true));
+    w.step(true);
+    w.step(false);
+    CHECK(w.names(w.texts));
+    CHECK_EQ(u64_at(w.f.entry(w.game), 0x58), 128u);
+    CHECK(u64_at(w.f.entry(w.game), 0x60) == 0x9ae50fe336aa030aull);
+    CHECK(u64_at(w.f.entry(w.game + 1), 0x60) == 0x1e75fda44285406dull);
+    // the view is the record's own bytes (no copy, no terminator): the game's player-text path copies them when it names
+    // the entry
+    CHECK_EQ(u64_at(w.f.entry(w.game + 2), 0x50), static_cast<uint64_t>(reinterpret_cast<uintptr_t>(w.texts[2].data())));
+    kmk_test::end("issue 160: a 128-byte text and Chinese, Japanese and Korean text go into the view whole, with the game's hash");
+}
+
+void map_text_row_follows_the_map_and_its_guards() {
+    kmk_test::begin();
+    const char* why = "the game's map tooltip cannot be found on this build (markers.map_tooltip_text)";
+    TextRow t = map_text_row(true, true, KILN_CAP_REASON_SYMBOL_MISSING, why);
+    CHECK(t.state == KILN_CAP_AVAILABLE && t.reason == KILN_CAP_REASON_NONE && std::string(t.text).empty());
+    // the feature unresolved: off with its words, whether the map is on or not (Set's NativeTooltip refusal applies)
+    t = map_text_row(true, false, KILN_CAP_REASON_SYMBOL_MISSING, why);
+    CHECK(t.state == KILN_CAP_UNAVAILABLE && t.reason == KILN_CAP_REASON_SYMBOL_MISSING && std::string(t.text) == why);
+    t = map_text_row(false, false, KILN_CAP_REASON_FAULTED, why);
+    CHECK(t.state == KILN_CAP_UNAVAILABLE && t.reason == KILN_CAP_REASON_FAULTED && std::string(t.text) == why);
+    // the map off (its guards, a latch or the catalog): off too, naming markers.map
+    t = map_text_row(false, true, KILN_CAP_REASON_SYMBOL_MISSING, why);
+    CHECK(t.state == KILN_CAP_UNAVAILABLE && t.reason == KILN_CAP_REASON_SERVICE_MISSING && std::strstr(t.text, "markers.map") != nullptr);
+    kmk_test::end("issue 160: markers.map_text is on exactly when markers.map is on and markers.map_tooltip_text resolved");
+}
+
 }  // namespace
 
 int main() {
     order_is_exact();
+    map_slots_stay_put_as_the_camera_moves();
     m03_map_capacity();
     m04_camera_range();
     m14_visibility_collapse();
@@ -619,5 +917,11 @@ int main() {
     kept_rows_follow_the_post();
     kept_rows_stay_in_their_world();
     kept_rows_end_with_the_post();
+    text_hash_is_the_games();
+    tooltip_text_in_the_entry();
+    kiln_rows_and_game_rows_keep_their_own_names();
+    removed_marker_shows_no_stale_text();
+    long_and_cjk_text();
+    map_text_row_follows_the_map_and_its_guards();
     return kmk_test::finish("surfaces_test");
 }

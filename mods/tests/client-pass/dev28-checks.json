@@ -329,7 +329,7 @@
     "04-markers"
    ],
    "state": "open",
-   "deferred": "optional research of chapter 04 §8.2: markers.map_text stays off in v1 (no native map tooltip is built)"
+   "deferred": "answered statically for GitHub #160 (docs/re/map.md, \"The tooltip's name\"): markers.map_text is on where markers.map_tooltip_text resolves; no guided check (owner 2026-11-22); not seen in a real game yet"
   },
   {
    "id": "04-native-compass",

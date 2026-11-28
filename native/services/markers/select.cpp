@@ -80,6 +80,15 @@ void admit(const View& v, const std::vector<Candidate>& rows, std::vector<Admitt
             }
         }
     }
+    // The map's admitted rows go into the game's list in their slot order (select.h): no priority, no distance.
+    const auto slot = [&](uint32_t l, uint32_t r) {
+        const Candidate &a = rows[l], &b = rows[r];
+        if (a.source_rank != b.source_rank) return a.source_rank < b.source_rank;
+        if (const int c = a.ns.compare(b.ns)) return c < 0;
+        if (a.publisher_generation != b.publisher_generation) return a.publisher_generation < b.publisher_generation;
+        return a.key.compare(b.key) < 0;
+    };
+    std::sort(order[kSurfMap].begin(), order[kSurfMap].end(), slot);
 }
 
 double heading_of(const double fwd[3], double previous) {

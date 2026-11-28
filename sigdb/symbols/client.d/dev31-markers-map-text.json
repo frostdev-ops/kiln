@@ -1,0 +1,99 @@
+{
+  "format": 1,
+  "side": "client",
+  "comment": "kiln.markers' map tooltip text (GitHub issue 160; docs/re/map.md \"The tooltip's name\"; client 26430625). markers.map_tooltip_text: what MapLabel.NativeTooltip rests on. The game names a map entry through one resolver, markers/MapName (client 0xd3d350, void(Name* out, const MapEntry*)): when the entry's text view (+0x50 pointer, +0x58 length, the same offsets as markers/entry.label) is not empty it is the name, through the game's own player-text path markers/PlayerText (0xd28af0: the platform's text filter when the game has one, '\\\\' and '<' escaped, a copy in the UI's string buffer); only after that come the custom-pin text (+0x68), the custom-pin types' \"Custom marker\" and the type's own name. The hover tooltip's texts (markers/TooltipTexts, 0xd1df80) start from it, and the map's crosshair window draws no tooltip when the name is empty (@markers/Crosshair.title). The game's append (0x302970) clears both text views of every entry it adds (@markers/Append.label), so a game row never takes over Kiln's text. Kiln writes the view only on its own rows, beyond the game's count, with bytes of its text arena (process lifetime); it calls and hooks nothing here: the symbols are guards, and the feature off keeps markers.map_text off. Checked by tools/sigport/tests/test_markers_map_text.py.",
+  "symbols": {
+    "markers/MapName": {
+      "comment": "the map entry name resolver (client 0xd3d350): its first test is the entry's text view, which goes to markers/PlayerText",
+      "find": [
+        {
+          "pattern": "48 89 5C 24 10 48 89 7C 24 18 55 48 8B EC 48 83 EC 70 48 8B FA 48 8B D9 48 85 D2 75 ?? 0F 10 05 ?? ?? ?? ?? 48 B8 25 23 22 84 E4 9C F2 CB 48 89 45 C0 0F 11 01 F2 0F 10 45 C0 F2 0F 11 41 10 E9 ?? ?? ?? ?? 48 83 7A {markers/entry.label_len:d8} 00 74 ?? 48 83 C2 {markers/entry.label:d8} 48 8D 4D E0 E8 {markers/PlayerText:rel32}"
+        },
+        {
+          "pattern": "48 83 7A {markers/entry.label_len:d8} 00 74 ?? 48 83 C2 {markers/entry.label:d8} 48 8D 4D E0 E8 {markers/PlayerText:rel32} 0F 10 05 ?? ?? ?? ?? 48 8B C8 48 B8 25 23 22 84 E4 9C F2 CB",
+          "offset": -68
+        }
+      ]
+    },
+    "@markers/MapName.order": {
+      "comment": "after the text view, the custom-pin text view (+0x68 view, +0x78 hash), returned as it is: a custom pin's own name comes second",
+      "find": [
+        {
+          "scope": {
+            "symbol": "markers/MapName",
+            "size": 256
+          },
+          "pattern": "E9 ?? ?? ?? ?? 48 83 7A 70 00 74 16 0F 10 42 68 F2 0F 10 4A 78 0F 11 01 F2 0F 11 49 10 E9"
+        }
+      ]
+    },
+    "markers/PlayerText": {
+      "comment": "the game's player-text path (client 0xd28af0, Result* (Result* out, const StringView* text)): the platform's text filter when the game has one, then the text formatted with '\\\\' and '<' escaped into the UI's string buffer",
+      "find": [
+        {
+          "pattern": "48 89 5C 24 08 48 89 7C 24 18 55 48 8D AC 24 30 FC FF FF 48 81 EC D0 04 00 00 48 8D 45 C8 48 C7 45 B0 00 04 00 00 48 89 45 A0 4C 8D 45 A0 48 8D 05 ?? ?? ?? ?? 48 8B D9 48 8B 0D ?? ?? ?? ?? 33 FF 4C 8B CA"
+        }
+      ]
+    },
+    "@markers/PlayerText.escape": {
+      "comment": "the escape argument of its format: one character set, escaped with '\\\\' (0x5c)",
+      "find": [
+        {
+          "scope": {
+            "symbol": "markers/PlayerText",
+            "size": 368
+          },
+          "pattern": "C7 44 24 20 27 00 00 00 0F 10 44 24 20 48 C7 44 24 58 01 00 00 00 F2 0F 11 4C 24 78 C6 44 24 60 5C"
+        }
+      ]
+    },
+    "markers/TooltipTexts": {
+      "comment": "the map tooltip's title and line under it for a hovered entry (client 0xd1df80): the title starts as markers/MapName's name",
+      "find": [
+        {
+          "pattern": "48 85 C9 0F 84 ?? ?? ?? ?? 48 89 5C 24 18 56 57 41 56 48 83 EC 40 48 8B F2 48 89 6C 24 60 48 8B D1 4C 89 7C 24 68 48 8B F9 4D 8B F1 48 8D 4C 24 20 49 8B D8 E8 {markers/MapName:rel32}"
+        }
+      ]
+    },
+    "@markers/Crosshair.title": {
+      "comment": "the map's crosshair window (client 0xc2eea0) takes the hovered entry's texts and draws no tooltip when the title is empty (0xc2f4f7)",
+      "find": [
+        {
+          "pattern": "48 8B CF 0F 11 45 80 0F 10 44 24 30 F2 0F 11 4D 90 F2 0F 10 4C 24 40 0F 11 45 A0 0F 57 C0 F2 0F 11 4D B0 0F 11 44 24 30 E8 {markers/TooltipTexts:rel32} 48 39 5D 88 0F 84"
+        }
+      ]
+    },
+    "@markers/Append.label": {
+      "comment": "the game's map list append (client 0x302970) clears the text view, its hash and the custom-pin view of every entry it adds",
+      "find": [
+        {
+          "pattern": "48 C1 E1 05 48 03 C1 33 C9 48 89 50 10 48 89 50 18 48 89 50 20 48 89 50 {markers/entry.label:d8} 48 89 50 {markers/entry.label_len:d8} 48 89 48 {markers/entry.label_hash:d8} 48 89 50 68 48 89 50 70 48 89 48 78"
+        }
+      ]
+    }
+  },
+  "constants": {
+    "markers/entry.label_len": {
+      "value": 88,
+      "comment": "the text view's length (u64), right after its pointer at markers/entry.label"
+    }
+  },
+  "features": {
+    "markers.map_tooltip_text": {
+      "symbols": [
+        "markers/MapName",
+        "@markers/MapName.order",
+        "markers/PlayerText",
+        "@markers/PlayerText.escape",
+        "markers/TooltipTexts",
+        "@markers/Crosshair.title",
+        "@markers/Append.label"
+      ],
+      "constants": [
+        "markers/entry.label",
+        "markers/entry.label_len",
+        "markers/entry.label_hash"
+      ]
+    }
+  }
+}

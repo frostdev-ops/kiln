@@ -19,9 +19,14 @@ public enum MarkerSurface
 /// <summary>What the native map shows for a marker's text.</summary>
 public enum MarkerMapLabel
 {
-    /// <summary>The icon only (the default); the text is drawn on the compass and world surfaces.</summary>
+    /// <summary>The icon only (the default): the map's tooltip is the game's own for that icon type (the custom-pin types
+    /// say "Custom marker"); the text is drawn on the compass and world surfaces.</summary>
     None = 0,
-    /// <summary>The game's own map tooltip (capability <c>markers.map_text</c>, off in this version).</summary>
+    /// <summary>The text is also the title of the game's own map tooltip, shown when the map's cursor is on the icon
+    /// (capability <c>markers.map_text</c>: <c>markers.map</c> on, on a game build whose tooltip Kiln has checked). The
+    /// game shows it as a name a player typed: its text filter may apply, and markup shows as typed. Two icon types name
+    /// themselves: on <c>tower_locked</c> (Ancient Spire) the text is the line under the type's name, and on
+    /// <c>playerwatersource</c> (Water Source) the tooltip keeps the type's name.</summary>
     NativeTooltip = 1,
 }
 
@@ -66,8 +71,8 @@ public readonly record struct MarkerIcon(uint Id)
 /// again replaces it.</param>
 /// <param name="Position">Where it is, in metres: x and z in [-1000, 12000], y in [-1000, 5000]. Ignored (but finite) when
 /// <paramref name="Follow"/> is set.</param>
-/// <param name="Text">The text drawn on the compass and world surfaces: at most 128 bytes of UTF-8 on one line, no control
-/// characters; may be empty.</param>
+/// <param name="Text">The text drawn on the compass and world surfaces, and with <see cref="MarkerMapLabel.NativeTooltip"/>
+/// in the map's tooltip: at most 128 bytes of UTF-8 on one line, no control characters; may be empty.</param>
 /// <param name="Icon">The map icon, from <see cref="Markers.Icons"/>: required with <see cref="MarkerSurface.Map"/>, and
 /// <see cref="MarkerIcon.None"/> without it.</param>
 /// <param name="Surfaces">Where it is shown (default map and compass).</param>
@@ -77,7 +82,8 @@ public readonly record struct MarkerIcon(uint Id)
 /// <param name="MaxDistance">Metres from the camera beyond which it is not shown, in [0, 100000]; 0 = unlimited.</param>
 /// <param name="Priority">Higher first when a surface has no room, in [-32768, 32767].</param>
 /// <param name="Rgba">Colour of the compass glyph and the world label, 0xRRGGBBAA (map icons keep the game's colours).</param>
-/// <param name="MapLabel">What the map shows for the text (<see cref="MarkerMapLabel.None"/> in this version).</param>
+/// <param name="MapLabel">What the map shows for the text: <see cref="MarkerMapLabel.NativeTooltip"/> makes it the title of
+/// the game's own map tooltip. <see cref="MarkerMapLabel.None"/> by default.</param>
 public sealed partial record MarkerSpec(string Id, WorldPosition Position, string Text, MarkerIcon Icon,
     MarkerSurface Surfaces = MarkerSurface.Map | MarkerSurface.Compass, MarkerAnchor? Follow = null, float Height = 0,
     float MaxDistance = 0, int Priority = 0, uint Rgba = 0xffffffff, MarkerMapLabel MapLabel = MarkerMapLabel.None);

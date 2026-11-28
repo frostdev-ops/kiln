@@ -601,6 +601,50 @@ void capabilities_and_icons() {
 
 // ---- subscriptions ------------------------------------------------------------------------------------------------------
 
+// issue 160: with markers.map_text on (surfaces.cpp: markers.map on and markers.map_tooltip_text resolved) a NativeTooltip
+// map marker is stored with its label mode and its text in the arena, which the surfaces write into its map entry; off
+// again, a new one is refused naming the row and the stored one stays as it is.
+void native_tooltip_when_on() {
+    kmk_test::begin();
+    H h;
+    CHECK_EQ(h.bind(1, "wp4"), KILN_OK);
+    h.sw.map = true;
+    int catalog = 1;
+    h.store.set_icon_check(&catalog_stub, &catalog);
+    h.sw.map_text = true;
+    std::string text = "Golden chest 1";
+    Spec tip("wp4.icon_chest", text, KILN_MARKER_MAP);
+    tip.s.icon_type = 0xffe5e444u;
+    tip.s.map_label_mode = KILN_MARKER_LABEL_NATIVE_TOOLTIP;
+    KilnMarkerResult r{};
+    CHECK_EQ(try_set(h, tip, &r), KILN_OK);
+    CHECK(r.status == KILN_MARKER_ACCEPTED && r.affected == 1);
+    std::vector<ClientRow> rows;
+    h.store.snapshot_client(&rows);
+    CHECK_EQ(rows.size(), size_t{1});
+    if (!rows.empty()) {
+        CHECK_EQ(rows[0].rec.label_mode, static_cast<uint32_t>(KILN_MARKER_LABEL_NATIVE_TOOLTIP));
+        CHECK(rows[0].rec.text == text);
+        CHECK(rows[0].rec.text.data() != tip.text.data());  // the arena's copy, not the caller's bytes
+        const char* kept = rows[0].rec.text.data();
+        tip.text.assign(tip.text.size(), 'x');  // the caller's buffer changes; the stored text does not
+        h.store.snapshot_client(&rows);
+        CHECK(rows[0].rec.text == text && rows[0].rec.text.data() == kept);
+    }
+    // the switch off again: a new NativeTooltip marker is refused naming the row, None still goes
+    h.sw.map_text = false;
+    Spec tip2("wp4.other", "Golden chest 2", KILN_MARKER_MAP);
+    tip2.s.icon_type = 0xffe5e444u;
+    tip2.s.map_label_mode = KILN_MARKER_LABEL_NATIVE_TOOLTIP;
+    CHECK_EQ(try_set(h, tip2, &r), KILN_ERR_UNAVAILABLE);
+    CHECK(std::strcmp(r.reason, "markers.map_text") == 0);
+    tip2.s.map_label_mode = KILN_MARKER_LABEL_NONE;
+    CHECK_EQ(try_set(h, tip2, &r), KILN_OK);
+    CHECK_EQ(h.store.local_count(), 2u);
+    h.post();
+    kmk_test::end("issue 160: NativeTooltip is stored with its arena text once markers.map_text is on; refused naming the row when off");
+}
+
 struct Counter {
     int calls = 0;
     bool fault = false;
@@ -706,6 +750,7 @@ int main() {
     publishers();
     validation();
     capabilities_and_icons();
+    native_tooltip_when_on();
     subscriptions();
     threads();
     return kmk_test::finish("store_test");
