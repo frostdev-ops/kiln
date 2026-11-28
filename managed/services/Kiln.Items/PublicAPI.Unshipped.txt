@@ -1,3 +1,3 @@
 #nullable enable
-static Kiln.Items.CheckedMovesAvailable.get -> bool
-static Kiln.Items.MoveChecked(Kiln.EntityId from, Kiln.InventorySlot! expected, Kiln.EntityId to, int count, Kiln.InventorySlot? destination = null) -> System.Threading.Tasks.Task<Kiln.MoveResult!>!
+[KILNX033]static Kiln.Items.CheckedMovesAvailable.get -> bool
+[KILNX033]static Kiln.Items.MoveChecked(Kiln.EntityId from, Kiln.InventorySlot! expected, Kiln.EntityId to, int count, Kiln.InventorySlot? destination = null) -> System.Threading.Tasks.Task<Kiln.MoveResult!>!

@@ -8,6 +8,7 @@ using System.Runtime.InteropServices;
 using Kiln;
 using Kiln.TestKit;
 using Xunit;
+#pragma warning disable KILNX033  // experimental in 31.x (0.2.0-dev.31.30): the members under test
 
 namespace Kiln.ItemsTests;
 

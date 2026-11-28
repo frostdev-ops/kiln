@@ -4,8 +4,10 @@
 //
 // Ported from shroudlink (MIT, bjck/shroudlink v0.8.0): `move_stack`, `move_items`, `chest_name`, and the `keep` /
 // `on_transfer` inventory events. Credit and what differs: docs/kiln/engines/shroudlink.md, docs/kiln/modding/inventory.md.
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+#pragma warning disable KILNX033  // MoveChecked asks CheckedMovesAvailable: both are this file's own experimental members in 31.x
 
 namespace Kiln;
 
@@ -50,6 +52,7 @@ public static unsafe partial class Items
     /// the witnesses inside the move (since 0.2.0-dev.32; an older one answers false). Gear also needs
     /// <c>items.instances</c>: without it no read carries a stamp, and <see cref="MoveChecked"/> of gear is
     /// <see cref="ItemsStatus.Unavailable"/>. Read live.</summary>
+    [Experimental("KILNX033", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/analyzers.md#kilnx033")]
     public static bool CheckedMovesAvailable => Can(Caps.Move) && CheckedMovesReported();
 
     // kiln.items' own answer (status2): its moves run, and it sets KILN_ITEMS_HAS_CHECKED_MOVE (an older runtime leaves
@@ -238,6 +241,7 @@ public static unsafe partial class Items
     /// MoveResult r = await Items.MoveChecked(player, seen, chest, 3, spot);
     /// if (r.Status == ItemsStatus.SlotChanged) { /* the view was old: send the player a fresh one */ }
     /// </code></example>
+    [Experimental("KILNX033", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/analyzers.md#kilnx033")]
     [RequiresCapability(Caps.Move)]
     [TickThreadOnly]
     public static Task<MoveResult> MoveChecked(EntityId from, InventorySlot expected, EntityId to, int count, InventorySlot? destination = null)
