@@ -4,6 +4,7 @@
 
 use crate::state::{blocking, dirs};
 use kiln_manage::config::{self, ConfigDocument, ConfigFileInfo, ConfigTarget, NativeModSwitch, NativeUserState, SchemaSnapshot};
+use kiln_manage::mod_settings::SettingsRemoval;
 use kiln_manage::{Error, ErrorCode};
 use std::path::PathBuf;
 
@@ -26,6 +27,8 @@ pub fn config_dir(target: &ConfigTarget) -> Result<PathBuf, Error> {
     }
 }
 
+/// A profile's list marks the files of mods that are not installed anywhere (`orphaned`: kiln_manage::config_orphans);
+/// a server's and a game's list says nothing of that (it is false there).
 #[tauri::command]
 pub async fn config_list(target: ConfigTarget) -> Result<Vec<ConfigFileInfo>, Error> {
     blocking(move || {
@@ -33,7 +36,32 @@ pub async fn config_list(target: ConfigTarget) -> Result<Vec<ConfigFileInfo>, Er
         if !dir.is_dir() {
             return Ok(vec![]);
         }
-        config::list(&dir)
+        match &target {
+            ConfigTarget::Profile(id) => kiln_manage::config_orphans::list_profile(&dirs()?, id),
+            _ => config::list(&dir),
+        }
+    })
+    .await
+}
+
+/// The Configs window's "Clear settings" (and "Clear all"): the files `config_list` marked `orphaned` go into
+/// `<data>/backups/mod-settings/config-<profile>-<time>/` with their schema snapshots (kiln_manage::mod_settings::clear_orphans).
+/// A profile's folder only. Refused whole (conflict) for a file whose mod is installed now, in the profile on or off, in the
+/// Library or in a game folder, or whose mod is not known; `game_running` while a game runs.
+#[tauri::command]
+pub async fn config_clear_orphans(target: ConfigTarget, files: Vec<String>) -> Result<SettingsRemoval, Error> {
+    blocking(move || {
+        let ConfigTarget::Profile(id) = &target else {
+            return Err(Error::new(ErrorCode::Unsupported, "Only a profile's configs can be cleared here."));
+        };
+        let r = kiln_manage::mod_settings::clear_orphans(&dirs()?, id, &files)?;
+        if !r.removed.is_empty() {
+            log_setting(&clear_line(&target, &files, r.backup.as_deref()));
+        }
+        for n in &r.notes {
+            log_setting(n);
+        }
+        Ok(r)
     })
     .await
 }
@@ -140,6 +168,17 @@ pub fn config_line(target: &ConfigTarget, file: &str, key: Option<&str>, what: &
         Some(k) => format!("{}: {}: {} {what}", target_name(target), one_line(file), one_line(k)),
         None => format!("{}: {}: every setting {what}", target_name(target), one_line(file)),
     }
+}
+
+/// `profile work: cleared the settings of mods that are not installed: a.json, emf/b.ini (a copy is in <folder>)`: the
+/// Configs window's Clear (never a value; the names go through [`one_line`]).
+pub fn clear_line(target: &ConfigTarget, files: &[String], backup: Option<&str>) -> String {
+    let names: Vec<String> = files.iter().map(|f| one_line(f)).collect();
+    let copy = match backup {
+        Some(b) => format!("a copy is in {}", one_line(b)),
+        None => "there was nothing to copy".to_string(),
+    };
+    format!("{}: cleared the settings of mods that are not installed: {} ({copy})", target_name(target), names.join(", "))
 }
 
 /// `kiln.json of steam-client: shroudforge.useInstalled = true`. Called after the value passed the schema.
@@ -249,6 +288,18 @@ mod setting_line_tests {
             assert!(!line.contains('\n') && line.contains("x 2026-11-13T00:00:00Z settings: forged"), "{line}");
         }
         assert_eq!(one_line(&"k".repeat(300)).chars().count(), 123);
+    }
+
+    #[test]
+    fn clearing_the_settings_of_mods_that_are_gone_leaves_a_line_with_the_files_and_the_copy() {
+        let t = ConfigTarget::Profile("work".into());
+        let files = vec!["expeditions.json".to_string(), "emf/beastmaster.ini".to_string()];
+        assert_eq!(clear_line(&t, &files, Some("/data/backups/mod-settings/config-work-20261128T180000Z")),
+            "profile work: cleared the settings of mods that are not installed: expeditions.json, emf/beastmaster.ini (a copy is in /data/backups/mod-settings/config-work-20261128T180000Z)");
+        assert_eq!(clear_line(&t, &files[..1], None), "profile work: cleared the settings of mods that are not installed: expeditions.json (there was nothing to copy)");
+        // a name with a line break stays on its line
+        let line = clear_line(&t, &["x\n2026-11-13T00:00:00Z settings: forged.json".to_string()], None);
+        assert!(!line.contains('\n') && line.contains("x 2026-11-13T00:00:00Z settings: forged.json"), "{line}");
     }
 }
 

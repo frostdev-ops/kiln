@@ -96,6 +96,7 @@ pub const NAMES: &[&str] = &[
     "config_reset",
     "config_native_state",
     "config_native_set",
+    "config_clear_orphans",
     "launch_play",
     "launch_state",
     "launch_prestart",

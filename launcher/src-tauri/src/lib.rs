@@ -155,6 +155,7 @@ pub fn run() {
             commands::config::config_reset,
             commands::config::config_native_state,
             commands::config::config_native_set,
+            commands::config::config_clear_orphans,
             commands::launch::launch_play,
             commands::launch::launch_state,
             commands::launch::launch_prestart,

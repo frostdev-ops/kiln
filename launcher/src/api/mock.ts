@@ -906,6 +906,41 @@ function configFolder(t: ConfigTarget): Map<string, MockFile> {
   return f;
 }
 
+/** "Clear settings" in the Configs window: each file that went (tests: `__kilnMock.configsCleared()`). */
+const configsCleared: string[] = [];
+
+/** kiln_manage::config_orphans::Installed: the ids of every mod a row can show: the Library (any version), the target
+ *  profile's entries (on or off), and the game folder's found mods (their id, name and file or folder name). */
+function mockInstalledIds(t: ConfigTarget): Set<string> {
+  const ids = new Set<string>();
+  for (const l of library) if (l.versions.length) ids.add(l.id.toLowerCase());
+  const p = "profile" in t ? profiles.get(t.profile) : undefined;
+  for (const list of Object.values(p?.mods ?? {})) for (const m of list ?? []) ids.add(m.id.toLowerCase());
+  for (const g of gameFolder) for (const n of [g.id, g.name, g.path.split("/").pop()]) if (n) ids.add(n.toLowerCase());
+  return ids;
+}
+
+/** kiln_manage::config_orphans::owner_of, as far as the mock's files go: the snapshot's mod, else `<kind>/<id>.<ext>` of an
+ *  engine's kind; Kiln's own files and anything else have none. */
+const KILN_OWN_FILES = ["native", "kiln", "network", "chat", "permissions", "keybinds", "rules", "compat-rules", "tk-boot", "tk-config", "menus-client", "menus-server", "config-sync"];
+function mockOwner(file: string, mod: string | null): string | null {
+  const parts = file.split("/");
+  const stem = (n: string) => (n.includes(".") ? n.slice(0, n.lastIndexOf(".")) : null);
+  if (parts.length === 1 && KILN_OWN_FILES.includes((stem(parts[0]) ?? "").toLowerCase())) return null;
+  let id = mod;
+  if (!id) {
+    const engine = MOD_KINDS.find((k) => k === parts[0] && !["kiln", "native", "plugin"].includes(k));
+    id = engine && parts.length === 2 ? stem(parts[1]) : null;
+    if (id === "shroudtopia" && parts[0] === "shroudtopia") id = null;
+  }
+  return id && id.toLowerCase() !== "kiln" ? id : null;
+}
+/** Not installed anywhere, and its mod known for sure (an unknown mapping is never an orphan). Profiles only. */
+function mockOrphaned(installed: Set<string>, file: string, mod: string | null): boolean {
+  const owner = mockOwner(file, mod);
+  return !!owner && !installed.has(owner.toLowerCase());
+}
+
 function setPath(obj: Json, path: string, value: Json | undefined): Json {
   const root = (obj && typeof obj === "object" && !Array.isArray(obj) ? clone(obj) : {}) as Record<string, Json>;
   const parts = path.split(".");
@@ -1739,8 +1774,12 @@ const handlers: Record<string, Handler> = {
   },
 
   // configs
-  config_list: (a) => [...configFolder(a.target as ConfigTarget).entries()].map(([file, f]): ConfigFileInfo =>
-    ({ file, mod: f.mod, kind: f.kind, hasSchema: !!f.schema, modVersion: f.schema?.modVersion ?? null, modified: f.modified })),
+  config_list: (a) => {
+    const target = a.target as ConfigTarget;
+    const installed = mockInstalledIds(target);
+    return [...configFolder(target).entries()].map(([file, f]): ConfigFileInfo =>
+      ({ file, mod: f.mod, kind: f.kind, hasSchema: !!f.schema, modVersion: f.schema?.modVersion ?? null, modified: f.modified, orphaned: "profile" in target && mockOrphaned(installed, file, f.mod) }));
+  },
   config_read: (a) => { const f = configFolder(a.target as ConfigTarget).get(S(a.file)) ?? reject("not_found", `No config ${S(a.file)}.`); return doc(S(a.file), f); },
   config_set: (a) => {
     const f = configFolder(a.target as ConfigTarget).get(S(a.file)) ?? reject("not_found", `No config ${S(a.file)}.`);
@@ -1771,6 +1810,25 @@ const handlers: Record<string, Handler> = {
     else st.mods[S(a.modId)] = { enabled: !!a.enabled };
     nativeStates.set(k, st);
     return st;
+  },
+  // kiln_manage::mod_settings::clear_orphans: only a profile's files, only orphans, all or nothing, a copy in the backups first
+  config_clear_orphans: (a) => {
+    const target = a.target as ConfigTarget;
+    if (!("profile" in target)) reject("unsupported", "Only a profile's configs can be cleared here.");
+    if (Object.values(running).some(Boolean)) reject("game_running", "Close Enshrouded first: the game may be reading the settings.");
+    const folder = configFolder(target);
+    const installed = mockInstalledIds(target);
+    const files = [...new Set((a.files as string[]) ?? [])];
+    for (const file of files) {
+      const f = folder.get(file) ?? reject("not_found", `No config ${file} in this profile.`);
+      if (!mockOrphaned(installed, file, f.mod)) reject("conflict", `${file} is not the settings of a mod that is gone: it stays.`);
+    }
+    if (!files.length) return { removed: [], backup: null, notes: [] } satisfies SettingsRemoval;
+    for (const file of files) { folder.delete(file); configsCleared.push(file); }
+    return {
+      removed: files.map((file) => `/home/player/.local/share/kiln/profiles/${target.profile}/config/${file}`),
+      backup: `/home/player/.local/share/kiln/backups/mod-settings/config-${target.profile}-20261128T120000Z`, notes: [],
+    } satisfies SettingsRemoval;
   },
   config_kiln_read: (a) => doc("kiln.json", kilnFile(S(a.gameId))),
   config_kiln_set: (a) => {
@@ -2460,6 +2518,7 @@ if (typeof window !== "undefined") (window as unknown as { __kilnMock?: unknown 
   reportSaves: () => reportSaves.map((x) => [...x]),
   openedPaths: () => [...openedPaths],
   settingsRemoved: () => [...settingsRemoved],
+  configsCleared: () => [...configsCleared],
   planCommand: (cmd: string, plan: CommandPlan) => { (commandPlans[cmd] ??= []).push(plan); },
   openGate: (name: string) => { const g = gateOf(name); g.open = true; g.waiters.splice(0).forEach((w) => w()); },
   planActivation: (report: Pick<Activation, "retained" | "keptFiles" | "warnings">) => { activationPlan = report; },

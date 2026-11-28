@@ -899,6 +899,9 @@ export interface ConfigFileInfo {
   hasSchema: boolean;
   modVersion: string | null;
   modified: string | null;
+  /** (0.2.0-dev.31.30) The file's mod is not installed anywhere (not in the profile, on or off, not in the Library, not in a
+   *  game folder). False whenever the mod is not known for sure, and for every target but a profile. */
+  orphaned: boolean;
 }
 export interface ConfigDocument {
   file: string;
@@ -2035,6 +2038,12 @@ export const configReset = (target: ConfigTarget, file: string, path: string | n
 export const configNativeState = (target: ConfigTarget) => call<NativeUserState>("config_native_state", { target });
 export const configNativeSet = (target: ConfigTarget, modId: string, enabled: boolean | null) =>
   call<NativeUserState>("config_native_set", { target, modId, enabled });
+/** The Configs window's "Clear settings" (a profile's config folder only): the files `config_list` marked `orphaned`, with
+ *  their schema snapshots, go into the launcher's settings backups (`<data>/backups/mod-settings/config-<profile>-<time>/`,
+ *  the folder Remove's "its settings too" uses). The backend checks again that each file is an orphan: an installed mod's
+ *  config, a file nobody owns, a running game or a place it could not read refuse the whole request (conflict, game_running)
+ *  and touch nothing. -> `removed`, and `backup` (null when nothing was there). */
+export const configClearOrphans = (target: ConfigTarget, files: string[]) => call<SettingsRemoval>("config_clear_orphans", { target, files });
 /** Kiln's own `<game>/kiln/kiln.json` (policy, log level, plugins, native policy, mods fault settings); the schema is
  *  the launcher's built-in snapshot (src/data/kiln-json.snapshot.json). */
 export const configKilnRead = (gameId: GameId) => call<ConfigDocument>("config_kiln_read", { gameId });
@@ -2489,7 +2498,7 @@ export const COMMANDS = [
   "profile_list", "profile_get", "profile_create", "profile_save", "profile_delete", "profile_resolve", "profile_activate",
   "profile_deactivate", "profile_active", "activation_notices", "notices_unseen", "notices_shown",
   "library_list", "library_detect", "library_import", "library_remove", "library_remove_many", "library_remove_settings", "library_unused", "library_users", "library_lint", "library_take_over", "library_rollback", "library_replace_dll",
-  "config_list", "config_read", "config_set", "config_write", "config_reset", "config_native_state", "config_native_set",
+  "config_list", "config_read", "config_set", "config_write", "config_reset", "config_native_state", "config_native_set", "config_clear_orphans",
   "launch_play", "launch_state", "launch_prestart", "launch_begin", "launch_progress", "launch_end",
   "logs_list", "logs_read", "logs_follow", "logs_unfollow", "logs_crash_reports",
   "registry_report_read",
