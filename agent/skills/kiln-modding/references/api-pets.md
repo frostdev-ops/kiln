@@ -190,4 +190,4 @@ stand in for a player on a test server; never ship it.
 
 [pitfalls.md](pitfalls.md#dev32-additions) has the table. The short list: the API is server-only and tick-thread; every
 request needs its own `PetRequest.New()`; a game creature's id, never a GUID; only walking enemies; an id lower case with your
-mod id in front; revive costs are one plain stack item; `Reason` strings are words first (`Busy: ...`), switch on the first word.
+mod id in front; revive costs are one plain stack item; decide by `r.Refusal` (`PetRefusal`), never by the `Reason` text.
